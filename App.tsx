@@ -5,9 +5,10 @@
  * @format
  */
 
-import React from 'react';
+import React, {useState, useEffect} from 'react';
 import type {PropsWithChildren} from 'react';
 import {
+  ActivityIndicator,
   SafeAreaView,
   ScrollView,
   StatusBar,
@@ -24,6 +25,9 @@ import {
   LearnMoreLinks,
   ReloadInstructions,
 } from 'react-native/Libraries/NewAppScreen';
+
+import {setupPlayer, addTrack} from "./src/musicPlayerServices"
+import ControlCenter from './src/components/ControlCenter';
 
 type SectionProps = PropsWithChildren<{
   title: string;
@@ -57,6 +61,38 @@ function Section({children, title}: SectionProps): React.JSX.Element {
 
 function App(): React.JSX.Element {
   const isDarkMode = useColorScheme() === 'dark';
+  const [isPlayerReady, setIsPlayerReady] = useState(false);
+
+  async function setup() {
+    let isSetup = await setupPlayer();
+
+    if (isSetup) {
+      await addTrack();
+    }
+
+    setIsPlayerReady(isSetup);
+  }
+  useEffect(() => {
+    setup();
+  }, [] /* dependencies */);
+
+  if (!isPlayerReady) {
+    return (
+      <SafeAreaView>
+        <ActivityIndicator />
+      </SafeAreaView>
+    );
+  }
+
+  return (
+    <SafeAreaView>
+      <StatusBar />
+      <ControlCenter />
+      <Text>Testing seems ok</Text>
+    </SafeAreaView>
+  );
+
+  /*
 
   const backgroundStyle = {
     backgroundColor: isDarkMode ? Colors.darker : Colors.lighter,
@@ -93,7 +129,7 @@ function App(): React.JSX.Element {
         </View>
       </ScrollView>
     </SafeAreaView>
-  );
+  );*/
 }
 
 const styles = StyleSheet.create({
