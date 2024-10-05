@@ -1,6 +1,9 @@
 import { Text, View } from "react-native";
+import { openDatabase } from "./db/db";
 
 export default function Index() {
+  openDatabase();
+
   return (
     <View
       style={{
