@@ -6,12 +6,16 @@ import { useMigrations } from "drizzle-orm/expo-sqlite/migrator"
 import migrations from "./db/drizzle/migrations"
 import { DBProvider } from "./db/db";
 import UserCount from "./userCount";
+import HomePage from "./home";
+import LoginPage from "./login";
+import { useState } from "react";
 
 const expo = SQLite.openDatabaseSync("shuffull-db");
 const db = drizzle(expo);
 
 export default function Index() {
     const { success, error } = useMigrations(db, migrations);
+    const loggedIn = false; // TODO: needs to be set via reading database
   
     (async () => {
         await db.insert(usersTable).values([{
@@ -21,16 +25,11 @@ export default function Index() {
 
     return (
         <DBProvider db={db}>
-            <View
-                style={{
-                flex: 1,
-                justifyContent: "center",
-                alignItems: "center",
-                }}
-            >
-                <Text>Edit app/index.tsx to edit this screen.</Text>
-                <UserCount/>
-            </View>
+            {loggedIn ? (
+                <HomePage />
+            ) : (
+                <LoginPage />
+            )}
         </DBProvider>
     );
 }
