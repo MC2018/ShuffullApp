@@ -1,16 +1,16 @@
-import * as SQLite from "expo-sqlite";
+import * as SQLite from "expo-sqlite/next";
+import { drizzle, ExpoSQLiteDatabase } from "drizzle-orm/expo-sqlite"
+import { createContext, ReactNode, useContext } from 'react';
 
-export async function openDatabase(): Promise<SQLite.SQLiteDatabase> {
-    const db = await SQLite.openDatabaseAsync("shuffull-db");
+const DBContext = createContext<ExpoSQLiteDatabase | null>(null); // Replace 'null' with your DB type
 
-    // TODO: If Drizzle isn't used, create a hash of all table creates and save that hash in the DB; if they don't match on startup, reset the db
-    // One may be separately made for login (cache) info so it isn't always cleared
-    await db.withTransactionAsync(async () => {
-        db.runAsync(`create table if not exists items (id integer primary key not null, value text);`)
-        db.runAsync(`INSERT INTO items (value) VALUES ('yo');`)
-        const count: any = await db.getFirstAsync(`SELECT COUNT(*) FROM items;`)
-        // console.log("Count: " + count["COUNT(*)"])
-    });
+interface DBProviderProps {
+    children: ReactNode;
+    db: ExpoSQLiteDatabase | null;
+};
 
-    return db
-}
+export const DBProvider = ({ children, db }: DBProviderProps) => (
+    <DBContext.Provider value={db}>{children}</DBContext.Provider>
+);
+
+export const useDB = () => useContext(DBContext);
