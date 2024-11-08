@@ -2,7 +2,7 @@ import { Text, View } from "react-native";
 import * as SQLite from "expo-sqlite/next";
 import { drizzle, ExpoSQLiteDatabase } from "drizzle-orm/expo-sqlite"
 import { userTable } from "./services/db/schema";
-import { useMigrations } from "drizzle-orm/expo-sqlite/migrator"
+import { migrate, useMigrations } from "drizzle-orm/expo-sqlite/migrator"
 import migrations from "./services/db/drizzle/migrations"
 import { DbProvider } from "./services/db/dbProvider";
 import UserCount from "./userCount";
@@ -11,9 +11,18 @@ import LoginPage from "./login";
 import { useState } from "react";
 import { ApiProvider } from "./services/api/apiProvider";
 import { ApiClient } from "./services/api/apiClient";
+import { readDirectoryAsync } from "expo-file-system";
 
-const expo = SQLite.openDatabaseSync("shuffull-db");
-const db = drizzle(expo);
+const dbName = "shuffull-db";
+let expoDb = SQLite.openDatabaseSync(dbName);
+let db = drizzle(expoDb);
+
+async function resetDb() {
+    expoDb.closeSync();
+    SQLite.deleteDatabaseSync(dbName);
+    expoDb = SQLite.openDatabaseSync(dbName);
+    db = drizzle(expoDb);
+}
 
 export default function Index() {
     const [apiClient, setApiClient] = useState<ApiClient | null>(null);
@@ -21,7 +30,15 @@ export default function Index() {
     let loggedIn = apiClient != null; // TODO: needs to be updated via reading database
   
     if (error) {
-        console.log("Problem with migration");
+        try {
+            console.log("Problem with migration");
+            console.log(error.message);
+            resetDb();
+            migrate(db, migrations);
+            loggedIn = false;
+        } catch (e) {
+            console.error("Serious error with migrations: " + e);
+        }
     }
 
     /*(async () => {
