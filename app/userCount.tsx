@@ -1,11 +1,11 @@
 import { Text, View } from "react-native";
-import { useDB } from "./db/db";
+import { useDb } from "./db/dbProvider";
 import { usersTable } from "./db/schema";
 import { useState } from "react";
 
 const UserCount = () => {
     const [userCount, setUserCount] = useState(0)
-    const db = useDB();
+    const db = useDb();
 
     (async () => {
         if (db != null) {

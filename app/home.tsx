@@ -4,11 +4,11 @@ import { drizzle, ExpoSQLiteDatabase } from "drizzle-orm/expo-sqlite"
 import { usersTable } from "./db/schema";
 import { useMigrations } from "drizzle-orm/expo-sqlite/migrator"
 import migrations from "./db/drizzle/migrations"
-import { DBProvider, useDB } from "./db/db";
+import { DbProvider, useDb } from "./db/dbProvider";
 import UserCount from "./userCount";
 
 export default function HomePage() {
-    const db = useDB();
+    const db = useDb();
 
     if (db != null) {
         (async () => {

@@ -1,9 +1,14 @@
 import { sqliteTable, text, integer, real, index } from "drizzle-orm/sqlite-core";
 
-// integer("id", { mode: "boolean" })
-// integer("id", { mode: "timestamp" })
-// integer("id", { mode: "timestamp_ms" })
-
 export const usersTable = sqliteTable("users", {
     id: integer("id").primaryKey()
+});
+
+export const localSessionDataTable = sqliteTable("localSessionData", {
+    userId: integer("userId").primaryKey(),
+    currentPlaylistId: integer("currentPlaylistId").notNull(),
+    activelyDownload: integer("activelyDownload", { mode: "boolean" }).notNull(),
+    token: text("token").notNull(),
+    expiration: integer("expiration", { mode: "timestamp_ms" }),
+    hostAddress: text("hostAddress").notNull()
 });
