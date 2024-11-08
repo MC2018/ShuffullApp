@@ -1,9 +1,9 @@
 import { Button, Text, TextInput, View } from "react-native";
-import { useDb } from "./db/dbProvider";
-import { userTable } from "./db/schema";
+import { useDb } from "./services/db/dbProvider";
+import { userTable } from "./services/db/schema";
 import { useState } from "react";
-import { useApi } from "./services/apiProvider";
-import { ApiClient } from "./services/apiClient";
+import { useApi } from "./services/api/apiProvider";
+import { ApiClient } from "./services/api/apiClient";
 
 interface LoginProps {
     onLogin: (newApiClient: ApiClient) => void;
