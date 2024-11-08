@@ -1,6 +1,6 @@
 import { Text, View } from "react-native";
 import { useDb } from "./db/dbProvider";
-import { usersTable } from "./db/schema";
+import { userTable } from "./db/schema";
 import { useState } from "react";
 
 const UserCount = () => {
@@ -9,7 +9,7 @@ const UserCount = () => {
 
     (async () => {
         if (db != null) {
-            const users = await db.select().from(usersTable);
+            const users = await db.select().from(userTable);
         
             setUserCount(users.length);
         }

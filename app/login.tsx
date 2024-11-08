@@ -1,6 +1,6 @@
 import { Button, Text, TextInput, View } from "react-native";
 import { useDb } from "./db/dbProvider";
-import { usersTable } from "./db/schema";
+import { userTable } from "./db/schema";
 import { useState } from "react";
 import { useApi } from "./services/apiProvider";
 import { ApiClient } from "./services/apiClient";

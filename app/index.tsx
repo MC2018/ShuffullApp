@@ -1,7 +1,7 @@
 import { Text, View } from "react-native";
 import * as SQLite from "expo-sqlite/next";
 import { drizzle, ExpoSQLiteDatabase } from "drizzle-orm/expo-sqlite"
-import { usersTable } from "./db/schema";
+import { userTable } from "./db/schema";
 import { useMigrations } from "drizzle-orm/expo-sqlite/migrator"
 import migrations from "./db/drizzle/migrations"
 import { DbProvider } from "./db/dbProvider";
@@ -20,11 +20,15 @@ export default function Index() {
     const { success, error } = useMigrations(db, migrations);
     let loggedIn = apiClient != null; // TODO: needs to be updated via reading database
   
-    (async () => {
+    if (error) {
+        console.log("Problem with migration");
+    }
+
+    /*(async () => {
         await db.insert(usersTable).values([{
             id: Math.floor(Math.random() * 1000000)
         }]);
-    })();
+    })();*/
 
     const handleLogin = (newApiClient: ApiClient) => {
         setApiClient(newApiClient);
