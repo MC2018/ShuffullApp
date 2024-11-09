@@ -15,6 +15,13 @@
       "when": 1731079487101,
       "tag": "0001_mimic_current_db",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1731089890852,
+      "tag": "0002_remove_host_address",
+      "breakpoints": true
     }
   ]
 }

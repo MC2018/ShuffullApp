@@ -1,0 +1,3 @@
+export const STORAGE_KEYS = {
+    HOST_ADDRESS: "HOST_ADDRESS"
+}

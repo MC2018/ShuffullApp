@@ -64,8 +64,7 @@ export const localSessionDataTable = sqliteTable("local_session_data", {
     currentPlaylistId: integer("current_playlist_id").notNull(),
     activelyDownload: integer("actively_download", { mode: "boolean" }).notNull(),
     token: text("token").notNull(),
-    expiration: integer("expiration", { mode: "timestamp_ms" }),
-    hostAddress: text("host_address").notNull()
+    expiration: integer("expiration", { mode: "timestamp_ms" })
 });
 
 export const recentlyPlayedSongTable = sqliteTable("recently_played_songs", {

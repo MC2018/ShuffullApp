@@ -1,17 +1,14 @@
 import { Text, View } from "react-native";
 import * as SQLite from "expo-sqlite/next";
-import { drizzle, ExpoSQLiteDatabase } from "drizzle-orm/expo-sqlite"
-import { userTable } from "./services/db/schema";
+import { drizzle } from "drizzle-orm/expo-sqlite"
 import { migrate, useMigrations } from "drizzle-orm/expo-sqlite/migrator"
 import migrations from "./services/db/drizzle/migrations"
 import { DbProvider } from "./services/db/dbProvider";
-import UserCount from "./userCount";
 import HomePage from "./home";
 import LoginPage from "./login";
 import { useState } from "react";
 import { ApiProvider } from "./services/api/apiProvider";
 import { ApiClient } from "./services/api/apiClient";
-import { readDirectoryAsync } from "expo-file-system";
 
 const dbName = "shuffull-db";
 let expoDb = SQLite.openDatabaseSync(dbName);
