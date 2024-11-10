@@ -7,12 +7,12 @@ const UserCount = () => {
     const [userCount, setUserCount] = useState(0);
     const db = useDb();
 
-    /*(async () => {
+    (async () => {
         if (db != null) {
             const users = await db.select().from(userTable);
             setUserCount(users.length);
         }
-    })();*/
+    })();
 
     return (
         <Text>

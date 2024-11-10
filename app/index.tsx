@@ -5,16 +5,21 @@ import { migrate, useMigrations } from "drizzle-orm/expo-sqlite/migrator"
 import migrations from "./services/db/drizzle/migrations"
 import { DbProvider } from "./services/db/dbProvider";
 import HomePage from "./home";
-import LoginPage from "./login";
-import { useState } from "react";
+import LoginPage, { LoginProps } from "./login";
+import { useEffect, useState } from "react";
 import { ApiProvider } from "./services/api/apiProvider";
 import { ApiClient } from "./services/api/apiClient";
+import { localSessionDataTable } from "./services/db/schema";
+import { isNotNull, eq } from "drizzle-orm";
+import { LocalSessionData } from "./services/db/models";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { STORAGE_KEYS } from "./constants/storageKeys";
 
 const dbName = "shuffull-db";
 let expoDb = SQLite.openDatabaseSync(dbName);
 let db = drizzle(expoDb);
 
-async function resetDb() {
+function resetDb() {
     expoDb.closeSync();
     SQLite.deleteDatabaseSync(dbName);
     expoDb = SQLite.openDatabaseSync(dbName);
@@ -22,42 +27,85 @@ async function resetDb() {
 }
 
 export default function Index() {
-    const [apiClient, setApiClient] = useState<ApiClient | null>(null);
+    const [ apiClient, setApiClient ] = useState<ApiClient | null>(null);
+    const [ loggedIn, setLoggedIn ] = useState<boolean>(false);
+    const [ sessionData, setSessionData ] = useState<LocalSessionData | null>(null);
     const { success, error } = useMigrations(db, migrations);
-    let loggedIn = apiClient != null; // TODO: needs to be updated via reading database
-  
+
     if (error) {
         try {
             console.log("Problem with migration");
             console.log(error.message);
             resetDb();
             migrate(db, migrations);
-            loggedIn = false;
+            console.log("Migrated successfully");
         } catch (e) {
             console.error("Serious error with migrations: " + e);
         }
     }
 
-    /*(async () => {
-        await db.insert(usersTable).values([{
-            id: Math.floor(Math.random() * 1000000)
-        }]);
-    })();*/
+    useEffect(() => {
+        (async () => {
+            const hostAddress = await AsyncStorage.getItem(STORAGE_KEYS.HOST_ADDRESS);
+            const localSessionData = await db.select().from(localSessionDataTable).where(isNotNull(localSessionDataTable.expiration)).limit(1);
+    
+            if (!localSessionData.length || !hostAddress) {
+                return;
+            }
 
-    const handleLogin = (newApiClient: ApiClient) => {
-        setApiClient(newApiClient);
-        loggedIn = true;
-    }
+            setApiClient(new ApiClient(hostAddress));
+            setSessionData(localSessionData[0]);
+            setLoggedIn(true);
+        })();
+    }, []);
+
+    const handleLogin = async (username: string, password: string, hostAddress: string) => {
+        const userHash = "638a95e77ba6ec76c4179ff3fd98e682"; // TODO: THIS ONLY WORKS WITH USER MC PASS password, ARGON2 HAS TO BE IMPLEMENTED
+        const api = new ApiClient(hostAddress);
+        const authResult = await api?.authenticate(username, userHash);
+
+        await db.insert(localSessionDataTable).values([{
+            userId: authResult.user.userId,
+            currentPlaylistId: -1,
+            activelyDownload: false,
+            token: authResult.token,
+            expiration: new Date(authResult.expiration)
+        }]).onConflictDoUpdate({
+            target: localSessionDataTable.userId,
+            set: {
+                token: authResult.token,
+                expiration: new Date(authResult.expiration)
+            }
+        });
+        const localSessionData = await db.select().from(localSessionDataTable).where(eq(localSessionDataTable.userId, authResult.user.userId)).limit(1);
+        
+        if (!localSessionData.length) {
+            throw Error("Critical error: Local session data cannot find data after upserting.");
+        }
+
+        setApiClient(api);
+        setSessionData(localSessionData[0]);
+        setLoggedIn(true);
+    };
+
+    const handleLogout = async () => {
+        await db.update(localSessionDataTable).set({
+            expiration: null
+        });
+        setApiClient(null);
+        setSessionData(null);
+        setLoggedIn(false);
+    };
 
     return (
         <DbProvider db={db}>
-        <ApiProvider api={apiClient}>
             {loggedIn ? (
-                <HomePage />
+                <ApiProvider api={apiClient}>
+                    <HomePage userId={sessionData?.userId ?? -1} onLogout={handleLogout}/>
+                </ApiProvider>
             ) : (
                 <LoginPage onLogin={handleLogin} />
             )}
-        </ApiProvider>
         </DbProvider>
     );
 }

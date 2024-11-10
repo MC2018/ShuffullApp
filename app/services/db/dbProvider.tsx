@@ -13,4 +13,12 @@ export const DbProvider = ({ children, db }: DbProviderProps) => (
     <DbContext.Provider value={db}>{children}</DbContext.Provider>
 );
 
-export const useDb = () => useContext(DbContext);
+export const useDb = () => {
+    const db = useContext(DbContext);
+
+    if (db == null) {
+        throw Error("Database is unexpectedly undefined.");
+    }
+
+    return db;
+}
