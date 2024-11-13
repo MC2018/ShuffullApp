@@ -53,7 +53,7 @@ export default function Index() {
                 return;
             }
 
-            setApiClient(new ApiClient(hostAddress));
+            setApiClient(new ApiClient(hostAddress, localSessionData[0].token));
             setSessionData(localSessionData[0]);
             setLoggedIn(true);
         })();
@@ -61,27 +61,29 @@ export default function Index() {
 
     const handleLogin = async (username: string, password: string, hostAddress: string) => {
         const userHash = "638a95e77ba6ec76c4179ff3fd98e682"; // TODO: THIS ONLY WORKS WITH USER MC PASS password, ARGON2 HAS TO BE IMPLEMENTED
-        const api = new ApiClient(hostAddress);
-        const authResult = await api?.authenticate(username, userHash);
+        let api = new ApiClient(hostAddress, "");
+        const authResponse = await api.userAuthenticate(username, userHash);
 
         await db.insert(localSessionDataTable).values([{
-            userId: authResult.user.userId,
+            userId: authResponse.user.userId,
             currentPlaylistId: -1,
             activelyDownload: false,
-            token: authResult.token,
-            expiration: new Date(authResult.expiration)
+            token: authResponse.token,
+            expiration: new Date(authResponse.expiration)
         }]).onConflictDoUpdate({
             target: localSessionDataTable.userId,
             set: {
-                token: authResult.token,
-                expiration: new Date(authResult.expiration)
+                token: authResponse.token,
+                expiration: new Date(authResponse.expiration)
             }
         });
-        const localSessionData = await db.select().from(localSessionDataTable).where(eq(localSessionDataTable.userId, authResult.user.userId)).limit(1);
+        const localSessionData = await db.select().from(localSessionDataTable).where(eq(localSessionDataTable.userId, authResponse.user.userId)).limit(1);
         
         if (!localSessionData.length) {
             throw Error("Critical error: Local session data cannot find data after upserting.");
         }
+
+        api.updateAuthHeader(localSessionData[0].token);
 
         setApiClient(api);
         setSessionData(localSessionData[0]);
