@@ -83,3 +83,12 @@ export const PlaylistSchema = z.object({
 });
 export const PlaylistListSchema = PlaylistSchema.array();
 export type Playlist = z.infer<typeof PlaylistSchema>;
+
+export const PaginatedResponseSchema = <T extends z.ZodType>(itemSchema: T) => z.object({
+    items: z.array(itemSchema),
+    endOfList: z.boolean()
+});
+export function parsePaginatedResponse<T>(itemSchema: z.ZodType<T>, data: any) {
+    const schema = PaginatedResponseSchema(itemSchema);
+    return schema.parse(data);
+}

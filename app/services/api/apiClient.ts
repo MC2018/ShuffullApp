@@ -1,5 +1,5 @@
 import axios, { AxiosInstance } from "axios";
-import { AuthenticateResponse, AuthenticateResponseSchema, Playlist, PlaylistListSchema, SongListSchema, Tag, TagListSchema, TagSchema, UserSongListSchema } from "./models";
+import { AuthenticateResponse, AuthenticateResponseSchema, parsePaginatedResponse, Playlist, PlaylistListSchema, SongListSchema, Tag, TagListSchema, TagSchema, UserSchema, UserSongListSchema, UserSongSchema } from "./models";
 import { ApiStatusFailureError } from "./errors";
 
 export class ApiClient {
@@ -8,7 +8,7 @@ export class ApiClient {
     constructor(url: string, token: string) {
         this.client = axios.create({
             baseURL: url,
-            timeout: 3000000
+            timeout: 3000
         });
         this.updateAuthHeader(token);
     }
@@ -66,15 +66,19 @@ export class ApiClient {
         return PlaylistListSchema.parse(response.data);
     }
 
-    public async userSongGetAll() {
+    public async userSongGetAll(afterDate: Date) {
         const endpoint = "/usersong/getall";
-        const response = await this.client.get(endpoint);
+        const response = await this.client.get(endpoint, {
+            params: {
+                afterDate: afterDate.toISOString()
+            }
+        });
 
         if (!isSuccessfulStatus(response.status)) {
             throw new ApiStatusFailureError(endpoint, response);
         }
 
-        return UserSongListSchema.parse(response.data);
+        return parsePaginatedResponse(UserSongSchema, response.data);
     }
 
     public async songGetList(songIds: number[]) {
@@ -91,6 +95,17 @@ export class ApiClient {
         }
 
         return SongListSchema.parse(response.data);
+    }
+
+    public async userGet() {
+        const endpoint = "/user/get";
+        const response = await this.client.get(endpoint);
+
+        if (!isSuccessfulStatus(response.status)) {
+            throw new ApiStatusFailureError(endpoint, response);
+        }
+
+        return UserSchema.parse(response.data);
     }
 }
 

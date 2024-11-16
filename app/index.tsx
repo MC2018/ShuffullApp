@@ -14,10 +14,13 @@ import { isNotNull, eq } from "drizzle-orm";
 import { LocalSessionData } from "./services/db/models";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { STORAGE_KEYS } from "./constants/storageKeys";
+import SyncManager from "./tools/syncManager";
+import * as DbExtensions from "./services/db/dbExtensions";
 
 const dbName = "shuffull-db";
 let expoDb = SQLite.openDatabaseSync(dbName);
 let db = drizzle(expoDb);
+let syncManager: SyncManager | null;
 
 function resetDb() {
     expoDb.closeSync();
@@ -30,6 +33,7 @@ export default function Index() {
     const [ apiClient, setApiClient ] = useState<ApiClient | null>(null);
     const [ loggedIn, setLoggedIn ] = useState<boolean>(false);
     const [ sessionData, setSessionData ] = useState<LocalSessionData | null>(null);
+    const [ loginRefreshes, setLoginRefreshes ] = useState<number>(0);
     const { success, error } = useMigrations(db, migrations);
 
     if (error) {
@@ -47,17 +51,23 @@ export default function Index() {
     useEffect(() => {
         (async () => {
             const hostAddress = await AsyncStorage.getItem(STORAGE_KEYS.HOST_ADDRESS);
-            const localSessionData = await db.select().from(localSessionDataTable).where(isNotNull(localSessionDataTable.expiration)).limit(1);
+            const localSessionData = await DbExtensions.getActiveLocalSessionData(db);
     
-            if (!localSessionData.length || !hostAddress) {
+            if (!localSessionData || !hostAddress) {
                 return;
             }
 
-            setApiClient(new ApiClient(hostAddress, localSessionData[0].token));
-            setSessionData(localSessionData[0]);
+            if (syncManager) {
+                syncManager.dispose();
+            }
+
+            const client = new ApiClient(hostAddress, localSessionData.token);
+            syncManager = new SyncManager(db, client, localSessionData.userId);
+            setApiClient(client);
+            setSessionData(localSessionData);
             setLoggedIn(true);
         })();
-    }, []);
+    }, [loginRefreshes]);
 
     const handleLogin = async (username: string, password: string, hostAddress: string) => {
         const userHash = "638a95e77ba6ec76c4179ff3fd98e682"; // TODO: THIS ONLY WORKS WITH USER MC PASS password, ARGON2 HAS TO BE IMPLEMENTED
@@ -77,37 +87,45 @@ export default function Index() {
                 expiration: new Date(authResponse.expiration)
             }
         });
-        const localSessionData = await db.select().from(localSessionDataTable).where(eq(localSessionDataTable.userId, authResponse.user.userId)).limit(1);
+        const localSessionData = await DbExtensions.getLocalSessionData(db, authResponse.user.userId);
         
-        if (!localSessionData.length) {
+        if (!localSessionData) {
             throw Error("Critical error: Local session data cannot find data after upserting.");
         }
 
-        api.updateAuthHeader(localSessionData[0].token);
-
-        setApiClient(api);
-        setSessionData(localSessionData[0]);
-        setLoggedIn(true);
+        setLoginRefreshes(loginRefreshes + 1);
     };
 
     const handleLogout = async () => {
         await db.update(localSessionDataTable).set({
             expiration: null
         });
+
+        if (syncManager) {
+            syncManager.dispose();
+        }
+
         setApiClient(null);
         setSessionData(null);
         setLoggedIn(false);
     };
 
+    let result;
+
+    if (loggedIn && apiClient) {
+        result =
+        <>
+        <ApiProvider api={apiClient}>
+            <HomePage userId={sessionData?.userId ?? -1} onLogout={handleLogout}/>
+        </ApiProvider>
+        </>;
+    } else {
+        result = <LoginPage onLogin={handleLogin} />;
+    }
+
     return (
         <DbProvider db={db}>
-            {loggedIn ? (
-                <ApiProvider api={apiClient}>
-                    <HomePage userId={sessionData?.userId ?? -1} onLogout={handleLogout}/>
-                </ApiProvider>
-            ) : (
-                <LoginPage onLogin={handleLogin} />
-            )}
+            {result}
         </DbProvider>
     );
 }

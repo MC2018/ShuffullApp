@@ -5,11 +5,19 @@ const ApiContext = createContext<ApiClient | null>(null);
 
 interface ApiProviderProps {
     children: ReactNode;
-    api: ApiClient | null;
+    api: ApiClient;
 };
 
 export const ApiProvider = ({ children, api }: ApiProviderProps) => (
     <ApiContext.Provider value={api}>{children}</ApiContext.Provider>
 );
 
-export const useApi = () => useContext(ApiContext);
+export const useApi = () => {
+    const context = useContext(ApiContext);
+
+    if (!context) {
+        throw Error("API Context null.");
+    }
+
+    return context;
+}

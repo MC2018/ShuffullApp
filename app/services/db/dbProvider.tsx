@@ -12,4 +12,12 @@ export const DbProvider = ({ children, db }: DbProviderProps) => (
     <DbContext.Provider value={db}>{children}</DbContext.Provider>
 );
 
-export const useDb = () => useContext(DbContext);
+export const useDb = () => {
+    const context = useContext(DbContext);
+
+    if (!context) {
+        throw Error("DB Context null.");
+    }
+
+    return context;
+}

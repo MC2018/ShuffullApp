@@ -5,6 +5,8 @@ import UserCount from "./userCount";
 import { useEffect, useState } from "react";
 import { eq } from "drizzle-orm";
 import { LocalSessionData } from "./services/db/models";
+import { useApi } from "./services/api/apiProvider";
+import * as DbExtensions from "./services/db/dbExtensions";
 
 interface HomeProps {
     userId: number;
@@ -14,17 +16,17 @@ interface HomeProps {
 export default function HomePage({ userId, onLogout }: HomeProps) {
     const [ session, setSession ] = useState<LocalSessionData | null>(null);
     const db = useDb();
+    const api = useApi();
 
+    // Logout check
     useEffect(() => {
         (async () => {
-            const localSessionDataList = await db.select().from(localSessionDataTable).where(eq(localSessionDataTable.userId, userId)).limit(1);
+            const localSessionData = await DbExtensions.getLocalSessionData(db, userId);
 
-            if (!localSessionDataList.length) {
+            if (!localSessionData) {
                 onLogout();
                 return;
             }
-
-            const localSessionData = localSessionDataList[0];
 
             if (!localSessionData.expiration || localSessionData.expiration < new Date(Date.now())) {
                 localSessionData.expiration = null;
@@ -40,6 +42,7 @@ export default function HomePage({ userId, onLogout }: HomeProps) {
     }, []); // TODO: have this run every X minutes to continuously validate expiration
 
     return (
+        <>
         <View
             style={{
                 flex: 1,
@@ -51,5 +54,6 @@ export default function HomePage({ userId, onLogout }: HomeProps) {
             <UserCount />
             <Button onPress={onLogout} title="Logout" />
         </View>
+        </>
     );
 }

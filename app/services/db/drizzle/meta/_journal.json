@@ -22,6 +22,27 @@
       "when": 1731089890852,
       "tag": "0002_remove_host_address",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1731768072420,
+      "tag": "0003_remove_user_song",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1731768102625,
+      "tag": "0004_readd_user_song",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1731768484225,
+      "tag": "0005_song_normal_name_index",
+      "breakpoints": true
     }
   ]
 }

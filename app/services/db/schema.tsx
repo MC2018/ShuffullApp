@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, real, index, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, real, index, primaryKey } from "drizzle-orm/sqlite-core";
 
 export const userTable = sqliteTable("users", {
     userId: integer("user_id").primaryKey(),
@@ -21,7 +21,7 @@ export const songTable = sqliteTable("songs", {
     name: text("name").notNull(),
 }, (table) => {
     return {
-        nameIndex: uniqueIndex("idx_songs_name").on(table.name),
+        nameIndex: index("idx_songs_name").on(table.name),
     };
 });
 
@@ -54,9 +54,16 @@ export const songTagTable = sqliteTable("song_tags", {
 });
 
 export const userSongTable = sqliteTable("user_songs", {
-    userSongId: integer("user_song_id").primaryKey(),
     userId: integer("user_id").notNull().references(() => userTable.userId),
     songId: integer("song_id").notNull().references(() => songTable.songId),
+    lastPlayed: integer("last_played", { "mode": "timestamp_ms" }),
+    version: integer("version", { "mode": "timestamp_ms" }),
+}, (table) => {
+    return {
+        pk: primaryKey({
+            columns: [table.userId, table.songId]
+        })
+    };
 });
 
 export const localSessionDataTable = sqliteTable("local_session_data", {
