@@ -3,7 +3,7 @@ import { eq, ExtractTablesWithRelations, inArray, sql, isNotNull, and } from "dr
 import { ExpoSQLiteDatabase } from "drizzle-orm/expo-sqlite"
 import { SQLiteTransaction } from "drizzle-orm/sqlite-core";
 import { SQLiteRunResult } from "expo-sqlite";
-import { localSessionDataTable, playlistSongTable, playlistTable, tagTable, userSongTable, userTable } from "./schema";
+import { artistTable, localSessionDataTable, playlistSongTable, playlistTable, songArtistTable, songTable, tagTable, userSongTable, userTable } from "./schema";
 import { Playlist, PlaylistSong, Tag, User, UserSong } from "./models";
 
 type GenericDb = ExpoSQLiteDatabase | SQLiteTransaction<"sync", SQLiteRunResult, Record<string, never>, ExtractTablesWithRelations<Record<string, never>>>;
@@ -95,4 +95,34 @@ export async function updateUserSongs(db: GenericDb, userSongs: UserSong[]) {
     } else {
         await db.insert(userSongTable).values(userSongs);
     }
+}
+
+export async function getRandomSong(db: GenericDb) {
+    const songCount = (await db.select({
+        count: sql<number>`COUNT(*)`.as("count"),
+    }).from(songTable))[0].count;
+    const randomSongIndex = Math.floor(songCount * Math.random());
+    
+    const song = await db
+        .select({
+            songId: songTable.songId,
+            name: songTable.name,
+            directory: songTable.directory,
+            artist: {
+                artistId: artistTable.artistId,
+                name: artistTable.name
+            }
+        })
+        .from(songTable)
+        .offset(randomSongIndex)
+        .leftJoin(songArtistTable, eq(songTable.songId, songArtistTable.songId))
+        .leftJoin(artistTable, eq(songArtistTable.songId, artistTable.artistId))
+        .limit(1);
+    // TODO: this doesn't work if there are multiple artists
+
+    if (!song.length) {
+        return undefined;
+    }
+
+    return song[0];
 }

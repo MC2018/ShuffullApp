@@ -7,6 +7,7 @@ import { eq } from "drizzle-orm";
 import { LocalSessionData } from "./services/db/models";
 import { useApi } from "./services/api/apiProvider";
 import * as DbExtensions from "./services/db/dbExtensions";
+import PlayPauseButton from "./playPauseButton";
 
 interface HomeProps {
     userId: number;
@@ -53,6 +54,7 @@ export default function HomePage({ userId, onLogout }: HomeProps) {
             <Text>Edit app/index.tsx to edit this screen.</Text>
             <UserCount />
             <Button onPress={onLogout} title="Logout" />
+            <PlayPauseButton />
         </View>
         </>
     );

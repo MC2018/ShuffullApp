@@ -3,7 +3,8 @@ import { AuthenticateResponse, AuthenticateResponseSchema, parsePaginatedRespons
 import { ApiStatusFailureError } from "./errors";
 
 export class ApiClient {
-    client: AxiosInstance;
+    private client: AxiosInstance;
+    private url: string;
 
     constructor(url: string, token: string) {
         this.client = axios.create({
@@ -11,6 +12,11 @@ export class ApiClient {
             timeout: 3000
         });
         this.updateAuthHeader(token);
+        this.url = url;
+    }
+
+    public getBaseURL() {
+        return this.url;
     }
 
     public updateAuthHeader(token: string) {

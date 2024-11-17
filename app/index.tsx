@@ -16,6 +16,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { STORAGE_KEYS } from "./constants/storageKeys";
 import SyncManager from "./tools/syncManager";
 import * as DbExtensions from "./services/db/dbExtensions";
+import * as MediaManager from "./tools/mediaManager";
 
 const dbName = "shuffull-db";
 let expoDb = SQLite.openDatabaseSync(dbName);
@@ -63,6 +64,8 @@ export default function Index() {
 
             const client = new ApiClient(hostAddress, localSessionData.token);
             syncManager = new SyncManager(db, client, localSessionData.userId);
+            await MediaManager.init();
+
             setApiClient(client);
             setSessionData(localSessionData);
             setLoggedIn(true);
