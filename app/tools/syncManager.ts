@@ -1,10 +1,11 @@
 import { ExpoSQLiteDatabase } from "drizzle-orm/expo-sqlite";
 import { ApiClient } from "../services/api/apiClient";
-import { artistTable, localSessionDataTable, playlistTable, songTable, userTable } from "../services/db/schema";
+import { artistTable, localSessionDataTable, playlistTable, songArtistTable, songTable, userTable } from "../services/db/schema";
 import { eq } from "drizzle-orm";
 import * as DbExtensions from "../services/db/dbExtensions";
 import * as DbModels from "../services/db/models";
 import * as ApiModels from "../services/api/models";
+import { distinctBy } from "./utils";
 
 export default class SyncManager {
     db: ExpoSQLiteDatabase;
@@ -124,7 +125,16 @@ export default class SyncManager {
                     const songIdsSubset = newSongIds.slice(i * 500, i * 500 + 500);
                     const newSongs = await this.api.songGetList(songIdsSubset);
                     
-                    await tx.insert(songTable).values(newSongs);
+                    DbExtensions.updateSongs(tx, newSongs);
+
+                    const songArtists = distinctBy(newSongs.flatMap(x => x.songArtists), x => x?.songArtistId).filter(x => x != null);
+                    DbExtensions.updateSongArtists(tx, songArtists);
+
+                    const artists = distinctBy(songArtists.flatMap(x => x.artists), x => x?.artistId).filter(x => x != null);
+                    DbExtensions.updateArtists(tx, artists);
+
+                    const songTags = distinctBy(newSongs.flatMap(x => x.songTags), x => x?.songTagId).filter(x => x != null);
+                    DbExtensions.updateSongTags(tx, songTags);
                 }
             }, {
                 behavior: "exclusive"

@@ -48,7 +48,7 @@ export const tagTable = sqliteTable("tags", {
 });
 
 export const songTagTable = sqliteTable("song_tags", {
-    songArtistId: integer("song_tag_id").primaryKey(),
+    songTagId: integer("song_tag_id").primaryKey(),
     songId: integer("song_id").notNull().references(() => songTable.songId),
     tagId: integer("tag_id").notNull().references(() => tagTable.tagId),
 });

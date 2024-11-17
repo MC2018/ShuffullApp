@@ -7,7 +7,8 @@ export async function init() {
     try {
         await TrackPlayer.getActiveTrackIndex();
         isSetup = true;
-    } catch (error) {
+    } catch {
+        TrackPlayer.registerPlaybackService(() => playbackService);
         await TrackPlayer.setupPlayer(); // TODO: ensure safety for this to be run when app is in foreground
         await TrackPlayer.updateOptions({
             capabilities: [
@@ -31,7 +32,7 @@ export async function init() {
                 //Capability.SeekTo,
             ],
         });
-        TrackPlayer.registerPlaybackService(() => playbackService);
+
         isSetup = true;
     } finally {
         return isSetup;

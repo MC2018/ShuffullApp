@@ -3,8 +3,8 @@ import { eq, ExtractTablesWithRelations, inArray, sql, isNotNull, and } from "dr
 import { ExpoSQLiteDatabase } from "drizzle-orm/expo-sqlite"
 import { SQLiteTransaction } from "drizzle-orm/sqlite-core";
 import { SQLiteRunResult } from "expo-sqlite";
-import { artistTable, localSessionDataTable, playlistSongTable, playlistTable, songArtistTable, songTable, tagTable, userSongTable, userTable } from "./schema";
-import { Playlist, PlaylistSong, Tag, User, UserSong } from "./models";
+import { artistTable, localSessionDataTable, playlistSongTable, playlistTable, songArtistTable, songTable, songTagTable, tagTable, userSongTable, userTable } from "./schema";
+import { Artist, Playlist, PlaylistSong, Song, SongArtist, SongTag, Tag, User, UserSong } from "./models";
 
 type GenericDb = ExpoSQLiteDatabase | SQLiteTransaction<"sync", SQLiteRunResult, Record<string, never>, ExtractTablesWithRelations<Record<string, never>>>;
 
@@ -65,9 +65,31 @@ export async function updatePlaylist(db: GenericDb, newPlaylist: Playlist) {
     ]);
 }
 
+export async function updateSongs(db: GenericDb, songs: Song[]) {
+    await db.delete(songTable).where(inArray(songTable.songId, songs.map(x => x.songId)));
+    await db.insert(songTable).values(songs);
+}
+
 export async function updatePlaylistSongs(db: GenericDb, playlistId: number, newPlaylistSongs: PlaylistSong[]) {
     await db.delete(playlistSongTable).where(eq(playlistSongTable.playlistId, playlistId));
     await db.insert(playlistSongTable).values(newPlaylistSongs);
+}
+
+export async function updateSongTags(db: GenericDb, songTags: SongTag[]) {
+    await db.insert(songTagTable).values(songTags).onConflictDoNothing();
+}
+
+export async function updateSongArtists(db: GenericDb, songArtists: SongArtist[]) {
+    await db.insert(songArtistTable).values(songArtists).onConflictDoNothing();
+}
+
+export async function updateArtists(db: GenericDb, artists: Artist[]) {
+    await db.insert(artistTable).values(artists).onConflictDoUpdate({
+        target: localSessionDataTable.userId,
+        set: {
+            name: sql`excluded.name`
+        }
+    });
 }
 
 export async function updateUserSongs(db: GenericDb, userSongs: UserSong[]) {
