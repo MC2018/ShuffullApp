@@ -56,8 +56,8 @@ export const songTagTable = sqliteTable("song_tags", {
 export const userSongTable = sqliteTable("user_songs", {
     userId: integer("user_id").notNull().references(() => userTable.userId),
     songId: integer("song_id").notNull().references(() => songTable.songId),
-    lastPlayed: integer("last_played", { "mode": "timestamp_ms" }),
-    version: integer("version", { "mode": "timestamp_ms" }),
+    lastPlayed: integer("last_played", { "mode": "timestamp_ms" }).notNull(),
+    version: integer("version", { "mode": "timestamp_ms" }).notNull(),
 }, (table) => {
     return {
         pk: primaryKey({
@@ -71,12 +71,25 @@ export const localSessionDataTable = sqliteTable("local_session_data", {
     currentPlaylistId: integer("current_playlist_id").notNull(),
     activelyDownload: integer("actively_download", { mode: "boolean" }).notNull(),
     token: text("token").notNull(),
-    expiration: integer("expiration", { mode: "timestamp_ms" })
+    expiration: integer("expiration", { mode: "timestamp_ms" }).notNull()
 });
 
 export const recentlyPlayedSongTable = sqliteTable("recently_played_songs", {
     recentlyPlayedSongGuid: text("recently_played_song_guid").primaryKey(),
     songId: integer("song_id").notNull().references(() => songTable.songId),
     timestampSeconds: integer("timestamp_seconds"),
-    lastPlayed: integer("last_played", { mode: "timestamp_ms" }),
+    lastPlayed: integer("last_played", { mode: "timestamp_ms" }).notNull(),
+});
+
+export const requestTable = sqliteTable("requests", {
+    requestGuid: text("request_guid").primaryKey(),
+    timeRequested: integer("time_request", { mode: "timestamp_ms" }).notNull(),
+    requestType: integer("request_type").notNull(),
+    userId: integer("user_id").notNull(),
+
+    // Optional fields depending on the request
+    username: text("username"),
+    userHash: text("user_hash"),
+    songId: integer("song_id"),
+    lastPlayed: integer("last_played", { mode: "timestamp_ms" })
 });

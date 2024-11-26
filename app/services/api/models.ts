@@ -18,7 +18,7 @@ export const SongArtistSchema = z.object({
     songArtistId: z.number().int(),
     songId: z.number().int(),
     artistId: z.number().int(),
-    artists: ArtistListSchema.nullish()
+    artist: ArtistSchema.nullish()
 });
 export const SongArtistListSchema = SongArtistSchema.array();
 export type SongArtist = z.infer<typeof SongArtistSchema>;

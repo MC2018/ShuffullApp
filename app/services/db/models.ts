@@ -11,3 +11,16 @@ export type SongTag = typeof Schema.songTagTable.$inferSelect;
 export type UserSong = typeof Schema.userSongTable.$inferSelect;
 export type LocalSessionData = typeof Schema.localSessionDataTable.$inferSelect;
 export type RecentlyPlayedSong = typeof Schema.recentlyPlayedSongTable.$inferSelect;
+export type Request = typeof Schema.requestTable.$inferInsert;
+export type AuthenticateRequest = Request & {
+    username: string,
+    userHash: string,
+};
+export type CreateUserSongRequest = Request & {
+    songId: number
+};
+export type OverallSyncRequest = Request;
+export type UpdateSongLastPlayedRequest = Request & {
+    songId: number,
+    lastPlayed: Date
+};

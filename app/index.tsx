@@ -72,9 +72,19 @@ export default function Index() {
         })();
     }, [loginRefreshes]);
 
+    useEffect(() => {
+        const interval = setInterval(() => {
+            if (syncManager?.loggingOut) {
+                handleLogout();
+            }
+        }, 5000);
+
+        return () => clearInterval(interval);
+    }, []);
+
     const handleLogin = async (username: string, password: string, hostAddress: string) => {
         const userHash = "638a95e77ba6ec76c4179ff3fd98e682"; // TODO: THIS ONLY WORKS WITH USER MC PASS password, ARGON2 HAS TO BE IMPLEMENTED
-        let api = new ApiClient(hostAddress, "");
+        const api = new ApiClient(hostAddress, "");
         const authResponse = await api.userAuthenticate(username, userHash);
 
         await db.insert(localSessionDataTable).values([{
@@ -101,17 +111,26 @@ export default function Index() {
 
     const handleLogout = async () => {
         await db.update(localSessionDataTable).set({
-            expiration: null
+            expiration: new Date(Date.now())
         });
 
         if (syncManager) {
             syncManager.dispose();
+            syncManager = null;
         }
 
         setApiClient(null);
         setSessionData(null);
         setLoggedIn(false);
     };
+
+    useEffect(() => {
+        (async () => {
+            if (loggedIn && syncManager?.loggingOut) {
+                await handleLogout();
+            }
+        })();
+    }, [syncManager?.loggingOut]);
 
     let result;
 

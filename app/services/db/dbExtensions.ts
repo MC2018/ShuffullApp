@@ -3,8 +3,8 @@ import { eq, ExtractTablesWithRelations, inArray, sql, isNotNull, and } from "dr
 import { ExpoSQLiteDatabase } from "drizzle-orm/expo-sqlite"
 import { SQLiteTransaction } from "drizzle-orm/sqlite-core";
 import { SQLiteRunResult } from "expo-sqlite";
-import { artistTable, localSessionDataTable, playlistSongTable, playlistTable, songArtistTable, songTable, songTagTable, tagTable, userSongTable, userTable } from "./schema";
-import { Artist, Playlist, PlaylistSong, Song, SongArtist, SongTag, Tag, User, UserSong } from "./models";
+import { artistTable, localSessionDataTable, playlistSongTable, playlistTable, requestTable, songArtistTable, songTable, songTagTable, tagTable, userSongTable, userTable } from "./schema";
+import { Artist, Playlist, PlaylistSong, Song, SongArtist, SongTag, Tag, User, UserSong, Request } from "./models";
 
 type GenericDb = ExpoSQLiteDatabase | SQLiteTransaction<"sync", SQLiteRunResult, Record<string, never>, ExtractTablesWithRelations<Record<string, never>>>;
 
@@ -30,7 +30,7 @@ export async function getActiveLocalSessionData(db: GenericDb) {
 
 export async function updateTags(db: GenericDb, newTags: Tag[]) {
     const localTags = await db.select().from(tagTable);
-    let tagsToRemove = localTags.filter(localTag => !newTags.some(newTag => newTag.tagId === localTag.tagId));
+    const tagsToRemove = localTags.filter(localTag => !newTags.some(newTag => newTag.tagId === localTag.tagId));
 
     await db.insert(tagTable).values(newTags).onConflictDoUpdate({
         target: tagTable.tagId,
@@ -85,7 +85,7 @@ export async function updateSongArtists(db: GenericDb, songArtists: SongArtist[]
 
 export async function updateArtists(db: GenericDb, artists: Artist[]) {
     await db.insert(artistTable).values(artists).onConflictDoUpdate({
-        target: localSessionDataTable.userId,
+        target: artistTable.artistId,
         set: {
             name: sql`excluded.name`
         }
@@ -147,4 +147,12 @@ export async function getRandomSong(db: GenericDb) {
     }
 
     return song[0];
+}
+
+export async function addRequest(db: GenericDb, request: Request) {
+    await db.insert(requestTable).values([request]);
+}
+
+export async function getPlaylists(db: GenericDb, userId: number) {
+    return await db.select().from(playlistTable).where(eq(playlistTable.userId, userId));
 }
