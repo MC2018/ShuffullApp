@@ -17,6 +17,7 @@ import { STORAGE_KEYS } from "./constants/storageKeys";
 import SyncManager from "./tools/syncManager";
 import * as DbExtensions from "./services/db/dbExtensions";
 import * as MediaManager from "./tools/mediaManager";
+import hash from "./tools/hasher";
 
 const dbName = "shuffull-db";
 let expoDb = SQLite.openDatabaseSync(dbName);
@@ -83,7 +84,7 @@ export default function Index() {
     }, []);
 
     const handleLogin = async (username: string, password: string, hostAddress: string) => {
-        const userHash = "638a95e77ba6ec76c4179ff3fd98e682"; // TODO: THIS ONLY WORKS WITH USER MC PASS password, ARGON2 HAS TO BE IMPLEMENTED
+        const userHash = await hash(`${username};${password}`);
         const api = new ApiClient(hostAddress, "");
         const authResponse = await api.userAuthenticate(username, userHash);
 
