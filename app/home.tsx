@@ -1,9 +1,7 @@
 import { Button, Text, View } from "react-native";
-import { localSessionDataTable, userTable } from "./services/db/schema";
-import { DbProvider, useDb } from "./services/db/dbProvider";
+import { useDb } from "./services/db/dbProvider";
 import UserCount from "./userCount";
 import { useEffect, useState } from "react";
-import { eq } from "drizzle-orm";
 import { LocalSessionData } from "./services/db/models";
 import { useApi } from "./services/api/apiProvider";
 import * as DbExtensions from "./services/db/dbExtensions";
@@ -24,16 +22,7 @@ export default function HomePage({ userId, onLogout }: HomeProps) {
         (async () => {
             const localSessionData = await DbExtensions.getLocalSessionData(db, userId);
 
-            if (!localSessionData) {
-                onLogout();
-                return;
-            }
-
-            if (!localSessionData.expiration || localSessionData.expiration < new Date(Date.now())) {
-                localSessionData.expiration = null;
-            }
-
-            if (localSessionData.expiration == null) {
+            if (!localSessionData || localSessionData.expiration < new Date(Date.now())) {
                 onLogout();
                 return;
             }
