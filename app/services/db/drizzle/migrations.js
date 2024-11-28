@@ -10,6 +10,8 @@ import m0005 from './0005_song_normal_name_index.sql';
 import m0006 from './0006_reset_tables.sql';
 import m0007 from './0007_add_notnull_req.sql';
 import m0008 from './0008_add_request.sql';
+import m0009 from './0009_reset_request.sql';
+import m0010 from './0010_readd_request.sql';
 
   export default {
     journal,
@@ -22,7 +24,9 @@ m0004,
 m0005,
 m0006,
 m0007,
-m0008
+m0008,
+m0009,
+m0010
     }
   }
   

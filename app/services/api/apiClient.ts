@@ -1,6 +1,7 @@
 import axios, { AxiosInstance } from "axios";
 import { AuthenticateResponse, AuthenticateResponseSchema, parsePaginatedResponse, Playlist, PlaylistListSchema, SongListSchema, Tag, TagListSchema, TagSchema, UserSchema, UserSongListSchema, UserSongSchema } from "./models";
 import { ApiStatusFailureError } from "./errors";
+import { UpdateSongLastPlayedRequest } from "../db/models";
 
 export class ApiClient {
     private client: AxiosInstance;
@@ -85,6 +86,36 @@ export class ApiClient {
         }
 
         return parsePaginatedResponse(UserSongSchema, response.data);
+    }
+
+    public async userSongCreateMany(songIds: number[]) {
+        const endpoint = "/usersong/createmany";
+        const songIdsJson = `[${songIds.join(",")}]`;
+        const response = await this.client.put(endpoint, songIdsJson, {
+            headers: {
+                "Content-Type": "application/json"
+            }
+        });
+
+        if (!isSuccessfulStatus(response.status)) {
+            throw new ApiStatusFailureError(endpoint, response);
+        }
+
+        return;
+    }
+
+    public async userSongUpdateLastPlayed(requests: UpdateSongLastPlayedRequest[]) {
+        const endpoint = "/usersong/updatelastplayed";
+        const requestsJson = JSON.stringify(requests);
+        const response = await this.client.post(endpoint, requestsJson, {
+            headers: {
+                "Content-Type": "application/json"
+            }
+        });
+
+        if (!isSuccessfulStatus(response.status)) {
+            throw new ApiStatusFailureError(endpoint, response);
+        }
     }
 
     public async songGetList(songIds: number[]) {

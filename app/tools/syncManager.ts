@@ -5,11 +5,11 @@ import { eq, inArray } from "drizzle-orm";
 import * as DbExtensions from "../services/db/dbExtensions";
 import * as DbModels from "../services/db/models";
 import * as ApiModels from "../services/api/models";
-import { distinctBy } from "./utils";
+import { distinctBy, generateGuid } from "./utils";
 import { HttpStatusCode } from "axios";
-import uuid from "react-native-uuid";
 import { RequestType } from "../enums/requestType";
 import { getProcessingMethod, ProcessingMethod } from "../enums/processingMethod";
+import { ApiStatusFailureError } from "../services/api/errors";
 
 export default class SyncManager {
     db: ExpoSQLiteDatabase;
@@ -39,7 +39,15 @@ export default class SyncManager {
         clearInterval(this.timerId);
     }
 
-    async sync() {
+    async submitRequests(requests: DbModels.Request[]) {
+        try {
+            await this.db.insert(requestTable).values(requests);
+        } catch (e) {
+            console.log(e);
+        }
+    }
+
+    private async sync() {
         if (this.syncing) {
             return;
         }
@@ -78,6 +86,8 @@ export default class SyncManager {
                     default:
                         break;
                 }
+
+                lastRequestType = request.requestType;
             }
 
             let endedPrematurely = false;
@@ -110,7 +120,7 @@ export default class SyncManager {
 
             // Run all pulling changes
             const overallSyncRequest: DbModels.OverallSyncRequest = {
-                requestGuid: uuid.v4(),
+                requestGuid: generateGuid(),
                 timeRequested: new Date(Date.now()),
                 requestType: RequestType.OverallSync,
                 userId: this.userId
@@ -125,20 +135,20 @@ export default class SyncManager {
         }
     }
     
-    async runRequests(requests: DbModels.Request[]) {
+    private async runRequests(requests: DbModels.Request[]) {
         const singleRequest = requests[0];
         const requestType = singleRequest.requestType as RequestType;
         let statusCode: HttpStatusCode;
 
         switch (requestType) {
             case RequestType.UpdateSongLastPlayed:
-                statusCode = HttpStatusCode.Ok;
+                statusCode = await this.updateSongLastPlayed(requests as DbModels.UpdateSongLastPlayedRequest[]);
                 break;
             case RequestType.OverallSync:
                 statusCode = await this.overallSync();
                 break;
             case RequestType.CreateUserSong:
-                statusCode = HttpStatusCode.Ok;
+                statusCode = await this.createUserSong(requests as DbModels.CreateUserSongRequest[]);
                 break;
             default:
                 throw new Error("A request type has no method to call.");
@@ -147,7 +157,34 @@ export default class SyncManager {
         return statusCode;
     }
 
-    async overallSync(): Promise<HttpStatusCode> {
+    private async updateSongLastPlayed(requests: DbModels.UpdateSongLastPlayedRequest[]) {
+        try {
+            await this.api.userSongUpdateLastPlayed(requests);
+            return HttpStatusCode.Ok;
+        } catch (e) {
+            if (e instanceof ApiStatusFailureError) {
+                return e.status;
+            }
+
+            return HttpStatusCode.InternalServerError;
+        }
+    }
+
+    private async createUserSong(requests: DbModels.CreateUserSongRequest[]): Promise<HttpStatusCode> {
+        try {
+            const songIds = requests.map(x => x.songId);
+            await this.api.userSongCreateMany(songIds);
+            return HttpStatusCode.Ok;
+        } catch (e) {
+            if (e instanceof ApiStatusFailureError) {
+                return e.status;
+            }
+
+            return HttpStatusCode.InternalServerError;
+        }
+    }
+
+    private async overallSync(): Promise<HttpStatusCode> {
         try {
             this.db.transaction(async (tx) => {
                 // Update user version
@@ -250,7 +287,10 @@ export default class SyncManager {
 
             return HttpStatusCode.Ok;
         } catch (e) {
-            console.log(e);
+            if (e instanceof ApiStatusFailureError) {
+                return e.status;
+            }
+
             return HttpStatusCode.InternalServerError;
         }
     }

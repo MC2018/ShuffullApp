@@ -1,3 +1,5 @@
+import uuid from "react-native-uuid";
+
 export function distinctBy<T, K>(array: T[], keySelector: (item: T) => K): T[] {
     const seen = new Set<K>();
     return array.filter(item => {
@@ -8,4 +10,8 @@ export function distinctBy<T, K>(array: T[], keySelector: (item: T) => K): T[] {
         seen.add(key);
         return true;
     });
+}
+
+export function generateGuid() {
+    return uuid.v4();
 }

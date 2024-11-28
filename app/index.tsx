@@ -10,7 +10,6 @@ import { useEffect, useState } from "react";
 import { ApiProvider } from "./services/api/apiProvider";
 import { ApiClient } from "./services/api/apiClient";
 import { localSessionDataTable } from "./services/db/schema";
-import { isNotNull, eq } from "drizzle-orm";
 import { LocalSessionData } from "./services/db/models";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { STORAGE_KEYS } from "./constants/storageKeys";
@@ -18,6 +17,8 @@ import SyncManager from "./tools/syncManager";
 import * as DbExtensions from "./services/db/dbExtensions";
 import * as MediaManager from "./tools/mediaManager";
 import hash from "./tools/hasher";
+import { RequestType } from "./enums/requestType";
+import { generateGuid } from "./tools/utils";
 
 const dbName = "shuffull-db";
 let expoDb = SQLite.openDatabaseSync(dbName);
