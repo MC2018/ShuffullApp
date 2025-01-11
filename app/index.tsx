@@ -1,11 +1,11 @@
-import { Text, View } from "react-native";
 import * as SQLite from "expo-sqlite/next";
+import { Text } from "react-native";
 import { drizzle } from "drizzle-orm/expo-sqlite"
 import { migrate, useMigrations } from "drizzle-orm/expo-sqlite/migrator"
 import migrations from "./services/db/drizzle/migrations"
 import { DbProvider } from "./services/db/dbProvider";
 import HomePage from "./home";
-import LoginPage, { LoginProps } from "./login";
+import LoginPage from "./login";
 import { useEffect, useState } from "react";
 import { ApiProvider } from "./services/api/apiProvider";
 import { ApiClient } from "./services/api/apiClient";
@@ -17,19 +17,21 @@ import SyncManager from "./tools/syncManager";
 import * as DbExtensions from "./services/db/dbExtensions";
 import * as MediaManager from "./tools/mediaManager";
 import hash from "./tools/hasher";
-import { RequestType } from "./enums/requestType";
-import { generateGuid } from "./tools/utils";
+import React from "react";
 
 const dbName = "shuffull-db";
 let expoDb = SQLite.openDatabaseSync(dbName);
 let db = drizzle(expoDb);
 let syncManager: SyncManager | null;
+MediaManager.setup(db);
 
 function resetDb() {
+    MediaManager.reset();
     expoDb.closeSync();
     SQLite.deleteDatabaseSync(dbName);
     expoDb = SQLite.openDatabaseSync(dbName);
     db = drizzle(expoDb);
+    MediaManager.setup(db);
 }
 
 export default function Index() {
@@ -38,6 +40,7 @@ export default function Index() {
     const [ sessionData, setSessionData ] = useState<LocalSessionData | null>(null);
     const [ loginRefreshes, setLoginRefreshes ] = useState<number>(0);
     const { success, error } = useMigrations(db, migrations);
+    const [ autoLoginAttempted, setAutoLoginAttempted ] = useState<boolean>(false);
 
     if (error) {
         try {
@@ -57,6 +60,7 @@ export default function Index() {
             const localSessionData = await DbExtensions.getActiveLocalSessionData(db);
     
             if (!localSessionData || !hostAddress) {
+                setAutoLoginAttempted(true);
                 return;
             }
 
@@ -64,25 +68,17 @@ export default function Index() {
                 syncManager.dispose();
             }
 
+            MediaManager.reset();
+
             const client = new ApiClient(hostAddress, localSessionData.token);
             syncManager = new SyncManager(db, client, localSessionData.userId);
-            await MediaManager.init();
 
             setApiClient(client);
             setSessionData(localSessionData);
             setLoggedIn(true);
+            setAutoLoginAttempted(true);
         })();
     }, [loginRefreshes]);
-
-    useEffect(() => {
-        const interval = setInterval(() => {
-            if (syncManager?.loggingOut) {
-                handleLogout();
-            }
-        }, 5000);
-
-        return () => clearInterval(interval);
-    }, []);
 
     const handleLogin = async (username: string, password: string, hostAddress: string) => {
         const userHash = await hash(`${username};${password}`);
@@ -121,22 +117,28 @@ export default function Index() {
             syncManager = null;
         }
 
+        MediaManager.reset();
+
         setApiClient(null);
         setSessionData(null);
         setLoggedIn(false);
     };
 
     useEffect(() => {
-        (async () => {
+        const interval = setInterval(() => {
             if (loggedIn && syncManager?.loggingOut) {
-                await handleLogout();
+                handleLogout();
             }
-        })();
-    }, [syncManager?.loggingOut]);
+        }, 5000);
+
+        return () => clearInterval(interval);
+    }, []);
 
     let result;
 
-    if (loggedIn && apiClient) {
+    if (!autoLoginAttempted) {
+        result = <></>
+    } else if (loggedIn && apiClient) {
         result =
         <>
         <ApiProvider api={apiClient}>

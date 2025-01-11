@@ -24,11 +24,6 @@ export default class SyncManager {
         this.api = api;
         this.userId = userId;
         this.timerId = setInterval(async () => {
-            if (this.loggingOut) {
-                this.dispose();
-                return;
-            }
-
             this.sync();
         }, 10000);
 

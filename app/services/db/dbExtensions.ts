@@ -3,8 +3,8 @@ import { eq, ExtractTablesWithRelations, inArray, sql, isNotNull, and } from "dr
 import { ExpoSQLiteDatabase } from "drizzle-orm/expo-sqlite"
 import { SQLiteTransaction } from "drizzle-orm/sqlite-core";
 import { SQLiteRunResult } from "expo-sqlite";
-import { artistTable, localSessionDataTable, playlistSongTable, playlistTable, requestTable, songArtistTable, songTable, songTagTable, tagTable, userSongTable, userTable } from "./schema";
-import { Artist, Playlist, PlaylistSong, Song, SongArtist, SongTag, Tag, User, UserSong, Request } from "./models";
+import { artistTable, localSessionDataTable, playlistSongTable, playlistTable, recentlyPlayedSongTable, requestTable, songArtistTable, songTable, songTagTable, tagTable, userSongTable, userTable } from "./schema";
+import { Artist, Playlist, PlaylistSong, Song, SongArtist, SongTag, Tag, User, UserSong, Request, RecentlyPlayedSong } from "./models";
 
 type GenericDb = ExpoSQLiteDatabase | SQLiteTransaction<"sync", SQLiteRunResult, Record<string, never>, ExtractTablesWithRelations<Record<string, never>>>;
 
@@ -15,7 +15,7 @@ export async function getLocalSessionData(db: GenericDb, userId: number) {
         return result[0];
     }
 
-    return null;
+    return undefined;
 }
 
 export async function getActiveLocalSessionData(db: GenericDb) {
@@ -25,7 +25,53 @@ export async function getActiveLocalSessionData(db: GenericDb) {
         return result[0];
     }
 
-    return null;
+    return undefined;
+}
+
+export async function setActiveLocalSessionPlaylistId(db: GenericDb, playlistId: number) {
+    await db.update(localSessionDataTable).set({currentPlaylistId: playlistId});
+}
+
+export async function getCurrentlyPlayingSong(db: GenericDb) {
+    const result = await db.select().from(recentlyPlayedSongTable).where(isNotNull(recentlyPlayedSongTable.timestampSeconds));
+
+    if (!result.length) {
+        return undefined;
+    }
+
+    return result[0];
+}
+
+export async function getRecentlyPlayedSong(db: GenericDb, songId: number) {
+    const result = await db.select().from(recentlyPlayedSongTable).where(eq(recentlyPlayedSongTable.songId, songId));
+
+    if (!result.length) {
+        return undefined;
+    }
+
+    return result[0];
+}
+
+export async function resetRecentlyPlayedSongTimestamps(db: GenericDb) {
+    await db.update(recentlyPlayedSongTable).set({
+        timestampSeconds: null
+    }).where(isNotNull(recentlyPlayedSongTable.timestampSeconds));
+}
+
+export async function setRecentlyPlayedSongTimestampSeconds(db: GenericDb, songId: number, timestampSeconds: number) {
+    await db.update(recentlyPlayedSongTable).set({
+        timestampSeconds: timestampSeconds
+    }).where(eq(recentlyPlayedSongTable.songId, songId));
+}
+
+export async function updateRecentlyPlayedSongLastPlayed(db: GenericDb, songId: number) {
+    await db.update(recentlyPlayedSongTable).set({
+        lastPlayed: new Date(Date.now())
+    }).where(eq(recentlyPlayedSongTable.songId, songId));
+}
+
+export async function addRecentlyPlayedSong(db: GenericDb, recentlyPlayedSong: RecentlyPlayedSong) {
+    await db.insert(recentlyPlayedSongTable).values([recentlyPlayedSong]);
 }
 
 export async function updateTags(db: GenericDb, newTags: Tag[]) {
@@ -119,12 +165,28 @@ export async function updateUserSongs(db: GenericDb, userSongs: UserSong[]) {
     }
 }
 
-export async function getRandomSong(db: GenericDb) {
+export async function getRandomSongId(db: GenericDb) {
     const songCount = (await db.select({
         count: sql<number>`COUNT(*)`.as("count"),
     }).from(songTable))[0].count;
     const randomSongIndex = Math.floor(songCount * Math.random());
     
+    const song = await db
+        .select({
+            songId: songTable.songId
+        })
+        .from(songTable)
+        .offset(randomSongIndex)
+        .limit(1);
+
+    if (!song.length) {
+        return undefined;
+    }
+
+    return song[0].songId;
+}
+
+export async function getSongDetails(db: GenericDb, songId: number) {
     const song = await db
         .select({
             songId: songTable.songId,
@@ -136,17 +198,42 @@ export async function getRandomSong(db: GenericDb) {
             }
         })
         .from(songTable)
-        .offset(randomSongIndex)
+        .where(eq(songTable.songId, songId))
         .leftJoin(songArtistTable, eq(songTable.songId, songArtistTable.songId))
-        .leftJoin(artistTable, eq(songArtistTable.songId, artistTable.artistId))
-        .limit(1);
+        .leftJoin(artistTable, eq(songArtistTable.songId, artistTable.artistId));
     // TODO: this doesn't work if there are multiple artists
+
+    if (!song.length) {
+        const errMsg = `Song ${songId} cannot be found in getSongDetails.`;
+        console.log(errMsg);
+        throw Error(errMsg);
+    }
+
+    return song[0];
+}
+
+export async function getSong(db: GenericDb, songId: number) {
+    const song = await db.select().from(songTable).where(eq(songTable.songId, songId));
 
     if (!song.length) {
         return undefined;
     }
 
     return song[0];
+}
+
+export async function getUserSong(db: GenericDb, userId: number, songId: number) {
+    const userSong = await db.select().from(userSongTable).where(and(eq(userSongTable.userId, userId), eq(userSongTable.songId, songId)));
+
+    if (!userSong.length) {
+        return undefined;
+    }
+
+    return userSong[0];
+}
+
+export async function addUserSong(db: GenericDb, userSong: UserSong) {
+    await db.insert(userSongTable).values([userSong]);
 }
 
 export async function addRequest(db: GenericDb, request: Request) {

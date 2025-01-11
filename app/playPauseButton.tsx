@@ -4,6 +4,7 @@ import { Button } from "react-native";
 import * as DbExtensions from "./services/db/dbExtensions";
 import { useDb } from "./services/db/dbProvider";
 import { useApi } from "./services/api/apiProvider";
+import React from "react";
 
 export default function PlayPauseButton() {
     const db = useDb();
@@ -14,21 +15,12 @@ export default function PlayPauseButton() {
         const currentTrack = await TrackPlayer.getActiveTrack();
         
         if (!currentTrack) {
-            const song = await DbExtensions.getRandomSong(db);
+            const songId = await DbExtensions.getRandomSongId(db);
 
-            if (!song) {
+            if (!songId) {
                 console.log("No songs are found.");
                 return;
             }
-            console.log(song);
-            MediaManager.addToQueue([
-                {
-                    id: 1,
-                    url: `${api.getBaseURL()}/music/${song?.directory}`,
-                    title: song.name,
-                    artist: song.artist?.name ?? "Unknown"
-                }
-            ]);
         }
 
         if (playbackState === undefined) {
@@ -38,15 +30,25 @@ export default function PlayPauseButton() {
         console.log(playbackState);
 
         if (playbackState === State.Paused || playbackState === State.Ready || playbackState === State.None) {
-            await TrackPlayer.play();
+            await MediaManager.play();
         } else {
-            await TrackPlayer.pause();
+            await MediaManager.pause();
         }
+    };
+
+    const handleSkip = async () => {
+        await MediaManager.skip();
+    };
+    
+    const handlePrevious = async () => {
+        await MediaManager.previous();
     };
 
     return (
         <>
         <Button onPress={handlePlay} title="Play" />
+        <Button onPress={handleSkip} title="Skip" />
+        <Button onPress={handlePrevious} title="Previous" />
         </>
     );
 }
