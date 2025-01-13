@@ -243,8 +243,5 @@ async function getNextSongId(previous: boolean = false): Promise<number> {
         queueIndex = queue.length - 1;
     }
 
-    console.log("Queue: " + queue);
-    console.log("Queue Index: " + queueIndex);
-
     return songId;
 }
