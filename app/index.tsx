@@ -4,8 +4,8 @@ import { drizzle } from "drizzle-orm/expo-sqlite"
 import { migrate, useMigrations } from "drizzle-orm/expo-sqlite/migrator"
 import migrations from "./services/db/drizzle/migrations"
 import { DbProvider } from "./services/db/dbProvider";
-import HomePage from "./home";
-import LoginPage from "./login";
+import HomePage from "./pages/Home";
+import LoginPage from "./pages/Login";
 import { useEffect, useState } from "react";
 import { ApiProvider } from "./services/api/apiProvider";
 import { ApiClient } from "./services/api/apiClient";
@@ -13,9 +13,9 @@ import { localSessionDataTable } from "./services/db/schema";
 import { LocalSessionData } from "./services/db/models";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { STORAGE_KEYS } from "./constants/storageKeys";
-import SyncManager from "./tools/syncManager";
+import SyncManager from "./tools/SyncManager";
 import * as DbExtensions from "./services/db/dbExtensions";
-import * as MediaManager from "./tools/mediaManager";
+import * as MediaManager from "./tools/MediaManager";
 import hash from "./tools/hasher";
 import React from "react";
 

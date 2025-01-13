@@ -7,8 +7,8 @@ import * as DbModels from "../services/db/models";
 import * as ApiModels from "../services/api/models";
 import { distinctBy, generateGuid } from "./utils";
 import { HttpStatusCode } from "axios";
-import { RequestType } from "../enums/requestType";
-import { getProcessingMethod, ProcessingMethod } from "../enums/processingMethod";
+import { RequestType } from "../enums";
+import { getProcessingMethod, ProcessingMethod } from "../enums";
 import { ApiStatusFailureError } from "../services/api/errors";
 
 let activeUuid: string | undefined = undefined;

@@ -1,11 +1,11 @@
 import { Button, Text, View } from "react-native";
-import { useDb } from "./services/db/dbProvider";
-import UserCount from "./userCount";
+import { useDb } from "../services/db/dbProvider";
 import { useEffect, useState } from "react";
-import { LocalSessionData } from "./services/db/models";
-import { useApi } from "./services/api/apiProvider";
-import * as DbExtensions from "./services/db/dbExtensions";
-import PlayPauseButton from "./playPauseButton";
+import { LocalSessionData } from "../services/db/models";
+import { useApi } from "../services/api/apiProvider";
+import * as DbExtensions from "../services/db/dbExtensions";
+import PlayPauseButton from "../components/PlayPauseButton";
+import React from "react";
 
 interface HomeProps {
     userId: number;
@@ -41,7 +41,6 @@ export default function HomePage({ userId, onLogout }: HomeProps) {
             }}
             >
             <Text>Edit app/index.tsx to edit this screen.</Text>
-            <UserCount />
             <Button onPress={onLogout} title="Logout" />
             <PlayPauseButton />
         </View>

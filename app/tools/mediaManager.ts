@@ -5,7 +5,7 @@ import * as DbExtensions from "../services/db/dbExtensions";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { STORAGE_KEYS } from "../constants/storageKeys";
 import { generateGuid } from "./utils";
-import { RequestType } from "../enums/requestType";
+import { RequestType } from "../enums";
 import { getPlaybackState } from "react-native-track-player/lib/src/trackPlayer";
 
 let queue: number[] = [];

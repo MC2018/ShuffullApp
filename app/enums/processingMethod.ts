@@ -1,7 +1,6 @@
-import { RequestType } from "./requestType";
+import { RequestType } from "./RequestType";
 
-export enum ProcessingMethod
-{
+export enum ProcessingMethod {
     None = 0,
     OnlyOnce = 1,
     Individual = 2,

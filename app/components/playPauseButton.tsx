@@ -1,9 +1,9 @@
 import TrackPlayer, { State, usePlaybackState } from "react-native-track-player";
-import * as MediaManager from "./tools/mediaManager";
+import * as MediaManager from "../tools/MediaManager";
 import { Button } from "react-native";
-import * as DbExtensions from "./services/db/dbExtensions";
-import { useDb } from "./services/db/dbProvider";
-import { useApi } from "./services/api/apiProvider";
+import * as DbExtensions from "../services/db/dbExtensions";
+import { useDb } from "../services/db/dbProvider";
+import { useApi } from "../services/api/apiProvider";
 import React from "react";
 
 export default function PlayPauseButton() {

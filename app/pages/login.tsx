@@ -1,10 +1,11 @@
 import { Button, Text, TextInput, View } from "react-native";
-import { useDb } from "./services/db/dbProvider";
-import { localSessionDataTable } from "./services/db/schema";
+import { useDb } from "../services/db/dbProvider";
+import { localSessionDataTable } from "../services/db/schema";
 import { useEffect, useState } from "react";
-import { ApiClient } from "./services/api/apiClient";
+import { ApiClient } from "../services/api/apiClient";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { STORAGE_KEYS } from "./constants/storageKeys";
+import { STORAGE_KEYS } from "../constants/storageKeys";
+import React from "react";
 
 export interface LoginProps {
     onLogin: (username: string, password: string, hostAddress: string) => void;
