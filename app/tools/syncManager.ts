@@ -11,7 +11,10 @@ import { RequestType } from "../enums/requestType";
 import { getProcessingMethod, ProcessingMethod } from "../enums/processingMethod";
 import { ApiStatusFailureError } from "../services/api/errors";
 
+let activeUuid: string | undefined = undefined;
+
 export default class SyncManager {
+    uuid = generateGuid();
     db: ExpoSQLiteDatabase;
     api: ApiClient;
     userId: number;
@@ -24,8 +27,15 @@ export default class SyncManager {
         this.api = api;
         this.userId = userId;
         this.timerId = setInterval(async () => {
+            if (activeUuid != this.uuid) {
+                this.dispose();
+                return;
+            }
+
             this.sync();
         }, 10000);
+
+        activeUuid = this.uuid;
 
         this.sync();
     }
@@ -185,7 +195,7 @@ export default class SyncManager {
                 // Update user version
                 const oldUser = await tx.select().from(userTable).where(eq(userTable.userId, this.userId));
                 const user = await this.api.userGet();
-                DbExtensions.updateUser(tx, user);
+                await DbExtensions.updateUser(tx, user);
 
                 // Refresh tags
                 const tags = await this.api.tagGetAll();
@@ -197,7 +207,7 @@ export default class SyncManager {
                 let updatedPlaylists: ApiModels.Playlist[] = [];
 
                 // Remove playlists from local if they are no longer accessible
-                DbExtensions.removeOldPlaylists(tx, accessiblePlaylists.map(x => x.playlistId));
+                await DbExtensions.removeOldPlaylists(tx, accessiblePlaylists.map(x => x.playlistId));
 
                 // Create a list of playlists that need updating
                 const localPlaylists = await DbExtensions.getPlaylists(tx, this.userId);
@@ -215,8 +225,8 @@ export default class SyncManager {
 
                     for (const updatedPlaylist of updatedPlaylists) {
                         if (updatedPlaylist.playlistSongs != null) {
-                            DbExtensions.updatePlaylist(tx, updatedPlaylist);
-                            DbExtensions.updatePlaylistSongs(tx, updatedPlaylist.playlistId, updatedPlaylist.playlistSongs);
+                            await DbExtensions.updatePlaylist(tx, updatedPlaylist);
+                            await DbExtensions.updatePlaylistSongs(tx, updatedPlaylist.playlistId, updatedPlaylist.playlistSongs);
                         }
                     }
                 }
@@ -236,7 +246,7 @@ export default class SyncManager {
                     const paginatedResponse = await this.api.userSongGetAll(afterDate);
 
                     const userSongs = paginatedResponse.items;
-                    DbExtensions.updateUserSongs(tx, userSongs);
+                    await DbExtensions.updateUserSongs(tx, userSongs);
                     updatedUserSongs.push(...userSongs);
                     endOfList = paginatedResponse.endOfList;
 
@@ -258,22 +268,22 @@ export default class SyncManager {
                     const songIdsSubset = newSongIds.slice(i * 500, i * 500 + 500);
                     const newSongs = await this.api.songGetList(songIdsSubset);
                     
-                    DbExtensions.updateSongs(tx, newSongs);
+                    await DbExtensions.updateSongs(tx, newSongs);
 
                     const songArtists = distinctBy(newSongs.flatMap(x => x.songArtists), x => x?.songArtistId).filter(x => x != null);
                     const artists = distinctBy(songArtists.flatMap(x => x.artist), x => x?.artistId).filter(x => x != null);
                     const songTags = distinctBy(newSongs.flatMap(x => x.songTags), x => x?.songTagId).filter(x => x != null);
 
                     if (songArtists.length) {
-                        DbExtensions.updateSongArtists(tx, songArtists);
+                        await DbExtensions.updateSongArtists(tx, songArtists);
                     }
 
                     if (artists.length) {
-                        DbExtensions.updateArtists(tx, artists);
+                        await DbExtensions.updateArtists(tx, artists);
                     }
 
                     if (songTags.length) {
-                        DbExtensions.updateSongTags(tx, songTags);
+                        await DbExtensions.updateSongTags(tx, songTags);
                     }
                 }
             }, {
