@@ -186,6 +186,31 @@ export async function getRandomSongId(db: GenericDb) {
     return song[0].songId;
 }
 
+export async function getRandomSongIdByPlaylist(db: GenericDb, playlistId: number) {
+    const songCount = (await db.select({
+        count: sql<number>`COUNT(*)`.as("count"),
+    }).from(songTable)
+    .innerJoin(playlistSongTable, eq(songTable.songId, playlistSongTable.songId))
+    .where(eq(playlistSongTable.playlistId, playlistId)))[0].count;
+    const randomSongIndex = Math.floor(songCount * Math.random());
+    
+    const song = await db
+        .select({
+            songId: songTable.songId
+        })
+        .from(songTable)
+        .innerJoin(playlistSongTable, eq(songTable.songId, playlistSongTable.songId))
+        .where(eq(playlistSongTable.playlistId, playlistId))
+        .offset(randomSongIndex)
+        .limit(1);
+
+    if (song.length == 0) {
+        return undefined;
+    }
+
+    return song[0].songId;
+}
+
 export async function getSongDetails(db: GenericDb, songId: number) {
     const song = await db
         .select({

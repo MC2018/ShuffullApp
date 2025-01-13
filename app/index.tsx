@@ -61,14 +61,13 @@ export default function Index() {
     
             if (!localSessionData || !hostAddress) {
                 setAutoLoginAttempted(true);
+                MediaManager.reset();
                 return;
             }
 
             if (syncManager) {
                 syncManager.dispose();
             }
-
-            MediaManager.reset();
 
             const client = new ApiClient(hostAddress, localSessionData.token);
             syncManager = new SyncManager(db, client, localSessionData.userId);

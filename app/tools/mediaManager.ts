@@ -74,6 +74,9 @@ export async function pause() {
 
 export async function skip() {
     const songId = await getNextSongId();
+
+    // TODO: implement feature to track when a song is skipped early
+
     await startNewSong(songId);
 }
 
@@ -103,6 +106,11 @@ export async function generateUrl(song: Song, offline: boolean) {
 
 export async function reset() {
     clearQueue();
+    clearSong();
+}
+
+export async function clearSong() {
+    await TrackPlayer.reset();
 }
 
 export async function clearQueue() {
@@ -110,11 +118,15 @@ export async function clearQueue() {
 }
 
 export async function getCurrentPlaylistId() {
-    return (await DbExtensions.getActiveLocalSessionData(db))?.currentPlaylistId ?? -1;
+    return (await DbExtensions.getActiveLocalSessionData(db))?.currentPlaylistId ?? undefined;
 }
 
 export async function setCurrentPlaylistId(playlistId: number) {
     await DbExtensions.setActiveLocalSessionPlaylistId(db, playlistId);
+}
+
+export async function isPlaying() {
+    return (await getPlaybackState()).state == State.Playing;
 }
 
 async function startNewSong(songId: number, recentlyPlayedSong?: RecentlyPlayedSong) {
@@ -213,7 +225,14 @@ async function getNextSongId(previous: boolean = false): Promise<number> {
     } else if (!previous && queueIndex != undefined && queueIndex + 1 < queue.length) {
         songId = queue[++queueIndex];
     } else {
-        const potentialSongId = await DbExtensions.getRandomSongId(db);
+        const localSessionData = await DbExtensions.getActiveLocalSessionData(db);
+        let potentialSongId: number | undefined;
+
+        if (localSessionData?.currentPlaylistId != undefined && localSessionData?.currentPlaylistId != -1) {
+            potentialSongId = await DbExtensions.getRandomSongIdByPlaylist(db, localSessionData?.currentPlaylistId);
+        } else {
+            potentialSongId = await DbExtensions.getRandomSongId(db);
+        }
             
         if (potentialSongId == undefined) {
             throw Error("Attempted to get a song, but no songs exist.");
