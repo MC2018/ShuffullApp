@@ -3,7 +3,7 @@ import { Text } from "react-native";
 import { drizzle } from "drizzle-orm/expo-sqlite"
 import { migrate, useMigrations } from "drizzle-orm/expo-sqlite/migrator"
 import migrations from "./services/db/drizzle/migrations"
-import { DbProvider } from "./services/db/dbProvider";
+import { DbProvider } from "./services/db/DbProvider";
 import HomePage from "./pages/Home";
 import LoginPage from "./pages/Login";
 import { useEffect, useState } from "react";

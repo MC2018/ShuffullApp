@@ -1,6 +1,6 @@
 import { View, Text } from "react-native";
 import * as DbExtensions from "../services/db/dbExtensions";
-import { useDb } from "../services/db/dbProvider";
+import { useDb } from "../services/db/DbProvider";
 import React, { useEffect, useState } from "react";
 import { Picker } from "@react-native-picker/picker";
 import { StyleSheet } from "react-native";

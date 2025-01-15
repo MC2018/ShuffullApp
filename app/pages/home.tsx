@@ -1,5 +1,5 @@
 import { Button, Text, View } from "react-native";
-import { useDb } from "../services/db/dbProvider";
+import { useDb } from "../services/db/DbProvider";
 import { useEffect, useState } from "react";
 import { LocalSessionData, Playlist } from "../services/db/models";
 import * as DbExtensions from "../services/db/dbExtensions";
@@ -38,9 +38,8 @@ export default function HomePage({ userId, onLogout }: HomeProps) {
         if (playlistId == -1) {
             return;
         }
-
-        await DbExtensions.setActiveLocalSessionPlaylistId(db, playlistId);
-        await MediaManager.reset();
+        
+        await MediaManager.setPlaylist(playlistId);
 
         if (wasPlaying) {
             await MediaManager.play();

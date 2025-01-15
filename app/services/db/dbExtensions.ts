@@ -1,5 +1,4 @@
-import axios, { AxiosInstance } from "axios";
-import { eq, ExtractTablesWithRelations, inArray, sql, isNotNull, and } from "drizzle-orm";
+import { eq, gt, lt, ExtractTablesWithRelations, inArray, sql, isNotNull, and } from "drizzle-orm";
 import { ExpoSQLiteDatabase } from "drizzle-orm/expo-sqlite"
 import { SQLiteTransaction } from "drizzle-orm/sqlite-core";
 import { SQLiteRunResult } from "expo-sqlite";
@@ -42,8 +41,8 @@ export async function getCurrentlyPlayingSong(db: GenericDb) {
     return result[0];
 }
 
-export async function getRecentlyPlayedSong(db: GenericDb, songId: number) {
-    const result = await db.select().from(recentlyPlayedSongTable).where(eq(recentlyPlayedSongTable.songId, songId));
+export async function getRecentlyPlayedSong(db: GenericDb, recentlyPlayedSongGuid: string) {
+    const result = await db.select().from(recentlyPlayedSongTable).where(eq(recentlyPlayedSongTable.recentlyPlayedSongGuid, recentlyPlayedSongGuid));
 
     if (!result.length) {
         return undefined;
@@ -64,14 +63,59 @@ export async function setRecentlyPlayedSongTimestampSeconds(db: GenericDb, songI
     }).where(eq(recentlyPlayedSongTable.songId, songId));
 }
 
-export async function updateRecentlyPlayedSongLastPlayed(db: GenericDb, songId: number) {
+export async function updateRecentlyPlayedSongTimestamp(db: GenericDb, recentlyPlayedSongGuid: string) {
     await db.update(recentlyPlayedSongTable).set({
-        lastPlayed: new Date(Date.now())
-    }).where(eq(recentlyPlayedSongTable.songId, songId));
+        timestampSeconds: 0
+    }).where(eq(recentlyPlayedSongTable.recentlyPlayedSongGuid, recentlyPlayedSongGuid));
 }
 
 export async function addRecentlyPlayedSong(db: GenericDb, recentlyPlayedSong: RecentlyPlayedSong) {
     await db.insert(recentlyPlayedSongTable).values([recentlyPlayedSong]);
+}
+
+export async function getRecentlyPlayedSongs(db: GenericDb) {
+    return await db.select()
+        .from(recentlyPlayedSongTable)
+        .orderBy(recentlyPlayedSongTable.lastPlayed);
+}
+
+export async function removeAllRecentlyPlayedSongs(db: GenericDb) {
+    await db.delete(recentlyPlayedSongTable);
+}
+
+export async function checkForLastRecentlyPlayedSong(db: GenericDb) {
+    return await checkForRecentlyPlayedSong(db, false);
+}
+
+export async function checkForNextRecentlyPlayedSong(db: GenericDb) {
+    return await checkForRecentlyPlayedSong(db, true);
+}
+
+export async function checkForRecentlyPlayedSong(db: GenericDb, next: boolean) {
+    const currentlyPlayingSong = await getCurrentlyPlayingSong(db);
+
+    if (currentlyPlayingSong == undefined) {
+        return undefined;
+    }
+
+    let query = db
+        .select()
+        .from(recentlyPlayedSongTable)
+        .where(next ? gt(recentlyPlayedSongTable.lastPlayed, currentlyPlayingSong.lastPlayed) : lt(recentlyPlayedSongTable.lastPlayed, currentlyPlayingSong.lastPlayed));
+
+    if (next) {
+        query.orderBy(recentlyPlayedSongTable.lastPlayed);
+    } else {
+        query.orderBy(sql`${recentlyPlayedSongTable.lastPlayed} DESC`);
+    }
+
+    const result = await query.limit(1);
+
+    if (!result.length) {
+        return undefined;
+    }
+
+    return result[0];
 }
 
 export async function updateTags(db: GenericDb, newTags: Tag[]) {

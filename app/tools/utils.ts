@@ -15,3 +15,7 @@ export function distinctBy<T, K>(array: T[], keySelector: (item: T) => K): T[] {
 export function generateGuid() {
     return uuid.v4();
 }
+
+export function generateRange(x: number): number[] {
+    return Array.from({ length: x }, (_, i) => i);
+}
