@@ -1,7 +1,7 @@
 import { ExpoSQLiteDatabase } from "drizzle-orm/expo-sqlite"
 import { createContext, ReactNode, useContext } from 'react';
 
-const DbContext = createContext<ExpoSQLiteDatabase | null>(null); // Replace 'null' with your DB type
+const DbContext = createContext<ExpoSQLiteDatabase | null>(null);
 
 interface DbProviderProps {
     children: ReactNode;

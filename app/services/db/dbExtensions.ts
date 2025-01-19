@@ -1,9 +1,10 @@
-import { eq, gt, lt, ExtractTablesWithRelations, inArray, sql, isNotNull, and } from "drizzle-orm";
+import { eq, gt, lt, ExtractTablesWithRelations, inArray, sql, isNotNull, and, desc, asc } from "drizzle-orm";
 import { ExpoSQLiteDatabase } from "drizzle-orm/expo-sqlite"
 import { SQLiteTransaction } from "drizzle-orm/sqlite-core";
 import { SQLiteRunResult } from "expo-sqlite";
-import { artistTable, localSessionDataTable, playlistSongTable, playlistTable, recentlyPlayedSongTable, requestTable, songArtistTable, songTable, songTagTable, tagTable, userSongTable, userTable } from "./schema";
+import { artistTable, downloadQueueTable, localSessionDataTable, playlistSongTable, playlistTable, recentlyPlayedSongTable, requestTable, songArtistTable, songTable, songTagTable, tagTable, userSongTable, userTable } from "./schema";
 import { Artist, Playlist, PlaylistSong, Song, SongArtist, SongTag, Tag, User, UserSong, Request, RecentlyPlayedSong } from "./models";
+import { DownloadPriority } from "@/app/tools/DownloadManager";
 
 type GenericDb = ExpoSQLiteDatabase | SQLiteTransaction<"sync", SQLiteRunResult, Record<string, never>, ExtractTablesWithRelations<Record<string, never>>>;
 
@@ -156,11 +157,19 @@ export async function updatePlaylist(db: GenericDb, newPlaylist: Playlist) {
 }
 
 export async function updateSongs(db: GenericDb, songs: Song[]) {
+    if (!songs.length) {
+        return;
+    }
+
     await db.delete(songTable).where(inArray(songTable.songId, songs.map(x => x.songId)));
     await db.insert(songTable).values(songs);
 }
 
 export async function updatePlaylistSongs(db: GenericDb, playlistId: number, newPlaylistSongs: PlaylistSong[]) {
+    if (!newPlaylistSongs.length) {
+        return;
+    }
+    
     await db.delete(playlistSongTable).where(eq(playlistSongTable.playlistId, playlistId));
     await db.insert(playlistSongTable).values(newPlaylistSongs);
 }
@@ -188,7 +197,7 @@ export async function updateUserSongs(db: GenericDb, userSongs: UserSong[]) {
     if (!localSessionData) {
         throw new Error("Local session data is undefined while updating user songs.");
     }
-
+    
     const songIds = userSongs.map(x => x.songId);
     const localUserSongs = await db
         .select()
@@ -203,8 +212,9 @@ export async function updateUserSongs(db: GenericDb, userSongs: UserSong[]) {
     
     if (localUserSongs.length) {
         await db.delete(userSongTable).where(inArray(userSongTable.songId, localuserSongIds));
-        await db.insert(userSongTable).values(userSongs);
-    } else {
+    }
+    
+    if (userSongs.length) {
         await db.insert(userSongTable).values(userSongs);
     }
 }
@@ -311,4 +321,28 @@ export async function addRequest(db: GenericDb, request: Request) {
 
 export async function getPlaylists(db: GenericDb, userId: number) {
     return await db.select().from(playlistTable).where(eq(playlistTable.userId, userId));
+}
+
+// TODO: I may want to add a way to change priority
+export async function addToDownloadQueue(db: GenericDb, songId: number, priority: DownloadPriority) {
+    await db.insert(downloadQueueTable).values([{
+        songId: songId,
+        priority: priority
+    }]).onConflictDoNothing();
+}
+
+export async function getFromDownloadQueue(db: GenericDb) {
+    const result = await db.select().from(downloadQueueTable)
+        .orderBy(desc(downloadQueueTable.priority), asc(downloadQueueTable.downloadQueueId))
+        .limit(1);
+
+    if (!result.length) {
+        return undefined;
+    }
+
+    return result[0];
+}
+
+export async function removeFromDownloadQueue(db: GenericDb, songId: number) {
+    await db.delete(downloadQueueTable).where(eq(downloadQueueTable.songId, songId));
 }

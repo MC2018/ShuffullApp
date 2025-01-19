@@ -7,6 +7,7 @@ import { STORAGE_KEYS } from "../constants/storageKeys";
 import { generateGuid, generateRange } from "./utils";
 import { RequestType } from "../enums";
 import { getPlaybackState } from "react-native-track-player/lib/src/trackPlayer";
+import { generateLocalSongUri, songFileExists } from "./DownloadManager";
 
 let queue: number[] = [];
 let db: ExpoSQLiteDatabase;
@@ -158,10 +159,15 @@ export async function setPlaylist(playlistId: number) {
     reset();
 }
 
+export async function getCurrentlyPlayingSong() {
+    return await DbExtensions.getCurrentlyPlayingSong(db);
+}
+
 async function startNewSong(songId: number, recentlyPlayedSong?: RecentlyPlayedSong) {
     const localSessionData = await DbExtensions.getActiveLocalSessionData(db);
     const song = await DbExtensions.getSongDetails(db, songId);
     let recentlyPlayedSongFound = false;
+    let songUri: string;
 
     if (!localSessionData) {
         throw Error("No local session data found in startNewSong");
@@ -183,10 +189,16 @@ async function startNewSong(songId: number, recentlyPlayedSong?: RecentlyPlayedS
         }
     }
 
+    if (await songFileExists(song.directory)) {
+        songUri = generateLocalSongUri(song.directory);
+    } else {
+        songUri = await generateUrl(song, false);
+    }
+
     await clearSong();
     await TrackPlayer.add([{
         id: songId,
-        url: await generateUrl(song, false),
+        url: songUri,
         title: song.name,
         artist: song.artist?.name ?? "Unknown"
     }]);

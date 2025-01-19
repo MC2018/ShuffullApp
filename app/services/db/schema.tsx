@@ -93,3 +93,9 @@ export const requestTable = sqliteTable("requests", {
     songId: integer("song_id"),
     lastPlayed: integer("last_played", { mode: "timestamp_ms" })
 });
+
+export const downloadQueueTable = sqliteTable("download_queue", {
+    downloadQueueId: integer("download_queue_id").primaryKey(),
+    songId: integer("song_id").notNull().references(() => songTable.songId).unique(),
+    priority: integer("priority").notNull(),
+});

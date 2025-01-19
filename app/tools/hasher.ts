@@ -1,7 +1,8 @@
 // @ts-ignore
 import argon2 from "@sphereon/react-native-argon2";
+import * as Crypto from "expo-crypto";
 
-export default async function hash(input: string) {
+export async function argon2Hash(input: string) {
     const encoder = new TextEncoder();
     const byteArray = encoder.encode("ShuffullSaltingSixteenBytesLong!");
     const salt = Array.from(byteArray).map(byte => byte.toString(16).padStart(2, "0")).join("");
@@ -13,4 +14,10 @@ export default async function hash(input: string) {
         hashLength: 16
     });
     return result.rawHash;
+}
+
+export async function shaHash(bytes: Uint8Array) {
+    const digest = await Crypto.digest(Crypto.CryptoDigestAlgorithm.SHA256, bytes);
+    const rawHash = new Uint8Array(digest);
+    return Array.from(rawHash).map(byte => byte.toString(16).padStart(2, "0")).join("");
 }

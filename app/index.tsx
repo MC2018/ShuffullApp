@@ -16,22 +16,26 @@ import { STORAGE_KEYS } from "./constants/storageKeys";
 import SyncManager from "./tools/SyncManager";
 import * as DbExtensions from "./services/db/dbExtensions";
 import * as MediaManager from "./tools/MediaManager";
-import hash from "./tools/hasher";
+import { argon2Hash } from "./tools/hasher";
 import React from "react";
+import * as DownloadManager from "./tools/DownloadManager";
 
 const dbName = "shuffull-db";
 let expoDb = SQLite.openDatabaseSync(dbName);
 let db = drizzle(expoDb);
 let syncManager: SyncManager | null;
 MediaManager.setup(db);
+DownloadManager.setup(db);
 
 function resetDb() {
     MediaManager.reset();
+    DownloadManager.reset();
     expoDb.closeSync();
     SQLite.deleteDatabaseSync(dbName);
     expoDb = SQLite.openDatabaseSync(dbName);
     db = drizzle(expoDb);
     MediaManager.setup(db);
+    DownloadManager.setup(db);
 }
 
 export default function Index() {
@@ -80,7 +84,7 @@ export default function Index() {
     }, [loginRefreshes]);
 
     const handleLogin = async (username: string, password: string, hostAddress: string) => {
-        const userHash = await hash(`${username};${password}`);
+        const userHash = await argon2Hash(`${username};${password}`);
         const api = new ApiClient(hostAddress, "");
         const authResponse = await api.userAuthenticate(username, userHash);
 

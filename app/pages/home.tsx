@@ -7,6 +7,7 @@ import PlayPauseButton from "../components/PlayPauseButton";
 import React from "react";
 import PlaylistSelector from "../components/PlaylistSelector";
 import * as MediaManager from "../tools/MediaManager";
+import DownloadButton from "../components/DownloadButton";
 
 interface HomeProps {
     userId: number;
@@ -38,7 +39,7 @@ export default function HomePage({ userId, onLogout }: HomeProps) {
         if (playlistId == -1) {
             return;
         }
-        
+
         await MediaManager.setPlaylist(playlistId);
 
         if (wasPlaying) {
@@ -61,6 +62,7 @@ export default function HomePage({ userId, onLogout }: HomeProps) {
             <PlaylistSelector
                 userId={userId}
                 onPlaylistSelected={handlePlaylistSelected}></PlaylistSelector>
+            <DownloadButton></DownloadButton>
         </View>
         </>
     );
