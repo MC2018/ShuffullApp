@@ -247,16 +247,17 @@ async function startNewSong(songId: number, recentlyPlayedSong?: RecentlyPlayedS
         requestType: RequestType.UpdateSongLastPlayed,
         userId: localSessionData.userId
     };
+    await DbExtensions.updateUserSongLastPlayed(db, localSessionData.userId, songId, timeSongStarted);
     await DbExtensions.addRequest(db, updateSongLastPlayedRequest);
 }
 
 async function getNextSongId(): Promise<number> {
-    const localSessionData = await DbExtensions.getActiveLocalSessionData(db);
+    const currentPlaylistId = await getCurrentPlaylistId();
     let potentialSongId: number | undefined;
     let songId: number;
 
-    if (localSessionData?.currentPlaylistId != undefined && localSessionData?.currentPlaylistId != -1) {
-        potentialSongId = await DbExtensions.getRandomSongIdByPlaylist(db, localSessionData?.currentPlaylistId);
+    if (currentPlaylistId != undefined && currentPlaylistId != -1) {
+        potentialSongId = await DbExtensions.getRandomSongIdByPlaylist(db, currentPlaylistId);
     } else {
         potentialSongId = await DbExtensions.getRandomSongId(db);
     }

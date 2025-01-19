@@ -1,4 +1,4 @@
-import { eq, gt, lt, ExtractTablesWithRelations, inArray, sql, isNotNull, and, desc, asc } from "drizzle-orm";
+import { eq, gt, lt, ExtractTablesWithRelations, inArray, sql, isNotNull, and, desc, asc, or } from "drizzle-orm";
 import { ExpoSQLiteDatabase } from "drizzle-orm/expo-sqlite"
 import { SQLiteTransaction } from "drizzle-orm/sqlite-core";
 import { SQLiteRunResult } from "expo-sqlite";
@@ -219,6 +219,12 @@ export async function updateUserSongs(db: GenericDb, userSongs: UserSong[]) {
     }
 }
 
+export async function updateUserSongLastPlayed(db: GenericDb, userId: number, songId: number, lastPlayed: Date) {
+    await db.update(userSongTable).set({
+        lastPlayed: lastPlayed
+    }).where(and(eq(userSongTable.userId, userId), eq(userSongTable.songId, songId)));
+}
+
 export async function getRandomSongId(db: GenericDb) {
     const songCount = (await db.select({
         count: sql<number>`COUNT(*)`.as("count"),
@@ -241,12 +247,13 @@ export async function getRandomSongId(db: GenericDb) {
 }
 
 export async function getRandomSongIdByPlaylist(db: GenericDb, playlistId: number) {
+    // TODO: figure out if there's simpler way to do this in the following query
     const songCount = (await db.select({
         count: sql<number>`COUNT(*)`.as("count"),
     }).from(songTable)
-    .innerJoin(playlistSongTable, eq(songTable.songId, playlistSongTable.songId))
-    .where(eq(playlistSongTable.playlistId, playlistId)))[0].count;
-    const randomSongIndex = Math.floor(songCount * Math.random());
+        .innerJoin(playlistSongTable, eq(songTable.songId, playlistSongTable.songId))
+        .where(eq(playlistSongTable.playlistId, playlistId)))[0].count;
+    const randomSongIndex = Math.floor(songCount * Math.random() * 0.3);
     
     const song = await db
         .select({
@@ -254,7 +261,9 @@ export async function getRandomSongIdByPlaylist(db: GenericDb, playlistId: numbe
         })
         .from(songTable)
         .innerJoin(playlistSongTable, eq(songTable.songId, playlistSongTable.songId))
+        .leftJoin(userSongTable, eq(songTable.songId, userSongTable.songId))
         .where(eq(playlistSongTable.playlistId, playlistId))
+        .orderBy(asc(userSongTable.lastPlayed), sql`RANDOM()`) // Random is for when lastPlayed is the same
         .offset(randomSongIndex)
         .limit(1);
 
