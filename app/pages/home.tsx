@@ -8,6 +8,7 @@ import React from "react";
 import PlaylistSelector from "../components/PlaylistSelector";
 import * as MediaManager from "../tools/MediaManager";
 import DownloadButton from "../components/DownloadButton";
+import DownloadPlaylistButton from "../components/DownloadPlaylistButton";
 
 interface HomeProps {
     userId: number;
@@ -63,6 +64,7 @@ export default function HomePage({ userId, onLogout }: HomeProps) {
                 userId={userId}
                 onPlaylistSelected={handlePlaylistSelected}></PlaylistSelector>
             <DownloadButton></DownloadButton>
+            <DownloadPlaylistButton></DownloadPlaylistButton>
         </View>
         </>
     );

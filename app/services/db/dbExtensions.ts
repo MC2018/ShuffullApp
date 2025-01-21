@@ -119,6 +119,16 @@ export async function checkForRecentlyPlayedSong(db: GenericDb, next: boolean) {
     return result[0];
 }
 
+export async function getSongsByPlaylist(db: GenericDb, playlistId: number) {
+    return await db.select({
+        songId: songTable.songId,
+        directory: songTable.directory
+    })
+        .from(songTable)
+        .innerJoin(playlistSongTable, eq(songTable.songId, playlistSongTable.songId))
+        .where(eq(playlistSongTable.playlistId, playlistId));
+}
+
 export async function updateTags(db: GenericDb, newTags: Tag[]) {
     const localTags = await db.select().from(tagTable);
     const tagsToRemove = localTags.filter(localTag => !newTags.some(newTag => newTag.tagId === localTag.tagId));
@@ -333,11 +343,15 @@ export async function getPlaylists(db: GenericDb, userId: number) {
 }
 
 // TODO: I may want to add a way to change priority
-export async function addToDownloadQueue(db: GenericDb, songId: number, priority: DownloadPriority) {
-    await db.insert(downloadQueueTable).values([{
-        songId: songId,
+export async function addToDownloadQueue(db: GenericDb, songIds: number[], priority: DownloadPriority) {
+    if (!songIds.length) {
+        return;
+    }
+
+    await db.insert(downloadQueueTable).values(songIds.map(x => ({
+        songId: x,
         priority: priority
-    }]).onConflictDoNothing();
+    }))).onConflictDoNothing();
 }
 
 export async function getFromDownloadQueue(db: GenericDb) {

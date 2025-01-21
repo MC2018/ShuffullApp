@@ -33,8 +33,26 @@ export function reset() {
     }
 }
 
-export async function addToDownloadQueue(songId: number, priority: DownloadPriority) {
-    await DbExtensions.addToDownloadQueue(db, songId, priority);
+export async function addSongToDownloadQueue(songId: number, priority: DownloadPriority) {
+    await DbExtensions.addToDownloadQueue(db, [songId], priority);
+}
+
+// TODO: this could be optimized to prevent spam-presses
+export async function addPlaylistToDownloadQueue(playlistId: number, priority: DownloadPriority) {
+    let songs = await DbExtensions.getSongsByPlaylist(db, playlistId);
+    let existingSongs: number[] = [];
+
+    for (let i = 0; i < songs.length; i++) {
+        if (await songFileExists(songs[i].directory)) {
+            existingSongs.push(songs[i].songId);
+        }
+    }
+
+    console.log(new Date(Date.now()));
+    songs = songs.filter(x => !existingSongs.includes(x.songId));
+    console.log(new Date(Date.now()));
+
+    await DbExtensions.addToDownloadQueue(db, songs.map(x => x.songId), priority);
 }
 
 export async function songFileExists(fileName: string) {
