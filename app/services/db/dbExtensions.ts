@@ -119,6 +119,46 @@ export async function checkForRecentlyPlayedSong(db: GenericDb, next: boolean) {
     return result[0];
 }
 
+export type SongWithArtist = {
+    song: Song;
+    artists: Artist[];
+}
+
+export async function getAllSongsWithArtists(db: GenericDb) {
+    const result: SongWithArtist[] = [];
+
+    const rawData = await db.select({
+        song: songTable,
+        artist: artistTable
+    }).from(songTable)
+        .leftJoin(songArtistTable, eq(songTable.songId, songArtistTable.songId))
+        .leftJoin(artistTable, eq(songArtistTable.artistId, artistTable.artistId))
+        .orderBy(asc(songTable.songId));
+    
+    let nextSongWithArtist: SongWithArtist | undefined = undefined;
+
+    for (let i = 0; i < rawData.length; i++) {
+        if (nextSongWithArtist == undefined || rawData[i].song.songId != nextSongWithArtist.song.songId) {
+            nextSongWithArtist = {
+                song: rawData[i].song,
+                artists: []
+            };
+        }
+        
+        const artist = rawData[i].artist;
+
+        if (artist != null) {
+            nextSongWithArtist.artists.push(artist);
+        }
+
+        if (i + 1 >= rawData.length || rawData[i + 1].song.songId != nextSongWithArtist.song.songId) {
+            result.push(nextSongWithArtist);
+        }
+    }
+
+    return result;
+}
+
 export async function getSongsByPlaylist(db: GenericDb, playlistId: number) {
     return await db.select({
         songId: songTable.songId,

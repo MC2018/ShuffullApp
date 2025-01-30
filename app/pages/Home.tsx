@@ -9,29 +9,22 @@ import PlaylistSelector from "../components/PlaylistSelector";
 import * as MediaManager from "../tools/MediaManager";
 import DownloadButton from "../components/DownloadButton";
 import DownloadPlaylistButton from "../components/DownloadPlaylistButton";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { STORAGE_KEYS } from "../constants/storageKeys";
+import { useApi } from "../services/api/apiProvider";
+import { logout } from "../services/LogoutHandler";
 
-interface HomeProps {
-    userId: number;
-    onLogout: () => void;
-}
-
-export default function HomePage({ userId, onLogout }: HomeProps) {
-    const [ session, setSession ] = useState<LocalSessionData | undefined>(undefined);
+export default function HomePage({ navigation, route }: any) {
+    const { userId } = route.params;
     const db = useDb();
 
-    // Logout check
-    useEffect(() => {
-        (async () => {
-            const localSessionData = await DbExtensions.getLocalSessionData(db, userId);
-
-            if (!localSessionData || localSessionData.expiration < new Date(Date.now())) {
-                onLogout();
-                return;
-            }
-
-            setSession(localSessionData);
-        })();
-    }, [userId]); // TODO: have this run every X minutes to continuously validate expiration
+    if (userId == undefined || typeof userId !== "number") {
+        return (
+            <View>
+                <Text>Loading...</Text>
+            </View>
+        );
+    }
 
     const handlePlaylistSelected = async (playlist: Playlist | undefined) => {
         const playlistId = playlist?.playlistId ?? -1;
@@ -57,12 +50,19 @@ export default function HomePage({ userId, onLogout }: HomeProps) {
                 alignItems: "center",
             }}
             >
-            <Text>Edit app/index.tsx to edit this screen.</Text>
-            <Button onPress={onLogout} title="Logout" />
+            <Button onPress={logout} title="Logout" />
             <PlayPauseButton />
-            <PlaylistSelector
-                userId={userId}
-                onPlaylistSelected={handlePlaylistSelected}></PlaylistSelector>
+            {userId != undefined ? 
+                <>
+                    <PlaylistSelector
+                        userId={userId}
+                        onPlaylistSelected={handlePlaylistSelected}></PlaylistSelector>
+                </>
+                :
+                <>
+                </>
+            }
+            
             <DownloadButton></DownloadButton>
             <DownloadPlaylistButton></DownloadPlaylistButton>
         </View>

@@ -13,6 +13,7 @@ export async function argon2Hash(input: string) {
         mode: "argon2id",
         hashLength: 16
     });
+    
     return result.rawHash;
 }
 

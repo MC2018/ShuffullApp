@@ -1,5 +1,5 @@
 import * as SQLite from "expo-sqlite/next";
-import { Text } from "react-native";
+import { Text, View } from "react-native";
 import { drizzle } from "drizzle-orm/expo-sqlite"
 import { migrate, useMigrations } from "drizzle-orm/expo-sqlite/migrator"
 import migrations from "./services/db/drizzle/migrations"
@@ -19,6 +19,8 @@ import * as MediaManager from "./tools/MediaManager";
 import { argon2Hash } from "./tools/hasher";
 import React from "react";
 import * as DownloadManager from "./tools/DownloadManager";
+import NavigationTabs from "./pages/NavigationTabs";
+import { LogoutHandlerProvider } from "./services/LogoutHandler";
 
 const dbName = "shuffull-db";
 let expoDb = SQLite.openDatabaseSync(dbName);
@@ -107,6 +109,7 @@ export default function Index() {
             throw Error("Critical error: Local session data cannot find data after upserting.");
         }
 
+        await AsyncStorage.setItem(STORAGE_KEYS.CURRENT_USER_ID, localSessionData.userId.toString());
         setLoginRefreshes(loginRefreshes + 1);
     };
 
@@ -121,6 +124,8 @@ export default function Index() {
         }
 
         MediaManager.reset();
+
+        await AsyncStorage.removeItem(STORAGE_KEYS.CURRENT_USER_ID);
 
         setApiClient(null);
         setSessionData(null);
@@ -140,21 +145,23 @@ export default function Index() {
     let result;
 
     if (!autoLoginAttempted) {
-        result = <></>
+        result = <></>;
     } else if (loggedIn && apiClient) {
         result =
         <>
+        <LogoutHandlerProvider onLogout={handleLogout}>
         <ApiProvider api={apiClient}>
-            <HomePage userId={sessionData?.userId ?? -1} onLogout={handleLogout}/>
+            <NavigationTabs></NavigationTabs>
         </ApiProvider>
+        </LogoutHandlerProvider>
         </>;
     } else {
         result = <LoginPage onLogin={handleLogin} />;
     }
 
-    return (
-        <DbProvider db={db}>
+    return <DbProvider db={db}>
+        <View style={{width: "100%", height: "100%", paddingTop: 20}}>
             {result}
-        </DbProvider>
-    );
+        </View>
+    </DbProvider>;
 }

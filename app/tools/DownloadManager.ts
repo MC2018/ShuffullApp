@@ -48,10 +48,7 @@ export async function addPlaylistToDownloadQueue(playlistId: number, priority: D
         }
     }
 
-    console.log(new Date(Date.now()));
     songs = songs.filter(x => !existingSongs.includes(x.songId));
-    console.log(new Date(Date.now()));
-
     await DbExtensions.addToDownloadQueue(db, songs.map(x => x.songId), priority);
 }
 
@@ -91,6 +88,11 @@ async function downloadNext() {
     try {
         downloading = true;
         const hostAddress = await AsyncStorage.getItem(STORAGE_KEYS.HOST_ADDRESS);
+
+        if (hostAddress == null) {
+            return;
+        }
+
         const downloadResumable = FileSystem.createDownloadResumable(
             `${hostAddress}/music/${song.directory}`,
             `${tempFolder}${song.directory}`);

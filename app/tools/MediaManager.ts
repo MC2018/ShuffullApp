@@ -67,6 +67,11 @@ export async function play() {
     }
 }
 
+export async function playSpecificSong(songId: number) {
+    await setPlaylist(-1);
+    startNewSong(songId);
+}
+
 export async function pause() {
     await TrackPlayer.pause();
 }
@@ -82,8 +87,14 @@ export async function skip() {
 
         if (recentlyPlayedSong != undefined) {
             songId = recentlyPlayedSong.songId;
-
         } else {
+            const localSessionData = await DbExtensions.getActiveLocalSessionData(db);
+
+            if (localSessionData != undefined &&
+                (localSessionData.currentPlaylistId == undefined || localSessionData.currentPlaylistId == -1)) {
+                return;
+            }
+
             songId = await getNextSongId();
         }
     }
@@ -156,7 +167,7 @@ export async function isPlaying() {
 
 export async function setPlaylist(playlistId: number) {
     await DbExtensions.setActiveLocalSessionPlaylistId(db, playlistId);
-    reset();
+    await reset();
 }
 
 export async function getCurrentlyPlayingSong() {
