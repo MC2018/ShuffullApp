@@ -7,7 +7,7 @@ import { STORAGE_KEYS } from "../constants/storageKeys";
 import { generateGuid, generateRange } from "./utils";
 import { RequestType } from "../enums";
 import { getPlaybackState } from "react-native-track-player/lib/src/trackPlayer";
-import { generateLocalSongUri, songFileExists } from "./DownloadManager";
+import Downloader from "./Downloader";
 
 let queue: number[] = [];
 let db: ExpoSQLiteDatabase;
@@ -235,8 +235,8 @@ async function startNewSong(songId: number, recentlyPlayedSong?: RecentlyPlayedS
         }
     }
 
-    if (await songFileExists(song.directory)) {
-        songUri = generateLocalSongUri(song.directory);
+    if (await Downloader.songFileExists(song.directory)) {
+        songUri = Downloader.generateLocalSongUri(song.directory);
     } else {
         songUri = await generateUrl(song, false);
     }

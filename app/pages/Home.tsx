@@ -12,7 +12,7 @@ import DownloadPlaylistButton from "../components/DownloadPlaylistButton";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { STORAGE_KEYS } from "../constants/storageKeys";
 import { useApi } from "../services/api/apiProvider";
-import { logout } from "../services/LogoutHandler";
+import { logout } from "../services/LogoutProvider";
 import Skimmer from "../components/Skimmer";
 
 export default function HomePage({ navigation, route }: any) {

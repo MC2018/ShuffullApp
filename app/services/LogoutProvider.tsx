@@ -1,18 +1,17 @@
 import React, { useEffect, useState } from "react";
 import { ReactNode } from 'react';
-import * as DbQueries from "../services/db/queries";
+import * as DbQueries from "./db/queries";
 import { useDb } from "./db/DbProvider";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { STORAGE_KEYS } from "../constants/storageKeys";
 
-interface LogoutHandlerProps {
+interface LogoutProviderProps {
     children: ReactNode;
-    onLogout: () => void;
+    onLogout: () => Promise<void>;
 };
+let callOnLogout: () => Promise<void>;
 
-let callOnLogout: () => void;
-
-export const LogoutHandlerProvider = ({ children, onLogout }: LogoutHandlerProps) => {
+export default function LogoutProvider({ children, onLogout }: LogoutProviderProps) {
     const [ timerIncrement, setTimerIncrement ] = useState(0);
 
     const db = useDb();
@@ -35,7 +34,7 @@ export const LogoutHandlerProvider = ({ children, onLogout }: LogoutHandlerProps
                 await logout();
                 return;
             }
-        }, 500);
+        }, 5000);
 
         return () => clearTimeout(timer);
     }, [timerIncrement]);

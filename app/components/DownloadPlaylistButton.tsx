@@ -1,9 +1,11 @@
 import * as MediaManager from "../tools/MediaManager";
 import { Button } from "react-native";
 import React from "react";
-import { addPlaylistToDownloadQueue, DownloadPriority } from "../tools/DownloadManager";
+import { DownloadPriority } from "../tools/Downloader";
+import { useDownloader } from "../services/DownloaderProvider";
 
 export default function DownloadPlaylistButton() {
+    const downloader = useDownloader();
     const handleDownloadPlaylist = async () => {
         const playlistId = await MediaManager.getCurrentPlaylistId();
 
@@ -11,7 +13,7 @@ export default function DownloadPlaylistButton() {
             return;
         }
 
-        await addPlaylistToDownloadQueue(playlistId, DownloadPriority.Medium);
+        await downloader.addPlaylistToDownloadQueue(playlistId, DownloadPriority.Medium);
     };
 
     return (

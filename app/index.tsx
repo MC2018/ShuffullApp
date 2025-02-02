@@ -18,26 +18,23 @@ import * as DbQueries from "./services/db/queries";
 import * as MediaManager from "./tools/MediaManager";
 import { argon2Hash } from "./tools/hasher";
 import React from "react";
-import * as DownloadManager from "./tools/DownloadManager";
 import NavigationTabs from "./pages/NavigationTabs";
-import { LogoutHandlerProvider } from "./services/LogoutHandler";
+import LogoutProvider from "./services/LogoutProvider";
+import DownloaderProvider from "./services/DownloaderProvider";
 
 const dbName = "shuffull-db";
 let expoDb = SQLite.openDatabaseSync(dbName);
 let db = drizzle(expoDb);
 let syncManager: SyncManager | null;
 MediaManager.setup(db);
-DownloadManager.setup(db);
 
 function resetDb() {
     MediaManager.reset();
-    DownloadManager.reset();
     expoDb.closeSync();
     SQLite.deleteDatabaseSync(dbName);
     expoDb = SQLite.openDatabaseSync(dbName);
     db = drizzle(expoDb);
     MediaManager.setup(db);
-    DownloadManager.setup(db);
 }
 
 export default function Index() {
@@ -148,20 +145,23 @@ export default function Index() {
         result = <></>;
     } else if (loggedIn && apiClient) {
         result =
-        <>
-        <LogoutHandlerProvider onLogout={handleLogout}>
-        <ApiProvider api={apiClient}>
-            <NavigationTabs></NavigationTabs>
-        </ApiProvider>
-        </LogoutHandlerProvider>
-        </>;
+            <DbProvider db={db}>
+                <DownloaderProvider>
+                    <LogoutProvider onLogout={handleLogout}>
+                        <ApiProvider api={apiClient}>
+                            <NavigationTabs />
+                        </ApiProvider>
+                    </LogoutProvider>
+                </DownloaderProvider>
+            </DbProvider>;
     } else {
         result = <LoginPage onLogin={handleLogin} />;
     }
 
-    return <DbProvider db={db}>
-        <View style={{width: "100%", height: "100%", paddingTop: 20}}>
+    result =
+        <View style={{width: "100%", height: "100%", paddingTop: 30}}>
             {result}
-        </View>
-    </DbProvider>;
+        </View>;
+
+    return result;
 }

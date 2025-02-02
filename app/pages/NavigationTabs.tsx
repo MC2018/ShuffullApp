@@ -7,7 +7,7 @@ import { STORAGE_KEYS } from "../constants/storageKeys";
 import { useEffect, useState } from "react";
 import Songs from "./Songs";
 import { useDb } from "../services/db/DbProvider";
-import { logout } from "../services/LogoutHandler";
+import { logout } from "../services/LogoutProvider";
 
 const Tab = createBottomTabNavigator();
 
