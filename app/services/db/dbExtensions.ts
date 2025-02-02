@@ -342,7 +342,7 @@ export async function getSongDetails(db: GenericDb, songId: number) {
         .from(songTable)
         .where(eq(songTable.songId, songId))
         .leftJoin(songArtistTable, eq(songTable.songId, songArtistTable.songId))
-        .leftJoin(artistTable, eq(songArtistTable.songId, artistTable.artistId));
+        .leftJoin(artistTable, eq(songArtistTable.artistId, artistTable.artistId));
     // TODO: this doesn't work if there are multiple artists
 
     if (!song.length) {

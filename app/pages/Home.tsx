@@ -13,6 +13,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { STORAGE_KEYS } from "../constants/storageKeys";
 import { useApi } from "../services/api/apiProvider";
 import { logout } from "../services/LogoutHandler";
+import Skimmer from "../components/Skimmer";
 
 export default function HomePage({ navigation, route }: any) {
     const { userId } = route.params;
@@ -65,6 +66,7 @@ export default function HomePage({ navigation, route }: any) {
             
             <DownloadButton></DownloadButton>
             <DownloadPlaylistButton></DownloadPlaylistButton>
+            <Skimmer></Skimmer>
         </View>
         </>
     );

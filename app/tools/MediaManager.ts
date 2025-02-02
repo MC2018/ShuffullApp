@@ -1,5 +1,5 @@
 import { ExpoSQLiteDatabase } from "drizzle-orm/expo-sqlite";
-import TrackPlayer, { Capability, Event, PlaybackState, State } from "react-native-track-player";
+import TrackPlayer, { Capability, Event, PlaybackState, RemoteSeekEvent, State } from "react-native-track-player";
 import { CreateUserSongRequest, RecentlyPlayedSong, Song, UpdateSongLastPlayedRequest } from "../services/db/models";
 import * as DbExtensions from "../services/db/dbExtensions";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -30,21 +30,24 @@ async function initTrackPlayer() {
                 Capability.Pause,
                 Capability.SkipToPrevious,
                 Capability.Skip,
-                Capability.SkipToNext
+                Capability.SkipToNext,
+                Capability.SeekTo
             ],
             compactCapabilities: [
                 Capability.Play,
                 Capability.Pause,
                 Capability.SkipToPrevious,
                 Capability.Skip,
-                Capability.SkipToNext
+                Capability.SkipToNext,
+                Capability.SeekTo
             ],
             notificationCapabilities: [
                 Capability.Play,
                 Capability.Pause,
                 Capability.SkipToPrevious,
                 Capability.Skip,
-                Capability.SkipToNext
+                Capability.SkipToNext,
+                Capability.SeekTo
             ],
         });
     }
@@ -67,6 +70,9 @@ async function setupEventListeners() {
         }
 
         await skip();
+    });
+    TrackPlayer.addEventListener(Event.RemoteSeek, async (event: RemoteSeekEvent) => {
+        await seekTo(event.position);
     });
 }
 
@@ -196,6 +202,10 @@ export async function setPlaylist(playlistId: number) {
 
 export async function getCurrentlyPlayingSong() {
     return await DbExtensions.getCurrentlyPlayingSong(db);
+}
+
+export async function seekTo(seconds: number) {
+    await TrackPlayer.seekTo(seconds);
 }
 
 async function startNewSong(songId: number, recentlyPlayedSong?: RecentlyPlayedSong) {
