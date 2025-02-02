@@ -84,6 +84,10 @@ export async function removeAllRecentlyPlayedSongs(db: GenericDb) {
     await db.delete(recentlyPlayedSongTable);
 }
 
+export async function removeRecentlyPlayedSongsAfter(db: GenericDb, date: Date) {
+    await db.delete(recentlyPlayedSongTable).where(gt(recentlyPlayedSongTable.lastPlayed, date));
+}
+
 export async function checkForLastRecentlyPlayedSong(db: GenericDb) {
     return await checkForRecentlyPlayedSong(db, false);
 }

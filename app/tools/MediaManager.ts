@@ -1,5 +1,5 @@
 import { ExpoSQLiteDatabase } from "drizzle-orm/expo-sqlite";
-import TrackPlayer, { Capability, Event, State, usePlaybackState } from "react-native-track-player";
+import TrackPlayer, { Capability, Event, PlaybackState, State } from "react-native-track-player";
 import { CreateUserSongRequest, RecentlyPlayedSong, Song, UpdateSongLastPlayedRequest } from "../services/db/models";
 import * as DbExtensions from "../services/db/dbExtensions";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -51,10 +51,23 @@ async function initTrackPlayer() {
 }
 
 async function setupEventListeners() {
-    TrackPlayer.addEventListener(Event.RemotePlay, () => play());
-    TrackPlayer.addEventListener(Event.RemotePause, () => pause());
-    TrackPlayer.addEventListener(Event.RemoteNext, () => skip());
-    TrackPlayer.addEventListener(Event.RemotePrevious, () => previous());
+    TrackPlayer.addEventListener(Event.RemotePlay, async () => await play());
+    TrackPlayer.addEventListener(Event.RemotePause, async () => await pause());
+    TrackPlayer.addEventListener(Event.RemoteNext, async () => await skip());
+    TrackPlayer.addEventListener(Event.RemotePrevious, async () => await previous());
+    TrackPlayer.addEventListener(Event.PlaybackState, async (state: PlaybackState) => {
+        if (state.state != State.Ended) {
+            return;
+        }
+
+        const playlistId = await getCurrentPlaylistId();
+
+        if (playlistId == -1 || playlistId == undefined) {
+            return;
+        }
+
+        await skip();
+    });
 }
 
 export async function play() {
@@ -78,10 +91,16 @@ export async function pause() {
 
 export async function skip() {
     let recentlyPlayedSong: RecentlyPlayedSong | undefined;
-    let songId: number;
+    let songId: number | undefined;
 
     if (queue.length > 0) {
+        const currentSong = await DbExtensions.getCurrentlyPlayingSong(db);
+
         songId = queue.shift()!;
+
+        if (currentSong != undefined) {
+            await DbExtensions.removeRecentlyPlayedSongsAfter(db, currentSong?.lastPlayed);
+        }
     } else {
         recentlyPlayedSong = await DbExtensions.checkForNextRecentlyPlayedSong(db);
 
@@ -97,6 +116,11 @@ export async function skip() {
 
             songId = await getNextSongId();
         }
+    }
+
+    // No song should play next
+    if (songId == undefined) {
+        return;
     }
 
     if (recentlyPlayedSong != undefined) {
@@ -262,22 +286,20 @@ async function startNewSong(songId: number, recentlyPlayedSong?: RecentlyPlayedS
     await DbExtensions.addRequest(db, updateSongLastPlayedRequest);
 }
 
-async function getNextSongId(): Promise<number> {
+async function getNextSongId(): Promise<number | undefined> {
     const currentPlaylistId = await getCurrentPlaylistId();
-    let potentialSongId: number | undefined;
-    let songId: number;
+    let songId: number | undefined;
 
     if (currentPlaylistId != undefined && currentPlaylistId != -1) {
-        potentialSongId = await DbExtensions.getRandomSongIdByPlaylist(db, currentPlaylistId);
+        songId = await DbExtensions.getRandomSongIdByPlaylist(db, currentPlaylistId);
+        
+        if (songId == undefined) {
+            throw Error("Attempted to get a playlist song, but no songs exist.");
+        }
     } else {
-        potentialSongId = await DbExtensions.getRandomSongId(db);
+        // Use case: when you select a specific song to play, the next song to play will be nothing
+        return undefined;
     }
-            
-    if (potentialSongId == undefined) {
-        throw Error("Attempted to get a song, but no songs exist.");
-    }
-    
-    songId = potentialSongId;
 
     return songId;
 }
