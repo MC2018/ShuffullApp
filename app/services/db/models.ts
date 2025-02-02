@@ -24,3 +24,4 @@ export type UpdateSongLastPlayedRequest = Request & {
     songId: number,
     lastPlayed: Date
 };
+export type DownloadQueue = typeof Schema.downloadQueueTable.$inferSelect;

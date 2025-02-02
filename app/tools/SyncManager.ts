@@ -46,7 +46,7 @@ export default class SyncManager {
 
     async submitRequests(requests: DbModels.Request[]) {
         try {
-            await this.db.insert(requestTable).values(requests);
+            await DbQueries.addRequests(this.db, requests);
         } catch (e) {
             console.log(e);
         }
@@ -60,7 +60,7 @@ export default class SyncManager {
         this.syncing = true;
 
         try {
-            const unorderedRequests = await this.db.select().from(requestTable);
+            const unorderedRequests = await DbQueries.getRequests(this.db);
             const requestBatches: DbModels.Request[][] = [];
             const onlyOnceRequests: RequestType[] = [];
             let lastRequestType: RequestType | null = null;
@@ -106,11 +106,11 @@ export default class SyncManager {
                     return;
                 } else if (200 <= statusCode && statusCode <= 299) {
                     // TODO: move this to DbQueries?
-                    await this.db.delete(requestTable).where(inArray(requestTable.requestGuid, requestBatch.map(x => x.requestGuid)));
+                    await DbQueries.deleteRequests(this.db, requestBatch.map(x => x.requestGuid));
                 } else if (400 <= statusCode && statusCode <= 499) {
                     // TODO: same as above
                     // TODO: I don't think this should always remove request
-                    await this.db.delete(requestTable).where(inArray(requestTable.requestGuid, requestBatch.map(x => x.requestGuid)));
+                    await DbQueries.deleteRequests(this.db, requestBatch.map(x => x.requestGuid));
                     break;
                 } else if (500 <= statusCode) {
                     console.log("Cannot access server.");
@@ -193,14 +193,14 @@ export default class SyncManager {
         try {
             this.db.transaction(async (tx) => {
                 // Update user version
-                const oldUser = await tx.select().from(userTable).where(eq(userTable.userId, this.userId));
+                const oldUser = await DbQueries.getUser(tx, this.userId);
                 const user = await this.api.userGet();
                 await DbQueries.updateUser(tx, user);
 
                 // Refresh tags
                 const tags = await this.api.tagGetAll();
                 await DbQueries.updateTags(tx, tags);
-                
+
                 // Refresh playlists
                 const accessiblePlaylists = await this.api.playlistGetAll();
                 const playlistsToFetch: number[] = [];
@@ -214,12 +214,11 @@ export default class SyncManager {
 
                 for (const accessiblePlaylist of accessiblePlaylists) {
                     const localPlaylist = localPlaylists.filter(x => x.playlistId == accessiblePlaylist.playlistId);
-
+                    
                     if (!localPlaylist.length || localPlaylist[0].version < accessiblePlaylist.version) {
                         playlistsToFetch.push(accessiblePlaylist.playlistId);
                     }
                 }
-
                 if (playlistsToFetch.length) {
                     updatedPlaylists = await this.api.playlistGetList(playlistsToFetch);
 
@@ -236,8 +235,8 @@ export default class SyncManager {
                 let endOfList = false;
                 const updatedUserSongs: ApiModels.UserSong[] = [];
 
-                if (oldUser.length) {
-                    afterDate = oldUser[0].version;
+                if (oldUser != undefined) {
+                    afterDate = oldUser.version;
                 } else {
                     afterDate = new Date("0000-01-01T00:00:00Z")
                 }
@@ -256,7 +255,7 @@ export default class SyncManager {
                 }
 
                 // Combine UserSongs+PlaylistSongs and cross-verify which songs aren't on the local device
-                const localSongIds = (await tx.select({ songId: songTable.songId }).from(songTable)).map(x => x.songId);
+                const localSongIds = await DbQueries.getAllSongIds(tx);
                 const newSongIds = [
                     ...updatedPlaylists.flatMap(x => x.playlistSongs?.map(song => song.songId)).filter(x => x != undefined),
                     ...updatedUserSongs.map(x => x.songId)

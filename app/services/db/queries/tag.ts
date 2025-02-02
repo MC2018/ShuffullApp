@@ -3,7 +3,7 @@ import { Tag } from "../models";
 import { tagTable } from "../schema";
 import { eq, gt, lt, ExtractTablesWithRelations, inArray, sql, isNotNull, and, desc, asc, or } from "drizzle-orm";
 
-export async function updateTags(db: GenericDb, newTags: Tag[]) {
+export async function updateTags(db: GenericDb, newTags: Tag[]): Promise<void> {
     const localTags = await db.select().from(tagTable);
     const tagsToRemove = localTags.filter(localTag => !newTags.some(newTag => newTag.tagId === localTag.tagId));
 

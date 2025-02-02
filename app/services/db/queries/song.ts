@@ -8,7 +8,7 @@ export type SongWithArtist = {
     artists: Artist[];
 }
 
-export async function getAllSongsWithArtists(db: GenericDb) {
+export async function getAllSongsWithArtists(db: GenericDb): Promise<SongWithArtist[]> {
     const result: SongWithArtist[] = [];
 
     const rawData = await db.select({
@@ -43,7 +43,7 @@ export async function getAllSongsWithArtists(db: GenericDb) {
     return result;
 }
 
-export async function getSongsByPlaylist(db: GenericDb, playlistId: number) {
+export async function getSongsByPlaylist(db: GenericDb, playlistId: number): Promise<{songId: number, directory: string}[]> {
     return await db.select({
         songId: songTable.songId,
         directory: songTable.directory
@@ -53,7 +53,7 @@ export async function getSongsByPlaylist(db: GenericDb, playlistId: number) {
         .where(eq(playlistSongTable.playlistId, playlistId));
 }
 
-export async function updateSongs(db: GenericDb, songs: Song[]) {
+export async function updateSongs(db: GenericDb, songs: Song[]): Promise<void> {
     if (!songs.length) {
         return;
     }
@@ -62,7 +62,7 @@ export async function updateSongs(db: GenericDb, songs: Song[]) {
     await db.insert(songTable).values(songs);
 }
 
-export async function getRandomSongId(db: GenericDb) {
+export async function getRandomSongId(db: GenericDb): Promise<number | undefined> {
     const songCount = (await db.select({
         count: sql<number>`COUNT(*)`.as("count"),
     }).from(songTable))[0].count;
@@ -83,7 +83,7 @@ export async function getRandomSongId(db: GenericDb) {
     return song[0].songId;
 }
 
-export async function getRandomSongIdByPlaylist(db: GenericDb, playlistId: number) {
+export async function getRandomSongIdByPlaylist(db: GenericDb, playlistId: number): Promise<number | undefined> {
     // TODO: figure out if there's simpler way to do this in the following query
     const songCount = (await db.select({
         count: sql<number>`COUNT(*)`.as("count"),
@@ -111,7 +111,9 @@ export async function getRandomSongIdByPlaylist(db: GenericDb, playlistId: numbe
     return song[0].songId;
 }
 
-export async function getSongDetails(db: GenericDb, songId: number) {
+// TODO: add more than just artists to this
+// TODO: this doesn't work if there are multiple artists
+export async function fetchSongDetails(db: GenericDb, songId: number): Promise<SongWithArtist> {
     const song = await db
         .select({
             songId: songTable.songId,
@@ -126,7 +128,6 @@ export async function getSongDetails(db: GenericDb, songId: number) {
         .where(eq(songTable.songId, songId))
         .leftJoin(songArtistTable, eq(songTable.songId, songArtistTable.songId))
         .leftJoin(artistTable, eq(songArtistTable.artistId, artistTable.artistId));
-    // TODO: this doesn't work if there are multiple artists
 
     if (!song.length) {
         const errMsg = `Song ${songId} cannot be found in getSongDetails.`;
@@ -134,10 +135,19 @@ export async function getSongDetails(db: GenericDb, songId: number) {
         throw Error(errMsg);
     }
 
-    return song[0];
+    let result: SongWithArtist = {
+        song: song[0],
+        artists: []
+    };
+
+    if (song[0].artist != null) {
+        result.artists.push(song[0].artist);
+    }
+
+    return result;
 }
 
-export async function getSong(db: GenericDb, songId: number) {
+export async function getSong(db: GenericDb, songId: number): Promise<Song | undefined> {
     const song = await db.select().from(songTable).where(eq(songTable.songId, songId));
 
     if (!song.length) {
@@ -147,3 +157,6 @@ export async function getSong(db: GenericDb, songId: number) {
     return song[0];
 }
 
+export async function getAllSongIds(db: GenericDb): Promise<number[]> {
+    return (await db.select({ songId: songTable.songId }).from(songTable)).map(x => x.songId);
+}

@@ -4,7 +4,7 @@ import { userSongTable } from "../schema";
 import { eq, gt, lt, ExtractTablesWithRelations, inArray, sql, isNotNull, and, desc, asc, or } from "drizzle-orm";
 import { getActiveLocalSessionData } from "./localSessionData";
 
-export async function updateUserSongs(db: GenericDb, userSongs: UserSong[]) {
+export async function updateUserSongs(db: GenericDb, userSongs: UserSong[]): Promise<void> {
     const localSessionData = await getActiveLocalSessionData(db);
 
     if (!localSessionData) {
@@ -32,7 +32,7 @@ export async function updateUserSongs(db: GenericDb, userSongs: UserSong[]) {
     }
 }
 
-export async function updateUserSongLastPlayed(db: GenericDb, userId: number, songId: number, lastPlayed: Date) {
+export async function updateUserSongLastPlayed(db: GenericDb, userId: number, songId: number, lastPlayed: Date): Promise<void> {
     await db.update(userSongTable).set({
         lastPlayed: lastPlayed
     }).where(and(eq(userSongTable.userId, userId), eq(userSongTable.songId, songId)));
@@ -48,6 +48,6 @@ export async function getUserSong(db: GenericDb, userId: number, songId: number)
     return userSong[0];
 }
 
-export async function addUserSong(db: GenericDb, userSong: UserSong) {
+export async function addUserSong(db: GenericDb, userSong: UserSong): Promise<void> {
     await db.insert(userSongTable).values([userSong]);
 }

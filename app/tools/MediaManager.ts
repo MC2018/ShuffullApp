@@ -210,7 +210,8 @@ export async function seekTo(seconds: number) {
 
 async function startNewSong(songId: number, recentlyPlayedSong?: RecentlyPlayedSong) {
     const localSessionData = await DbQueries.getActiveLocalSessionData(db);
-    const song = await DbQueries.getSongDetails(db, songId);
+    const songWithArtist = await DbQueries.fetchSongDetails(db, songId);
+    const song = songWithArtist.song;
     let recentlyPlayedSongFound = false;
     let songUri: string;
 
@@ -245,7 +246,7 @@ async function startNewSong(songId: number, recentlyPlayedSong?: RecentlyPlayedS
         id: songId,
         url: songUri,
         title: song.name,
-        artist: song.artist?.name ?? "Unknown"
+        artist: songWithArtist.artists.length > 0 ? songWithArtist.artists.map(x => x.name).join(", ") : "Unknown Artist"
     }]);
     await TrackPlayer.play();
 
@@ -274,6 +275,7 @@ async function startNewSong(songId: number, recentlyPlayedSong?: RecentlyPlayedS
             timeRequested: timeSongStarted,
             requestType: RequestType.CreateUserSong
         };
+        
         userSong = {
             userId: newUserSongRequest.userId,
             songId: newUserSongRequest.songId,
@@ -281,7 +283,7 @@ async function startNewSong(songId: number, recentlyPlayedSong?: RecentlyPlayedS
             version: newUserSongRequest.timeRequested
         };
         await DbQueries.addUserSong(db, userSong);
-        await DbQueries.addRequest(db, newUserSongRequest);
+        await DbQueries.addRequests(db, [newUserSongRequest]);
     }
 
     const updateSongLastPlayedRequest: UpdateSongLastPlayedRequest = {
@@ -293,7 +295,7 @@ async function startNewSong(songId: number, recentlyPlayedSong?: RecentlyPlayedS
         userId: localSessionData.userId
     };
     await DbQueries.updateUserSongLastPlayed(db, localSessionData.userId, songId, timeSongStarted);
-    await DbQueries.addRequest(db, updateSongLastPlayedRequest);
+    await DbQueries.addRequests(db, [updateSongLastPlayedRequest]);
 }
 
 async function getNextSongId(): Promise<number | undefined> {
