@@ -1,5 +1,5 @@
 import { ExpoSQLiteDatabase } from "drizzle-orm/expo-sqlite";
-import * as DbExtensions from "../services/db/dbExtensions";
+import * as DbQueries from "../services/db/queries";
 import * as FileSystem from "expo-file-system";
 import { verifyFileIntegrity } from "./utils";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -34,12 +34,12 @@ export function reset() {
 }
 
 export async function addSongToDownloadQueue(songId: number, priority: DownloadPriority) {
-    await DbExtensions.addToDownloadQueue(db, [songId], priority);
+    await DbQueries.addToDownloadQueue(db, [songId], priority);
 }
 
 // TODO: this could be optimized to prevent spam-presses
 export async function addPlaylistToDownloadQueue(playlistId: number, priority: DownloadPriority) {
-    let songs = await DbExtensions.getSongsByPlaylist(db, playlistId);
+    let songs = await DbQueries.getSongsByPlaylist(db, playlistId);
     let existingSongs: number[] = [];
 
     for (let i = 0; i < songs.length; i++) {
@@ -49,7 +49,7 @@ export async function addPlaylistToDownloadQueue(playlistId: number, priority: D
     }
 
     songs = songs.filter(x => !existingSongs.includes(x.songId));
-    await DbExtensions.addToDownloadQueue(db, songs.map(x => x.songId), priority);
+    await DbQueries.addToDownloadQueue(db, songs.map(x => x.songId), priority);
 }
 
 export async function songFileExists(fileName: string) {
@@ -62,16 +62,16 @@ export function generateLocalSongUri(fileName: string) {
 }
 
 async function downloadNext() {
-    const nextDownload = await DbExtensions.getFromDownloadQueue(db);
+    const nextDownload = await DbQueries.getFromDownloadQueue(db);
 
     if (!nextDownload) {
         return;
     }
 
-    const song = await DbExtensions.getSong(db, nextDownload.songId);
+    const song = await DbQueries.getSong(db, nextDownload.songId);
 
     if (!song) {
-        await DbExtensions.removeFromDownloadQueue(db, nextDownload.songId);
+        await DbQueries.removeFromDownloadQueue(db, nextDownload.songId);
         return;
     }
 
@@ -98,7 +98,7 @@ async function downloadNext() {
             `${tempFolder}${song.directory}`);
 
         if (await songFileExists(song.directory)) {
-            await DbExtensions.removeFromDownloadQueue(db, song.songId);
+            await DbQueries.removeFromDownloadQueue(db, song.songId);
             return;
         }
 
@@ -122,7 +122,7 @@ async function downloadNext() {
             from: downloadedFile.uri,
             to: destFolder + song.directory
         });
-        await DbExtensions.removeFromDownloadQueue(db, song.songId);
+        await DbQueries.removeFromDownloadQueue(db, song.songId);
     } catch (e) {
         console.error(e);
     } finally {

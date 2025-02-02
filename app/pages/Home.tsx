@@ -2,7 +2,7 @@ import { Button, Text, View } from "react-native";
 import { useDb } from "../services/db/DbProvider";
 import { useEffect, useState } from "react";
 import { LocalSessionData, Playlist } from "../services/db/models";
-import * as DbExtensions from "../services/db/dbExtensions";
+import * as DbQueries from "../services/db/queries";
 import PlayPauseButton from "../components/PlayPauseButton";
 import React from "react";
 import PlaylistSelector from "../components/PlaylistSelector";

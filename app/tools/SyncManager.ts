@@ -2,7 +2,7 @@ import { ExpoSQLiteDatabase } from "drizzle-orm/expo-sqlite";
 import { ApiClient } from "../services/api/apiClient";
 import { playlistTable, requestTable, songTable, userTable } from "../services/db/schema";
 import { eq, inArray } from "drizzle-orm";
-import * as DbExtensions from "../services/db/dbExtensions";
+import * as DbQueries from "../services/db/queries";
 import * as DbModels from "../services/db/models";
 import * as ApiModels from "../services/api/models";
 import { distinctBy, generateGuid } from "./utils";
@@ -105,7 +105,7 @@ export default class SyncManager {
                     this.loggingOut = true;
                     return;
                 } else if (200 <= statusCode && statusCode <= 299) {
-                    // TODO: move this to dbextensions?
+                    // TODO: move this to DbQueries?
                     await this.db.delete(requestTable).where(inArray(requestTable.requestGuid, requestBatch.map(x => x.requestGuid)));
                 } else if (400 <= statusCode && statusCode <= 499) {
                     // TODO: same as above
@@ -195,11 +195,11 @@ export default class SyncManager {
                 // Update user version
                 const oldUser = await tx.select().from(userTable).where(eq(userTable.userId, this.userId));
                 const user = await this.api.userGet();
-                await DbExtensions.updateUser(tx, user);
+                await DbQueries.updateUser(tx, user);
 
                 // Refresh tags
                 const tags = await this.api.tagGetAll();
-                await DbExtensions.updateTags(tx, tags);
+                await DbQueries.updateTags(tx, tags);
                 
                 // Refresh playlists
                 const accessiblePlaylists = await this.api.playlistGetAll();
@@ -207,10 +207,10 @@ export default class SyncManager {
                 let updatedPlaylists: ApiModels.Playlist[] = [];
 
                 // Remove playlists from local if they are no longer accessible
-                await DbExtensions.removeOldPlaylists(tx, accessiblePlaylists.map(x => x.playlistId));
+                await DbQueries.removeOldPlaylists(tx, accessiblePlaylists.map(x => x.playlistId));
 
                 // Create a list of playlists that need updating
-                const localPlaylists = await DbExtensions.getPlaylists(tx, this.userId);
+                const localPlaylists = await DbQueries.getPlaylists(tx, this.userId);
 
                 for (const accessiblePlaylist of accessiblePlaylists) {
                     const localPlaylist = localPlaylists.filter(x => x.playlistId == accessiblePlaylist.playlistId);
@@ -225,8 +225,8 @@ export default class SyncManager {
 
                     for (const updatedPlaylist of updatedPlaylists) {
                         if (updatedPlaylist.playlistSongs != null) {
-                            await DbExtensions.updatePlaylist(tx, updatedPlaylist);
-                            await DbExtensions.updatePlaylistSongs(tx, updatedPlaylist.playlistId, updatedPlaylist.playlistSongs);
+                            await DbQueries.updatePlaylist(tx, updatedPlaylist);
+                            await DbQueries.updatePlaylistSongs(tx, updatedPlaylist.playlistId, updatedPlaylist.playlistSongs);
                         }
                     }
                 }
@@ -246,7 +246,7 @@ export default class SyncManager {
                     const paginatedResponse = await this.api.userSongGetAll(afterDate);
 
                     const userSongs = paginatedResponse.items;
-                    await DbExtensions.updateUserSongs(tx, userSongs);
+                    await DbQueries.updateUserSongs(tx, userSongs);
                     updatedUserSongs.push(...userSongs);
                     endOfList = paginatedResponse.endOfList;
 
@@ -268,22 +268,22 @@ export default class SyncManager {
                     const songIdsSubset = newSongIds.slice(i * 500, i * 500 + 500);
                     const newSongs = await this.api.songGetList(songIdsSubset);
                     
-                    await DbExtensions.updateSongs(tx, newSongs);
+                    await DbQueries.updateSongs(tx, newSongs);
 
                     const songArtists = distinctBy(newSongs.flatMap(x => x.songArtists), x => x?.songArtistId).filter(x => x != null);
                     const artists = distinctBy(songArtists.flatMap(x => x.artist), x => x?.artistId).filter(x => x != null);
                     const songTags = distinctBy(newSongs.flatMap(x => x.songTags), x => x?.songTagId).filter(x => x != null);
 
                     if (songArtists.length) {
-                        await DbExtensions.updateSongArtists(tx, songArtists);
+                        await DbQueries.updateSongArtists(tx, songArtists);
                     }
 
                     if (artists.length) {
-                        await DbExtensions.updateArtists(tx, artists);
+                        await DbQueries.updateArtists(tx, artists);
                     }
 
                     if (songTags.length) {
-                        await DbExtensions.updateSongTags(tx, songTags);
+                        await DbQueries.updateSongTags(tx, songTags);
                     }
                 }
             }, {

@@ -2,24 +2,24 @@ import { View, Text, FlatList, TextInput } from "react-native";
 import { useDb } from "../services/db/DbProvider";
 import { Song } from "../services/db/models";
 import { useEffect, useState } from "react";
-import * as DbExtensions from "../services/db/dbExtensions";
+import * as DbQueries from "../services/db/queries";
 import * as MediaManager from "../tools/MediaManager";
 import React from "react";
 
 export default function Songs() {
-    const [songs, setSongs] = useState<DbExtensions.SongWithArtist[]>([]);
-    const [filteredSongs, setFilteredSongs] = useState<DbExtensions.SongWithArtist[]>([]);
+    const [songs, setSongs] = useState<DbQueries.SongWithArtist[]>([]);
+    const [filteredSongs, setFilteredSongs] = useState<DbQueries.SongWithArtist[]>([]);
     const db = useDb();
 
     useEffect(() => {
         (async () => {
-            const songs = await DbExtensions.getAllSongsWithArtists(db);
+            const songs = await DbQueries.getAllSongsWithArtists(db);
             setSongs(songs);
             setFilteredSongs(songs);
         })();
     }, []);
 
-    const selectSong = async (songInfo: DbExtensions.SongWithArtist) => {
+    const selectSong = async (songInfo: DbQueries.SongWithArtist) => {
         await MediaManager.playSpecificSong(songInfo.song.songId);
     };
 

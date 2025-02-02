@@ -1,7 +1,7 @@
 import { ExpoSQLiteDatabase } from "drizzle-orm/expo-sqlite";
 import TrackPlayer, { Capability, Event, PlaybackState, RemoteSeekEvent, State } from "react-native-track-player";
 import { CreateUserSongRequest, RecentlyPlayedSong, Song, UpdateSongLastPlayedRequest } from "../services/db/models";
-import * as DbExtensions from "../services/db/dbExtensions";
+import * as DbQueries from "../services/db/queries";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { STORAGE_KEYS } from "../constants/storageKeys";
 import { generateGuid, generateRange } from "./utils";
@@ -100,20 +100,20 @@ export async function skip() {
     let songId: number | undefined;
 
     if (queue.length > 0) {
-        const currentSong = await DbExtensions.getCurrentlyPlayingSong(db);
+        const currentSong = await DbQueries.getCurrentlyPlayingSong(db);
 
         songId = queue.shift()!;
 
         if (currentSong != undefined) {
-            await DbExtensions.removeRecentlyPlayedSongsAfter(db, currentSong?.lastPlayed);
+            await DbQueries.removeRecentlyPlayedSongsAfter(db, currentSong?.lastPlayed);
         }
     } else {
-        recentlyPlayedSong = await DbExtensions.checkForNextRecentlyPlayedSong(db);
+        recentlyPlayedSong = await DbQueries.checkForNextRecentlyPlayedSong(db);
 
         if (recentlyPlayedSong != undefined) {
             songId = recentlyPlayedSong.songId;
         } else {
-            const localSessionData = await DbExtensions.getActiveLocalSessionData(db);
+            const localSessionData = await DbQueries.getActiveLocalSessionData(db);
 
             if (localSessionData != undefined &&
                 (localSessionData.currentPlaylistId == undefined || localSessionData.currentPlaylistId == -1)) {
@@ -139,7 +139,7 @@ export async function skip() {
 }
 
 export async function previous() {
-    const recentlyPlayedSong = await DbExtensions.checkForLastRecentlyPlayedSong(db);
+    const recentlyPlayedSong = await DbQueries.checkForLastRecentlyPlayedSong(db);
 
     if (recentlyPlayedSong != undefined) {
         const songId = recentlyPlayedSong.songId;
@@ -149,7 +149,7 @@ export async function previous() {
 
 export async function addToQueue(songId: number) {
     // Confirms that the song id exists
-    const song = await DbExtensions.getSong(db, songId);
+    const song = await DbQueries.getSong(db, songId);
 
     if (song) {
         queue.push(songId);
@@ -184,11 +184,11 @@ export function clearQueue() {
 }
 
 export async function clearRecentlyPlayed() {
-    await DbExtensions.removeAllRecentlyPlayedSongs(db);
+    await DbQueries.removeAllRecentlyPlayedSongs(db);
 }
 
 export async function getCurrentPlaylistId() {
-    return (await DbExtensions.getActiveLocalSessionData(db))?.currentPlaylistId ?? undefined;
+    return (await DbQueries.getActiveLocalSessionData(db))?.currentPlaylistId ?? undefined;
 }
 
 export async function isPlaying() {
@@ -196,12 +196,12 @@ export async function isPlaying() {
 }
 
 export async function setPlaylist(playlistId: number) {
-    await DbExtensions.setActiveLocalSessionPlaylistId(db, playlistId);
+    await DbQueries.setActiveLocalSessionPlaylistId(db, playlistId);
     await reset();
 }
 
 export async function getCurrentlyPlayingSong() {
-    return await DbExtensions.getCurrentlyPlayingSong(db);
+    return await DbQueries.getCurrentlyPlayingSong(db);
 }
 
 export async function seekTo(seconds: number) {
@@ -209,8 +209,8 @@ export async function seekTo(seconds: number) {
 }
 
 async function startNewSong(songId: number, recentlyPlayedSong?: RecentlyPlayedSong) {
-    const localSessionData = await DbExtensions.getActiveLocalSessionData(db);
-    const song = await DbExtensions.getSongDetails(db, songId);
+    const localSessionData = await DbQueries.getActiveLocalSessionData(db);
+    const song = await DbQueries.getSongDetails(db, songId);
     let recentlyPlayedSongFound = false;
     let songUri: string;
 
@@ -219,17 +219,17 @@ async function startNewSong(songId: number, recentlyPlayedSong?: RecentlyPlayedS
     }
 
     if (!recentlyPlayedSong) {
-        recentlyPlayedSong = await DbExtensions.getCurrentlyPlayingSong(db);
+        recentlyPlayedSong = await DbQueries.getCurrentlyPlayingSong(db);
 
         if (songId != recentlyPlayedSong?.songId) {
             recentlyPlayedSong = undefined;
         }
     }
 
-    await DbExtensions.resetRecentlyPlayedSongTimestamps(db);
+    await DbQueries.resetRecentlyPlayedSongTimestamps(db);
 
     if (recentlyPlayedSong != undefined) {
-        if ((await DbExtensions.getRecentlyPlayedSong(db, recentlyPlayedSong.recentlyPlayedSongGuid)) != undefined) {
+        if ((await DbQueries.getRecentlyPlayedSong(db, recentlyPlayedSong.recentlyPlayedSongGuid)) != undefined) {
             recentlyPlayedSongFound = true;
         }
     }
@@ -253,9 +253,9 @@ async function startNewSong(songId: number, recentlyPlayedSong?: RecentlyPlayedS
 
     if (recentlyPlayedSongFound) {
         await TrackPlayer.seekTo(recentlyPlayedSong?.timestampSeconds ?? 0);
-        await DbExtensions.updateRecentlyPlayedSongTimestamp(db, recentlyPlayedSong?.recentlyPlayedSongGuid!);
+        await DbQueries.updateRecentlyPlayedSongTimestamp(db, recentlyPlayedSong?.recentlyPlayedSongGuid!);
     } else {
-        await DbExtensions.addRecentlyPlayedSong(db, {
+        await DbQueries.addRecentlyPlayedSong(db, {
             songId: songId,
             recentlyPlayedSongGuid: generateGuid(),
             timestampSeconds: 0,
@@ -263,7 +263,7 @@ async function startNewSong(songId: number, recentlyPlayedSong?: RecentlyPlayedS
         });
     }
 
-    let userSong = await DbExtensions.getUserSong(db, localSessionData.userId, songId);
+    let userSong = await DbQueries.getUserSong(db, localSessionData.userId, songId);
 
     if (userSong == undefined) {
         // TODO: remove CreateUserSongRequest
@@ -280,8 +280,8 @@ async function startNewSong(songId: number, recentlyPlayedSong?: RecentlyPlayedS
             lastPlayed: newUserSongRequest.timeRequested,
             version: newUserSongRequest.timeRequested
         };
-        await DbExtensions.addUserSong(db, userSong);
-        await DbExtensions.addRequest(db, newUserSongRequest);
+        await DbQueries.addUserSong(db, userSong);
+        await DbQueries.addRequest(db, newUserSongRequest);
     }
 
     const updateSongLastPlayedRequest: UpdateSongLastPlayedRequest = {
@@ -292,8 +292,8 @@ async function startNewSong(songId: number, recentlyPlayedSong?: RecentlyPlayedS
         requestType: RequestType.UpdateSongLastPlayed,
         userId: localSessionData.userId
     };
-    await DbExtensions.updateUserSongLastPlayed(db, localSessionData.userId, songId, timeSongStarted);
-    await DbExtensions.addRequest(db, updateSongLastPlayedRequest);
+    await DbQueries.updateUserSongLastPlayed(db, localSessionData.userId, songId, timeSongStarted);
+    await DbQueries.addRequest(db, updateSongLastPlayedRequest);
 }
 
 async function getNextSongId(): Promise<number | undefined> {
@@ -301,7 +301,7 @@ async function getNextSongId(): Promise<number | undefined> {
     let songId: number | undefined;
 
     if (currentPlaylistId != undefined && currentPlaylistId != -1) {
-        songId = await DbExtensions.getRandomSongIdByPlaylist(db, currentPlaylistId);
+        songId = await DbQueries.getRandomSongIdByPlaylist(db, currentPlaylistId);
         
         if (songId == undefined) {
             throw Error("Attempted to get a playlist song, but no songs exist.");

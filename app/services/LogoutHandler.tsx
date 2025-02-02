@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { ReactNode } from 'react';
-import * as DbExtensions from "../services/db/dbExtensions";
+import * as DbQueries from "../services/db/queries";
 import { useDb } from "./db/DbProvider";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { STORAGE_KEYS } from "../constants/storageKeys";
@@ -29,7 +29,7 @@ export const LogoutHandlerProvider = ({ children, onLogout }: LogoutHandlerProps
                 return;
             }
             
-            const localSessionData = await DbExtensions.getLocalSessionData(db, parseInt(currentUserId));
+            const localSessionData = await DbQueries.getLocalSessionData(db, parseInt(currentUserId));
                     
             if (!localSessionData || localSessionData.expiration < new Date(Date.now())) {
                 await logout();

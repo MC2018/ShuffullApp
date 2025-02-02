@@ -14,7 +14,7 @@ import { LocalSessionData } from "./services/db/models";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { STORAGE_KEYS } from "./constants/storageKeys";
 import SyncManager from "./tools/SyncManager";
-import * as DbExtensions from "./services/db/dbExtensions";
+import * as DbQueries from "./services/db/queries";
 import * as MediaManager from "./tools/MediaManager";
 import { argon2Hash } from "./tools/hasher";
 import React from "react";
@@ -63,7 +63,7 @@ export default function Index() {
     useEffect(() => {
         (async () => {
             const hostAddress = await AsyncStorage.getItem(STORAGE_KEYS.HOST_ADDRESS);
-            const localSessionData = await DbExtensions.getActiveLocalSessionData(db);
+            const localSessionData = await DbQueries.getActiveLocalSessionData(db);
     
             if (!localSessionData || !hostAddress) {
                 setAutoLoginAttempted(true);
@@ -103,7 +103,7 @@ export default function Index() {
                 expiration: new Date(authResponse.expiration)
             }
         });
-        const localSessionData = await DbExtensions.getLocalSessionData(db, authResponse.user.userId);
+        const localSessionData = await DbQueries.getLocalSessionData(db, authResponse.user.userId);
         
         if (!localSessionData) {
             throw Error("Critical error: Local session data cannot find data after upserting.");

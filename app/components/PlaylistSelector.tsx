@@ -1,5 +1,5 @@
 import { View, Text } from "react-native";
-import * as DbExtensions from "../services/db/dbExtensions";
+import * as DbQueries from "../services/db/queries";
 import { useDb } from "../services/db/DbProvider";
 import React, { useEffect, useState } from "react";
 import { Picker } from "@react-native-picker/picker";
@@ -28,8 +28,8 @@ export default function PlaylistSelector({ userId, onPlaylistSelected }: Playlis
 
     useEffect(() => {
         ((async () => {
-            const playlists = await DbExtensions.getPlaylists(db, userId);
-            const currentPlaylistId = (await DbExtensions.getActiveLocalSessionData(db))?.currentPlaylistId;
+            const playlists = await DbQueries.getPlaylists(db, userId);
+            const currentPlaylistId = (await DbQueries.getActiveLocalSessionData(db))?.currentPlaylistId;
             setPlaylists(playlists);
 
             const index = playlists.findIndex(playlist => playlist.playlistId == currentPlaylistId);
