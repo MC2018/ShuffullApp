@@ -1,7 +1,4 @@
-import { ExpoSQLiteDatabase } from "drizzle-orm/expo-sqlite";
 import { ApiClient } from "../services/api/apiClient";
-import { playlistTable, requestTable, songTable, userTable } from "../services/db/schema";
-import { eq, inArray } from "drizzle-orm";
 import * as DbQueries from "../services/db/queries";
 import * as DbModels from "../services/db/models";
 import * as ApiModels from "../services/api/models";
@@ -10,22 +7,24 @@ import { HttpStatusCode } from "axios";
 import { RequestType } from "../enums";
 import { getProcessingMethod, ProcessingMethod } from "../enums";
 import { ApiStatusFailureError } from "../services/api/errors";
+import { GenericDb } from "../services/db/GenericDb";
 
 let activeUuid: string | undefined = undefined;
 
 export default class SyncManager {
     uuid = generateGuid();
-    db: ExpoSQLiteDatabase;
+    db: GenericDb;
     api: ApiClient;
     userId: number;
     timerId: NodeJS.Timeout;
-    loggingOut = false;
     syncing = false;
+    logout: () => Promise<void>;
     
-    constructor(db: ExpoSQLiteDatabase, api: ApiClient, userId: number) {
+    constructor(db: GenericDb, api: ApiClient, userId: number, logout: () => Promise<void>) {
         this.db = db;
         this.api = api;
         this.userId = userId;
+        this.logout = logout;
         this.timerId = setInterval(async () => {
             if (activeUuid != this.uuid) {
                 this.dispose();
@@ -102,7 +101,7 @@ export default class SyncManager {
                 const statusCode = await this.runRequests(requestBatch);
 
                 if (statusCode == HttpStatusCode.Unauthorized) {
-                    this.loggingOut = true;
+                    await this.logout();
                     return;
                 } else if (200 <= statusCode && statusCode <= 299) {
                     // TODO: move this to DbQueries?

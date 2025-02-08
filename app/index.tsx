@@ -13,7 +13,6 @@ import { localSessionDataTable } from "./services/db/schema";
 import { LocalSessionData } from "./services/db/models";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { STORAGE_KEYS } from "./constants/storageKeys";
-import SyncManager from "./tools/SyncManager";
 import * as DbQueries from "./services/db/queries";
 import * as MediaManager from "./tools/MediaManager";
 import { argon2Hash } from "./tools/hasher";
@@ -21,11 +20,11 @@ import React from "react";
 import NavigationTabs from "./pages/NavigationTabs";
 import LogoutProvider from "./services/LogoutProvider";
 import DownloaderProvider from "./services/DownloaderProvider";
+import SyncManagerProvider from "./services/SyncManagerProvider";
 
 const dbName = "shuffull-db";
 let expoDb = SQLite.openDatabaseSync(dbName);
 let db = drizzle(expoDb);
-let syncManager: SyncManager | null;
 MediaManager.setup(db);
 
 function resetDb() {
@@ -44,6 +43,7 @@ export default function Index() {
     const [ loginRefreshes, setLoginRefreshes ] = useState<number>(0);
     const { success, error } = useMigrations(db, migrations);
     const [ autoLoginAttempted, setAutoLoginAttempted ] = useState<boolean>(false);
+    const [ userId, setUserId ] = useState<number | null>(null);
 
     if (error) {
         try {
@@ -68,12 +68,7 @@ export default function Index() {
                 return;
             }
 
-            if (syncManager) {
-                syncManager.dispose();
-            }
-
             const client = new ApiClient(hostAddress, localSessionData.token);
-            syncManager = new SyncManager(db, client, localSessionData.userId);
 
             setApiClient(client);
             setSessionData(localSessionData);
@@ -115,11 +110,6 @@ export default function Index() {
             expiration: new Date(Date.now())
         });
 
-        if (syncManager) {
-            syncManager.dispose();
-            syncManager = null;
-        }
-
         MediaManager.reset();
 
         await AsyncStorage.removeItem(STORAGE_KEYS.CURRENT_USER_ID);
@@ -129,26 +119,17 @@ export default function Index() {
         setLoggedIn(false);
     };
 
-    useEffect(() => {
-        const interval = setInterval(() => {
-            if (loggedIn && syncManager?.loggingOut) {
-                handleLogout();
-            }
-        }, 5000);
-
-        return () => clearInterval(interval);
-    }, []);
-
     let result;
 
     if (!autoLoginAttempted) {
         result = <></>;
-    } else if (loggedIn && apiClient) {
+    } else if (loggedIn && apiClient && userId != null) {
         result =
             <DbProvider db={db}>
                 <DownloaderProvider>
                     <LogoutProvider onLogout={handleLogout}>
                         <ApiProvider api={apiClient}>
+                            <SyncManagerProvider userId={userId} />
                             <NavigationTabs />
                         </ApiProvider>
                     </LogoutProvider>
