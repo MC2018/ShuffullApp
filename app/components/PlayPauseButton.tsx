@@ -1,4 +1,4 @@
-import * as MediaManager from "../tools/MediaManager";
+import { MediaManager } from "../tools";
 import { Button } from "react-native";
 import React from "react";
 

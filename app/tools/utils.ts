@@ -49,3 +49,5 @@ export async function verifyFileIntegrity(uri: string) {
     const newHash = await hashFile(uri);
     return newHash != undefined && newHash.startsWith(originalHash);
 }
+
+export const sleep = (time: number) => new Promise((resolve) => setTimeout(() => resolve(null), time));

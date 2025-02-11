@@ -1,7 +1,6 @@
-import * as MediaManager from "../tools/MediaManager";
+import { MediaManager, DownloadPriority } from "../tools";
 import { Button } from "react-native";
 import React from "react";
-import { DownloadPriority } from "../tools/Downloader";
 import { useDownloader } from "../services/DownloaderProvider";
 
 export default function DownloadPlaylistButton() {

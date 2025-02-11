@@ -1,7 +1,7 @@
 import React from "react";
 import { useProgress } from "react-native-track-player";
 import Slider from "@react-native-community/slider";
-import * as MediaManager from "../tools/MediaManager";
+import { MediaManager } from "../tools";
 
 export default function Skimmer() {
     const { position, duration } = useProgress();

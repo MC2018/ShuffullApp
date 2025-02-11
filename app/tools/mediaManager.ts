@@ -7,7 +7,7 @@ import { STORAGE_KEYS } from "../constants/storageKeys";
 import { generateGuid, generateRange } from "./utils";
 import { RequestType } from "../enums";
 import { getPlaybackState } from "react-native-track-player/lib/src/trackPlayer";
-import Downloader from "./Downloader";
+import { Downloader } from "./Downloader";
 
 let queue: number[] = [];
 let db: ExpoSQLiteDatabase;
@@ -58,6 +58,7 @@ async function setupEventListeners() {
     TrackPlayer.addEventListener(Event.RemotePause, async () => await pause());
     TrackPlayer.addEventListener(Event.RemoteNext, async () => await skip());
     TrackPlayer.addEventListener(Event.RemotePrevious, async () => await previous());
+    TrackPlayer.addEventListener(Event.RemoteSeek, async (event: RemoteSeekEvent) => await seekTo(event.position));
     TrackPlayer.addEventListener(Event.PlaybackState, async (state: PlaybackState) => {
         if (state.state != State.Ended) {
             return;
@@ -71,16 +72,21 @@ async function setupEventListeners() {
 
         await skip();
     });
-    TrackPlayer.addEventListener(Event.RemoteSeek, async (event: RemoteSeekEvent) => {
-        await seekTo(event.position);
-    });
 }
 
 export async function play() {
     const playbackState = (await getPlaybackState()).state;
 
-    if (playbackState == State.Paused) {
+    if (playbackState == State.Paused || playbackState == State.Ready) {
         await TrackPlayer.play();
+    } else if (playbackState == State.None) {
+        const currentlyPlayingSong = await getCurrentlyPlayingSong();
+
+        if (currentlyPlayingSong != null) {
+            await startNewSong(currentlyPlayingSong.songId, currentlyPlayingSong);
+        } else {
+            await skip();
+        }
     } else {
         await skip();
     }
@@ -145,6 +151,11 @@ export async function previous() {
         const songId = recentlyPlayedSong.songId;
         await startNewSong(songId, recentlyPlayedSong);
     }
+}
+
+export async function getPosition() {
+    const progress = await TrackPlayer.getProgress();
+    return progress.position;
 }
 
 export async function addToQueue(songId: number) {
@@ -253,8 +264,9 @@ async function startNewSong(songId: number, recentlyPlayedSong?: RecentlyPlayedS
     const timeSongStarted = new Date(Date.now());
 
     if (recentlyPlayedSongFound) {
-        await TrackPlayer.seekTo(recentlyPlayedSong?.timestampSeconds ?? 0);
-        await DbQueries.updateRecentlyPlayedSongTimestamp(db, recentlyPlayedSong?.recentlyPlayedSongGuid!);
+        const timestampSeconds = recentlyPlayedSong?.timestampSeconds ?? 0;
+        await TrackPlayer.seekTo(timestampSeconds);
+        await DbQueries.setRecentlyPlayedSongTimestampSeconds(db, recentlyPlayedSong?.recentlyPlayedSongGuid!, timestampSeconds);
     } else {
         await DbQueries.addRecentlyPlayedSong(db, {
             songId: songId,

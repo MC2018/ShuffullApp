@@ -1,9 +1,8 @@
 import { View, Text, FlatList, TextInput } from "react-native";
 import { useDb } from "../services/db/DbProvider";
-import { Song } from "../services/db/models";
 import { useEffect, useState } from "react";
 import * as DbQueries from "../services/db/queries";
-import * as MediaManager from "../tools/MediaManager";
+import { MediaManager } from "../tools";
 import React from "react";
 
 export default function Songs() {

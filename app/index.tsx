@@ -4,7 +4,6 @@ import { drizzle } from "drizzle-orm/expo-sqlite"
 import { migrate, useMigrations } from "drizzle-orm/expo-sqlite/migrator"
 import migrations from "./services/db/drizzle/migrations"
 import { DbProvider } from "./services/db/DbProvider";
-import HomePage from "./pages/Home";
 import LoginPage from "./pages/Login";
 import { useEffect, useState } from "react";
 import { ApiProvider } from "./services/api/apiProvider";
@@ -13,19 +12,19 @@ import { localSessionDataTable } from "./services/db/schema";
 import { LocalSessionData } from "./services/db/models";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { STORAGE_KEYS } from "./constants/storageKeys";
-import SyncManager from "./tools/SyncManager";
 import * as DbQueries from "./services/db/queries";
-import * as MediaManager from "./tools/MediaManager";
-import { argon2Hash } from "./tools/hasher";
+import { MediaManager } from "./tools";
+import { Hasher } from "./tools";
 import React from "react";
 import NavigationTabs from "./pages/NavigationTabs";
 import LogoutProvider from "./services/LogoutProvider";
 import DownloaderProvider from "./services/DownloaderProvider";
+import SyncManagerProvider from "./services/SyncManagerProvider";
+import SongProgressSync from "./services/SongProgressSync";
 
 const dbName = "shuffull-db";
 let expoDb = SQLite.openDatabaseSync(dbName);
 let db = drizzle(expoDb);
-let syncManager: SyncManager | null;
 MediaManager.setup(db);
 
 function resetDb() {
@@ -44,6 +43,7 @@ export default function Index() {
     const [ loginRefreshes, setLoginRefreshes ] = useState<number>(0);
     const { success, error } = useMigrations(db, migrations);
     const [ autoLoginAttempted, setAutoLoginAttempted ] = useState<boolean>(false);
+    const [ userId, setUserId ] = useState<number | null>(null);
 
     if (error) {
         try {
@@ -68,22 +68,18 @@ export default function Index() {
                 return;
             }
 
-            if (syncManager) {
-                syncManager.dispose();
-            }
-
             const client = new ApiClient(hostAddress, localSessionData.token);
-            syncManager = new SyncManager(db, client, localSessionData.userId);
 
             setApiClient(client);
             setSessionData(localSessionData);
             setLoggedIn(true);
             setAutoLoginAttempted(true);
+            setUserId(localSessionData.userId);
         })();
     }, [loginRefreshes]);
 
     const handleLogin = async (username: string, password: string, hostAddress: string) => {
-        const userHash = await argon2Hash(`${username};${password}`);
+        const userHash = await Hasher.argon2Hash(`${username};${password}`);
         const api = new ApiClient(hostAddress, "");
         const authResponse = await api.userAuthenticate(username, userHash);
 
@@ -115,11 +111,6 @@ export default function Index() {
             expiration: new Date(Date.now())
         });
 
-        if (syncManager) {
-            syncManager.dispose();
-            syncManager = null;
-        }
-
         MediaManager.reset();
 
         await AsyncStorage.removeItem(STORAGE_KEYS.CURRENT_USER_ID);
@@ -127,28 +118,23 @@ export default function Index() {
         setApiClient(null);
         setSessionData(null);
         setLoggedIn(false);
+        setUserId(null);
     };
-
-    useEffect(() => {
-        const interval = setInterval(() => {
-            if (loggedIn && syncManager?.loggingOut) {
-                handleLogout();
-            }
-        }, 5000);
-
-        return () => clearInterval(interval);
-    }, []);
 
     let result;
 
     if (!autoLoginAttempted) {
         result = <></>;
-    } else if (loggedIn && apiClient) {
+    } else if (loggedIn && apiClient && userId != null) {
         result =
             <DbProvider db={db}>
                 <DownloaderProvider>
                     <LogoutProvider onLogout={handleLogout}>
                         <ApiProvider api={apiClient}>
+                            {/* Background Services */}
+                            <SyncManagerProvider userId={userId} />
+                            <SongProgressSync />
+
                             <NavigationTabs />
                         </ApiProvider>
                     </LogoutProvider>

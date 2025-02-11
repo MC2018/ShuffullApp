@@ -1,23 +1,16 @@
 import { Button, Text, View } from "react-native";
-import { useDb } from "../services/db/DbProvider";
-import { useEffect, useState } from "react";
-import { LocalSessionData, Playlist } from "../services/db/models";
-import * as DbQueries from "../services/db/queries";
+import { Playlist } from "../services/db/models";
 import PlayPauseButton from "../components/PlayPauseButton";
 import React from "react";
 import PlaylistSelector from "../components/PlaylistSelector";
-import * as MediaManager from "../tools/MediaManager";
+import { MediaManager } from "../tools";
 import DownloadButton from "../components/DownloadButton";
 import DownloadPlaylistButton from "../components/DownloadPlaylistButton";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import { STORAGE_KEYS } from "../constants/storageKeys";
-import { useApi } from "../services/api/apiProvider";
 import { logout } from "../services/LogoutProvider";
 import Skimmer from "../components/Skimmer";
 
 export default function HomePage({ navigation, route }: any) {
     const { userId } = route.params;
-    const db = useDb();
 
     if (userId == undefined || typeof userId !== "number") {
         return (
