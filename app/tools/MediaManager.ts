@@ -83,7 +83,6 @@ export async function play() {
         const currentlyPlayingSong = await getCurrentlyPlayingSong();
 
         if (currentlyPlayingSong != null) {
-            console.log(JSON.stringify(currentlyPlayingSong));
             await startNewSong(currentlyPlayingSong.songId, currentlyPlayingSong);
         } else {
             await skip();
