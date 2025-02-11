@@ -67,8 +67,6 @@ export default class Downloader {
         if (!nextDownload) {
             return;
         }
-
-        console.log(JSON.stringify(nextDownload));
     
         const song = await DbQueries.getSong(this.db, nextDownload.songId);
     

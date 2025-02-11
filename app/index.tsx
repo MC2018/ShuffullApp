@@ -4,7 +4,6 @@ import { drizzle } from "drizzle-orm/expo-sqlite"
 import { migrate, useMigrations } from "drizzle-orm/expo-sqlite/migrator"
 import migrations from "./services/db/drizzle/migrations"
 import { DbProvider } from "./services/db/DbProvider";
-import HomePage from "./pages/Home";
 import LoginPage from "./pages/Login";
 import { useEffect, useState } from "react";
 import { ApiProvider } from "./services/api/apiProvider";
@@ -21,6 +20,7 @@ import NavigationTabs from "./pages/NavigationTabs";
 import LogoutProvider from "./services/LogoutProvider";
 import DownloaderProvider from "./services/DownloaderProvider";
 import SyncManagerProvider from "./services/SyncManagerProvider";
+import SongProgressSync from "./services/SongProgressSync";
 
 const dbName = "shuffull-db";
 let expoDb = SQLite.openDatabaseSync(dbName);
@@ -74,6 +74,7 @@ export default function Index() {
             setSessionData(localSessionData);
             setLoggedIn(true);
             setAutoLoginAttempted(true);
+            setUserId(localSessionData.userId);
         })();
     }, [loginRefreshes]);
 
@@ -117,6 +118,7 @@ export default function Index() {
         setApiClient(null);
         setSessionData(null);
         setLoggedIn(false);
+        setUserId(null);
     };
 
     let result;
@@ -129,7 +131,10 @@ export default function Index() {
                 <DownloaderProvider>
                     <LogoutProvider onLogout={handleLogout}>
                         <ApiProvider api={apiClient}>
+                            {/* Background Services */}
                             <SyncManagerProvider userId={userId} />
+                            <SongProgressSync />
+
                             <NavigationTabs />
                         </ApiProvider>
                     </LogoutProvider>

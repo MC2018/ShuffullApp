@@ -81,6 +81,15 @@ export async function play() {
 
     if (playbackState == State.Paused) {
         await TrackPlayer.play();
+    } else if (playbackState == State.None) {
+        const currentlyPlayingSong = await getCurrentlyPlayingSong();
+
+        if (currentlyPlayingSong != null) {
+            console.log(JSON.stringify(currentlyPlayingSong));
+            await startNewSong(currentlyPlayingSong.songId, currentlyPlayingSong);
+        } else {
+            await skip();
+        }
     } else {
         await skip();
     }
@@ -145,6 +154,11 @@ export async function previous() {
         const songId = recentlyPlayedSong.songId;
         await startNewSong(songId, recentlyPlayedSong);
     }
+}
+
+export async function getPosition() {
+    const progress = await TrackPlayer.getProgress();
+    return progress.position;
 }
 
 export async function addToQueue(songId: number) {
@@ -253,8 +267,9 @@ async function startNewSong(songId: number, recentlyPlayedSong?: RecentlyPlayedS
     const timeSongStarted = new Date(Date.now());
 
     if (recentlyPlayedSongFound) {
-        await TrackPlayer.seekTo(recentlyPlayedSong?.timestampSeconds ?? 0);
-        await DbQueries.updateRecentlyPlayedSongTimestamp(db, recentlyPlayedSong?.recentlyPlayedSongGuid!);
+        const timestampSeconds = recentlyPlayedSong?.timestampSeconds ?? 0;
+        await TrackPlayer.seekTo(timestampSeconds);
+        await DbQueries.setRecentlyPlayedSongTimestampSeconds(db, recentlyPlayedSong?.recentlyPlayedSongGuid!, timestampSeconds);
     } else {
         await DbQueries.addRecentlyPlayedSong(db, {
             songId: songId,

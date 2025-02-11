@@ -29,15 +29,9 @@ export async function resetRecentlyPlayedSongTimestamps(db: GenericDb): Promise<
     }).where(isNotNull(recentlyPlayedSongTable.timestampSeconds));
 }
 
-export async function setRecentlyPlayedSongTimestampSeconds(db: GenericDb, songId: number, timestampSeconds: number): Promise<void> {
+export async function setRecentlyPlayedSongTimestampSeconds(db: GenericDb, recentlyPlayedSongGuid: string, timestampSeconds: number): Promise<void> {
     await db.update(recentlyPlayedSongTable).set({
         timestampSeconds: timestampSeconds
-    }).where(eq(recentlyPlayedSongTable.songId, songId));
-}
-
-export async function updateRecentlyPlayedSongTimestamp(db: GenericDb, recentlyPlayedSongGuid: string): Promise<void> {
-    await db.update(recentlyPlayedSongTable).set({
-        timestampSeconds: 0
     }).where(eq(recentlyPlayedSongTable.recentlyPlayedSongGuid, recentlyPlayedSongGuid));
 }
 
