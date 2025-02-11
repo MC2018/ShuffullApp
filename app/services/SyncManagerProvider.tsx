@@ -1,7 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
-import { ReactNode } from 'react';
 import { useDb } from "./db/DbProvider";
-import SyncManager from "../tools/SyncManager";
+import { SyncManager } from "../tools";
 import { useApi } from "./api/apiProvider";
 import { logout } from "./LogoutProvider";
 

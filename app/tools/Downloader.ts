@@ -10,7 +10,7 @@ import { GenericDb } from "../services/db/GenericDb";
 const tempFolder = FileSystem.documentDirectory + "temp/";
 const destFolder = FileSystem.documentDirectory + "music/";
 
-export default class Downloader {
+export class Downloader {
     downloading = false;
     paused = true;
     db: ExpoSQLiteDatabase;

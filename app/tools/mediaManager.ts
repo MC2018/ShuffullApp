@@ -7,7 +7,7 @@ import { STORAGE_KEYS } from "../constants/storageKeys";
 import { generateGuid, generateRange } from "./utils";
 import { RequestType } from "../enums";
 import { getPlaybackState } from "react-native-track-player/lib/src/trackPlayer";
-import Downloader from "./Downloader";
+import { Downloader } from "./Downloader";
 
 let queue: number[] = [];
 let db: ExpoSQLiteDatabase;

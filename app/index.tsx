@@ -13,8 +13,8 @@ import { LocalSessionData } from "./services/db/models";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { STORAGE_KEYS } from "./constants/storageKeys";
 import * as DbQueries from "./services/db/queries";
-import * as MediaManager from "./tools/MediaManager";
-import { argon2Hash } from "./tools/hasher";
+import { MediaManager } from "./tools";
+import { Hasher } from "./tools";
 import React from "react";
 import NavigationTabs from "./pages/NavigationTabs";
 import LogoutProvider from "./services/LogoutProvider";
@@ -79,7 +79,7 @@ export default function Index() {
     }, [loginRefreshes]);
 
     const handleLogin = async (username: string, password: string, hostAddress: string) => {
-        const userHash = await argon2Hash(`${username};${password}`);
+        const userHash = await Hasher.argon2Hash(`${username};${password}`);
         const api = new ApiClient(hostAddress, "");
         const authResponse = await api.userAuthenticate(username, userHash);
 

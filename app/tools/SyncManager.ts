@@ -11,7 +11,7 @@ import { GenericDb } from "../services/db/GenericDb";
 
 let activeUuid: string | undefined = undefined;
 
-export default class SyncManager {
+export class SyncManager {
     uuid = generateGuid();
     db: GenericDb;
     api: ApiClient;

@@ -1,10 +1,9 @@
 import { useEffect, useState } from "react";
 import { useDb } from "./db/DbProvider";
-import * as MediaManager from "../tools/MediaManager";
 import * as DbQueries from "./db/queries";
 import React from "react";
 import BackgroundService from 'react-native-background-actions';
-import { generateGuid, sleep } from "../tools";
+import { generateGuid, sleep, MediaManager } from "../tools";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { STORAGE_KEYS } from "../constants/storageKeys";
 
