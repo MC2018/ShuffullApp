@@ -58,6 +58,7 @@ async function setupEventListeners() {
     TrackPlayer.addEventListener(Event.RemotePause, async () => await pause());
     TrackPlayer.addEventListener(Event.RemoteNext, async () => await skip());
     TrackPlayer.addEventListener(Event.RemotePrevious, async () => await previous());
+    TrackPlayer.addEventListener(Event.RemoteSeek, async (event: RemoteSeekEvent) => await seekTo(event.position));
     TrackPlayer.addEventListener(Event.PlaybackState, async (state: PlaybackState) => {
         if (state.state != State.Ended) {
             return;
@@ -71,15 +72,12 @@ async function setupEventListeners() {
 
         await skip();
     });
-    TrackPlayer.addEventListener(Event.RemoteSeek, async (event: RemoteSeekEvent) => {
-        await seekTo(event.position);
-    });
 }
 
 export async function play() {
     const playbackState = (await getPlaybackState()).state;
 
-    if (playbackState == State.Paused) {
+    if (playbackState == State.Paused || playbackState == State.Ready) {
         await TrackPlayer.play();
     } else if (playbackState == State.None) {
         const currentlyPlayingSong = await getCurrentlyPlayingSong();
