@@ -93,9 +93,10 @@ export class Downloader {
                 return;
             }
     
+            const downloadedPath = `${tempFolder}${song.directory}`;
             const downloadResumable = FileSystem.createDownloadResumable(
                 `${hostAddress}/music/${song.directory}`,
-                `${tempFolder}${song.directory}`);
+                downloadedPath);
     
             if (await Downloader.songFileExists(song.directory)) {
                 await DbQueries.removeFromDownloadQueue(this.db, song.songId);
@@ -108,7 +109,7 @@ export class Downloader {
     
             const downloadedFile = await downloadResumable.downloadAsync();
     
-            if (downloadedFile == undefined) {
+            if (downloadedFile == undefined || !(await Downloader.songFileExists(song.directory))) {
                 return;
             }
     

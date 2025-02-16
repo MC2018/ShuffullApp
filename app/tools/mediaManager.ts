@@ -26,6 +26,12 @@ export const useActiveSong = create<ActiveSongState>((set) => ({
 export async function setup(activeDb: ExpoSQLiteDatabase) {
     db = activeDb;
     initTrackPlayer();
+
+    const currentlyPlayingSong = await DbQueries.getCurrentlyPlayingSong(db);
+    
+    if (currentlyPlayingSong != undefined) {
+        useActiveSong.getState().setSongId(currentlyPlayingSong.songId);
+    }
 }
 
 async function initTrackPlayer() {

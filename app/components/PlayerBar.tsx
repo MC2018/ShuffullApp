@@ -13,10 +13,11 @@ const margin = 5;
 
 function getIconResource(state: State | undefined): ImageSourcePropType {
     switch (state) {
-        case State.Playing:
-            return require(`../../assets/images/pause.png`);
         case State.Paused:
+        case State.Ready:
+        case State.Buffering:
             return require(`../../assets/images/play.png`);
+        case State.Playing:
         default:
             return require(`../../assets/images/pause.png`);
     }
