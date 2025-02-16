@@ -85,6 +85,13 @@
       "when": 1737165124467,
       "tag": "0011_add_download_manager",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1739699931187,
+      "tag": "0012_split_file_name",
+      "breakpoints": true
     }
   ]
 }
