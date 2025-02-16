@@ -3,13 +3,13 @@ import { Artist, Song } from "../models";
 import { artistTable, playlistSongTable, songArtistTable, songTable, userSongTable } from "../schema";
 import { eq, gt, lt, ExtractTablesWithRelations, inArray, sql, isNotNull, and, desc, asc, or } from "drizzle-orm";
 
-export type SongWithArtist = {
+export type SongWithArtists = {
     song: Song;
     artists: Artist[];
 }
 
-export async function getAllSongsWithArtists(db: GenericDb): Promise<SongWithArtist[]> {
-    const result: SongWithArtist[] = [];
+export async function getAllSongsWithArtists(db: GenericDb): Promise<SongWithArtists[]> {
+    const result: SongWithArtists[] = [];
 
     const rawData = await db.select({
         song: songTable,
@@ -19,7 +19,7 @@ export async function getAllSongsWithArtists(db: GenericDb): Promise<SongWithArt
         .leftJoin(artistTable, eq(songArtistTable.artistId, artistTable.artistId))
         .orderBy(asc(songTable.songId));
     
-    let nextSongWithArtist: SongWithArtist | undefined = undefined;
+    let nextSongWithArtist: SongWithArtists | undefined = undefined;
 
     for (let i = 0; i < rawData.length; i++) {
         if (nextSongWithArtist == undefined || rawData[i].song.songId != nextSongWithArtist.song.songId) {
@@ -113,7 +113,7 @@ export async function getRandomSongIdByPlaylist(db: GenericDb, playlistId: numbe
 
 // TODO: add more than just artists to this
 // TODO: this doesn't work if there are multiple artists
-export async function fetchSongDetails(db: GenericDb, songId: number): Promise<SongWithArtist> {
+export async function fetchSongDetails(db: GenericDb, songId: number): Promise<SongWithArtists> {
     const song = await db
         .select({
             songId: songTable.songId,
@@ -135,13 +135,21 @@ export async function fetchSongDetails(db: GenericDb, songId: number): Promise<S
         throw Error(errMsg);
     }
 
-    let result: SongWithArtist = {
+    let result: SongWithArtists = {
         song: song[0],
         artists: []
     };
 
     if (song[0].artist != null) {
         result.artists.push(song[0].artist);
+    }
+
+    for (let i = 1; i < song.length; i++) {
+        const artist = song[i].artist;
+
+        if (artist != null) {
+            result.artists.push(artist);
+        }
     }
 
     return result;

@@ -8,6 +8,7 @@ import DownloadButton from "../components/DownloadButton";
 import DownloadPlaylistButton from "../components/DownloadPlaylistButton";
 import { logout } from "../services/LogoutProvider";
 import Skimmer from "../components/Skimmer";
+import PlayerBar from "../components/PlayerBar";
 
 export default function HomePage({ navigation, route }: any) {
     const { userId } = route.params;
@@ -36,7 +37,6 @@ export default function HomePage({ navigation, route }: any) {
     };
 
     return (
-        <>
         <View
             style={{
                 flex: 1,
@@ -60,7 +60,7 @@ export default function HomePage({ navigation, route }: any) {
             <DownloadButton></DownloadButton>
             <DownloadPlaylistButton></DownloadPlaylistButton>
             <Skimmer></Skimmer>
+            <PlayerBar></PlayerBar>
         </View>
-        </>
     );
 }

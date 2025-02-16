@@ -6,8 +6,8 @@ import { MediaManager } from "../tools";
 import React from "react";
 
 export default function Songs() {
-    const [songs, setSongs] = useState<DbQueries.SongWithArtist[]>([]);
-    const [filteredSongs, setFilteredSongs] = useState<DbQueries.SongWithArtist[]>([]);
+    const [songs, setSongs] = useState<DbQueries.SongWithArtists[]>([]);
+    const [filteredSongs, setFilteredSongs] = useState<DbQueries.SongWithArtists[]>([]);
     const db = useDb();
 
     useEffect(() => {
@@ -18,7 +18,7 @@ export default function Songs() {
         })();
     }, []);
 
-    const selectSong = async (songInfo: DbQueries.SongWithArtist) => {
+    const selectSong = async (songInfo: DbQueries.SongWithArtists) => {
         await MediaManager.playSpecificSong(songInfo.song.songId);
     };
 

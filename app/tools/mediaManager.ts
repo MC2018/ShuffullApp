@@ -8,10 +8,20 @@ import { generateGuid, generateRange } from "./utils";
 import { RequestType } from "../enums";
 import { getPlaybackState } from "react-native-track-player/lib/src/trackPlayer";
 import { Downloader } from "./Downloader";
+import { create } from "zustand";
 
 let queue: number[] = [];
 let db: ExpoSQLiteDatabase;
-const RECENTLY_PLAYED_MAX_COUNT = 25;
+
+interface ActiveSongState {
+    songId: number;
+    setSongId: (songId: number) => void;
+}
+
+export const useActiveSong = create<ActiveSongState>((set) => ({
+    songId: -1,
+    setSongId: (id) => set({ songId: id }),
+}));
 
 export async function setup(activeDb: ExpoSQLiteDatabase) {
     db = activeDb;
@@ -262,6 +272,9 @@ async function startNewSong(songId: number, recentlyPlayedSong?: RecentlyPlayedS
     await TrackPlayer.play();
 
     const timeSongStarted = new Date(Date.now());
+
+    // Update state
+    useActiveSong.getState().setSongId(songId);
 
     if (recentlyPlayedSongFound) {
         const timestampSeconds = recentlyPlayedSong?.timestampSeconds ?? 0;
