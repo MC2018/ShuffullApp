@@ -1,21 +1,24 @@
-import { MediaManager, DownloadPriority } from "../tools";
-import { Button, Image, View, Text, Dimensions, StyleSheet, ImageSourcePropType, Pressable } from "react-native";
+import { MediaManager } from "../tools";
+import { Image, View, Text, Dimensions, StyleSheet, ImageSourcePropType, Pressable, ImageURISource } from "react-native";
 import React, { useEffect, useState } from "react";
-import { useDownloader } from "../services/DownloaderProvider";
-import { play, useActiveSong } from "../tools/mediaManager";
+import { useActiveSong } from "../tools/mediaManager";
 import { SongWithArtists } from "../services/db/queries";
 import { useDb } from "../services/db/DbProvider";
 import * as DbQueries from "../services/db/queries";
 import { State, usePlaybackState } from "react-native-track-player";
+import { Song } from "../services/db/models";
+import { Downloader } from "../tools/Downloader";
 
+const defaultArt: ImageURISource = require("../../assets/images/default-album-art.jpg");
 const { width, height } = Dimensions.get("window");
 const margin = 5;
 
-function getIconResource(state: State | undefined): ImageSourcePropType {
+function getPlayButtonImage(state: State | undefined): ImageURISource {
     switch (state) {
         case State.Paused:
         case State.Ready:
         case State.Buffering:
+        case State.None:
             return require(`../../assets/images/play.png`);
         case State.Playing:
         default:
@@ -23,30 +26,50 @@ function getIconResource(state: State | undefined): ImageSourcePropType {
     }
 }
 
+type GenericImageSource = ImageURISource | { uri: string };
+
+async function getAlbumArtUri(song?: Song): Promise<GenericImageSource> {
+    if (song == undefined) {
+        return defaultArt;
+    }
+
+    const albumArtUri = Downloader.generateLocalAlbumArtUri(song)
+    
+    if (await Downloader.fileExists(albumArtUri)) {
+        return { uri: albumArtUri };
+    }
+
+    return { uri: await Downloader.generateServerAlbumArtUrl(song) };
+}
+
 export default function PlayerBar() {
     const db = useDb();
+    const playbackState = usePlaybackState();
     const { songId } = useActiveSong();
     const [ songInfo, setSongInfo ] = useState<SongWithArtists | null>(null);
-    const playbackState = usePlaybackState();
+    const [ albumArt, setAlbumArt ] = useState<GenericImageSource>(defaultArt);
     
     useEffect(() => {
-        if (songId == -1) {
-            setSongInfo(null);
-            return;
-        }
+        (async () => {
+            if (songId == -1) {
+                setSongInfo(null);
+                return;
+            }
+    
+            try {
+                const songInfo = await DbQueries.fetchSongDetails(db, songId);
 
-        try {
-            DbQueries.fetchSongDetails(db, songId).then((songInfo) => {
                 if (songId != songInfo.song.songId) {
                     setSongInfo(null);
                     return;
                 }
 
                 setSongInfo(songInfo);
-            });
-        } catch {
-            console.log("Error fetching song details");
-        }
+                setAlbumArt(await getAlbumArtUri(songInfo.song));
+            } catch {
+                console.log("Error fetching song details");
+            }
+        })();
     }, [songId]);
 
     const controlMedia = async () => {
@@ -63,18 +86,21 @@ export default function PlayerBar() {
 
     return (
         <View style={styles.container}>
+            <View style={styles.imageContainer}>
+                <Image source={albumArt} style={styles.albumArtImage} defaultSource={defaultArt}></Image>
+            </View>
             <View style={styles.textContainer}>
                 <Text numberOfLines={1} ellipsizeMode="tail" style={styles.songName}>{songInfo?.song.name}</Text>
                 <Text numberOfLines={1} ellipsizeMode="tail" style={styles.artistName}>{songInfo?.artists.map(x => x.name).join(", ")}</Text>
             </View>
-            <Pressable style={styles.playPressable} onPress={() => controlMedia()}>
-                <Image source={getIconResource(playbackState.state)} style={styles.playImage}></Image>
+            <Pressable style={styles.imageContainer} onPress={() => controlMedia()}>
+                <Image source={getPlayButtonImage(playbackState.state)} style={styles.playButtonImage}></Image>
             </Pressable>
         </View>
     );
 }
 
-const playImageDimensions = {
+const imageDimensions = {
     width: 40,
     height: 40
 };
@@ -97,7 +123,7 @@ const styles = StyleSheet.create({
         flexDirection: "column",
         justifyContent: "center",
         flex: 1,
-        paddingRight: 5,
+        paddingHorizontal: 5,
     },
     songName: {
         fontSize: 16,
@@ -107,12 +133,16 @@ const styles = StyleSheet.create({
         fontSize: 14,
         fontWeight: "300"
     },
-    playImage: {
-        ...playImageDimensions
+    playButtonImage: {
+        ...imageDimensions,
     },
-    playPressable: {
+    albumArtImage: {
+        ...imageDimensions,
+        borderRadius: 10
+    },
+    imageContainer: {
         justifyContent: "center",
         alignItems: "center",
-        ...playImageDimensions
+        ...imageDimensions
     },
 });

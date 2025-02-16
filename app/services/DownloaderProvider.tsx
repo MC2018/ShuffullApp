@@ -1,5 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from "react";
-import { ReactNode } from 'react';
+import React, { createContext, ReactNode, useContext, useEffect, useState } from "react";
 import { useDb } from "./db/DbProvider";
 import { Downloader } from "../tools";
 
@@ -8,15 +7,19 @@ interface DownloaderProviderProps {
 };
 
 const DownloaderContext = createContext<Downloader | null>(null);
+let downloader: Downloader | null = null;
 
 export default function DownloaderProvider({ children }: DownloaderProviderProps) {
-    const [ timerIncrement, setTimerIncrement ] = useState(0);
     const db = useDb();
-    const [ downloader, setDownloader ] = useState(new Downloader(db));
 
     useEffect(() => {
+        if (downloader == null) {
+            downloader = new Downloader(db);
+        }
+
         return () => {
-            downloader.dispose();
+            downloader?.dispose();
+            downloader = null;
         };
     }, []);
 

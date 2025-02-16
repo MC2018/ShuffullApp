@@ -9,10 +9,7 @@ import { getProcessingMethod, ProcessingMethod } from "../enums";
 import { ApiStatusFailureError } from "../services/api/errors";
 import { GenericDb } from "../services/db/GenericDb";
 
-let activeUuid: string | undefined = undefined;
-
 export class SyncManager {
-    uuid = generateGuid();
     db: GenericDb;
     api: ApiClient;
     userId: number;
@@ -26,15 +23,8 @@ export class SyncManager {
         this.userId = userId;
         this.logout = logout;
         this.timerId = setInterval(async () => {
-            if (activeUuid != this.uuid) {
-                this.dispose();
-                return;
-            }
-
             this.sync();
         }, 10000);
-
-        activeUuid = this.uuid;
 
         this.sync();
     }
