@@ -9,17 +9,22 @@ interface SyncManagerProviderProps {
 };
 
 const SyncManagerContext = createContext<SyncManager | null>(null);
+let syncManager: SyncManager | null = null;
 
 export default function SyncManagerProvider({ userId }: SyncManagerProviderProps) {
     const db = useDb();
     const api = useApi();
-    const [ syncManager, setSyncManager ] = useState(new SyncManager(db, api, userId, logout));
 
     useEffect(() => {
+        if (syncManager == null) {
+            syncManager = new SyncManager(db, api, userId, logout);
+        }
+
         return () => {
             (async () => {
-                await syncManager.dispose();
-            })
+                await syncManager?.dispose();
+                syncManager = null;
+            })();
         };
     }, []);
 

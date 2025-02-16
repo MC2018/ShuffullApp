@@ -43,11 +43,12 @@ export async function getAllSongsWithArtists(db: GenericDb): Promise<SongWithArt
     return result;
 }
 
-export async function getSongsByPlaylist(db: GenericDb, playlistId: number): Promise<{songId: number, fileExtension: string, fileHash: string}[]> {
+export async function getSongsByPlaylist(db: GenericDb, playlistId: number): Promise<Song[]> {
     return await db.select({
         songId: songTable.songId,
         fileExtension: songTable.fileExtension,
         fileHash: songTable.fileHash,
+        name: songTable.name,
     })
         .from(songTable)
         .innerJoin(playlistSongTable, eq(songTable.songId, playlistSongTable.songId))

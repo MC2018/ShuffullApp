@@ -274,10 +274,8 @@ async function startNewSong(songId: number, recentlyPlayedSong?: RecentlyPlayedS
         }
     }
 
-    const fileName = Downloader.generateSongFileName(song);
-
-    if (await Downloader.songFileExists(fileName)) {
-        songUri = Downloader.generateLocalSongUri(fileName);
+    if (await Downloader.fileExists(Downloader.generateLocalSongUri(song))) {
+        songUri = Downloader.generateLocalSongUri(song);
     } else {
         songUri = await generateUrl(song, false);
     }
