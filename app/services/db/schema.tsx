@@ -17,7 +17,8 @@ export const playlistTable = sqliteTable("playlists", {
 
 export const songTable = sqliteTable("songs", {
     songId: integer("song_id").primaryKey(),
-    directory: text("directory").notNull(),
+    fileExtension: text("file_extension").notNull(),
+    fileHash: text("file_hash").notNull(),
     name: text("name").notNull(),
 }, (table) => {
     return {

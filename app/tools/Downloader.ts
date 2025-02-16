@@ -6,9 +6,15 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { STORAGE_KEYS } from "../constants/storageKeys";
 import { getNetworkStateAsync, NetworkStateType } from "expo-network";
 import { GenericDb } from "../services/db/GenericDb";
+import path from "path-browserify";
 
-const tempFolder = FileSystem.documentDirectory + "temp/";
-const destFolder = FileSystem.documentDirectory + "music/";
+if (FileSystem.documentDirectory == null) {
+    throw new Error("documentDirectory is null");
+}
+
+const tempFolder = path.join(FileSystem.documentDirectory, "temp");
+const destFolder = path.join(FileSystem.documentDirectory, "music");
+const albumArtFolder = path.join(FileSystem.documentDirectory, "album_art");
 
 export class Downloader {
     downloading = false;
@@ -25,6 +31,13 @@ export class Downloader {
             }
         }, 2000);
         this.paused = false;
+    
+        // Ensure directories exist
+        (async () => {
+            await FileSystem.makeDirectoryAsync(tempFolder, { intermediates: true });
+            await FileSystem.makeDirectoryAsync(destFolder, { intermediates: true });
+            await FileSystem.makeDirectoryAsync(albumArtFolder, { intermediates: true });
+        })();
     }
 
     // TODO: improve
@@ -40,10 +53,12 @@ export class Downloader {
     // TODO: this could be optimized to prevent spam-presses
     async addPlaylistToDownloadQueue(playlistId: number, priority: DownloadPriority) {
         let songs = await DbQueries.getSongsByPlaylist(this.db, playlistId);
-        let existingSongs: number[] = [];
-    
+        const existingSongs: number[] = [];
+
         for (let i = 0; i < songs.length; i++) {
-            if (await Downloader.songFileExists(songs[i].directory)) {
+            const songFileName = Downloader.generateSongFileName(songs[i]);
+
+            if (await Downloader.songFileExists(songFileName)) {
                 existingSongs.push(songs[i].songId);
             }
         }
@@ -93,23 +108,20 @@ export class Downloader {
                 return;
             }
     
-            const downloadedPath = `${tempFolder}${song.directory}`;
+            const songFileName = Downloader.generateSongFileName(song);
+            const songDownloadedPath = path.join(tempFolder, songFileName);
             const downloadResumable = FileSystem.createDownloadResumable(
-                `${hostAddress}/music/${song.directory}`,
-                downloadedPath);
+                path.join(hostAddress, "music", songFileName),
+                songDownloadedPath);
     
-            if (await Downloader.songFileExists(song.directory)) {
+            if (await Downloader.songFileExists(songFileName)) {
                 await DbQueries.removeFromDownloadQueue(this.db, song.songId);
                 return;
             }
     
-            // Ensure directories exist
-            await FileSystem.makeDirectoryAsync(tempFolder, { intermediates: true });
-            await FileSystem.makeDirectoryAsync(destFolder, { intermediates: true });
-    
             const downloadedFile = await downloadResumable.downloadAsync();
     
-            if (downloadedFile == undefined || !(await Downloader.songFileExists(song.directory))) {
+            if (downloadedFile == undefined || !(await Downloader.songFileExists(songFileName))) {
                 return;
             }
     
@@ -118,10 +130,10 @@ export class Downloader {
             if (!verified) {
                 return;
             }
-    
+
             await FileSystem.moveAsync({
                 from: downloadedFile.uri,
-                to: destFolder + song.directory
+                to: path.join(destFolder, songFileName)
             });
             await DbQueries.removeFromDownloadQueue(this.db, song.songId);
         } catch (e) {
@@ -130,6 +142,10 @@ export class Downloader {
             this.downloading = false;
         }
     }
+
+    static generateSongFileName(song: { fileHash: string, fileExtension: string }) {
+        return `${song.fileHash}${song.fileExtension}`;
+    } 
 }
 
 export enum DownloadPriority {

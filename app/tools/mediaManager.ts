@@ -9,9 +9,11 @@ import { RequestType } from "../enums";
 import { getPlaybackState } from "react-native-track-player/lib/src/trackPlayer";
 import { Downloader } from "./Downloader";
 import { create } from "zustand";
+import path from "path-browserify";
 
 let queue: number[] = [];
 let db: ExpoSQLiteDatabase;
+let initialized = false;
 
 interface ActiveSongState {
     songId: number;
@@ -28,10 +30,12 @@ export async function setup(activeDb: ExpoSQLiteDatabase) {
     initTrackPlayer();
 
     const currentlyPlayingSong = await DbQueries.getCurrentlyPlayingSong(db);
-    
+
     if (currentlyPlayingSong != undefined) {
         useActiveSong.getState().setSongId(currentlyPlayingSong.songId);
     }
+
+    initialized = true;
 }
 
 async function initTrackPlayer() {
@@ -188,15 +192,23 @@ export async function generateUrl(song: Song, offline: boolean) {
 
     if (offline) {
         throw Error("Offline play not yet implemented.");
+    } else if (hostAddress == null) {
+        throw Error("Host address not found in AsyncStorage.");
     }
 
-    return `${hostAddress}/music/${song?.directory}`;
+    return path.join(hostAddress, "music", Downloader.generateSongFileName(song));
 }
 
 export async function reset() {
+    if (!initialized) {
+        return;
+    }
+
     clearQueue();
     await clearSong();
     await clearRecentlyPlayed();
+
+    initialized = false;
 }
 
 export async function clearSong() {
@@ -262,8 +274,10 @@ async function startNewSong(songId: number, recentlyPlayedSong?: RecentlyPlayedS
         }
     }
 
-    if (await Downloader.songFileExists(song.directory)) {
-        songUri = Downloader.generateLocalSongUri(song.directory);
+    const fileName = Downloader.generateSongFileName(song);
+
+    if (await Downloader.songFileExists(fileName)) {
+        songUri = Downloader.generateLocalSongUri(fileName);
     } else {
         songUri = await generateUrl(song, false);
     }

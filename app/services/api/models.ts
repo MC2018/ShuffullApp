@@ -41,7 +41,8 @@ export type SongTag = z.infer<typeof SongTagSchema>;
 
 export const SongSchema = z.object({
     songId: z.number().int(),
-    directory: z.string(),
+    fileExtension: z.string(),
+    fileHash: z.string(),
     name: z.string(),
     songTags: SongTagListSchema.nullish(),
     songArtists: SongArtistListSchema.nullish()

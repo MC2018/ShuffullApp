@@ -25,16 +25,6 @@ import SongProgressSync from "./services/SongProgressSync";
 const dbName = "shuffull-db";
 let expoDb = SQLite.openDatabaseSync(dbName);
 let db = drizzle(expoDb);
-MediaManager.setup(db);
-
-function resetDb() {
-    MediaManager.reset();
-    expoDb.closeSync();
-    SQLite.deleteDatabaseSync(dbName);
-    expoDb = SQLite.openDatabaseSync(dbName);
-    db = drizzle(expoDb);
-    MediaManager.setup(db);
-}
 
 export default function Index() {
     const [ apiClient, setApiClient ] = useState<ApiClient | null>(null);
@@ -44,6 +34,15 @@ export default function Index() {
     const { success, error } = useMigrations(db, migrations);
     const [ autoLoginAttempted, setAutoLoginAttempted ] = useState<boolean>(false);
     const [ userId, setUserId ] = useState<number | null>(null);
+
+    const resetDb = () => {
+        MediaManager.reset();
+        expoDb.closeSync();
+        SQLite.deleteDatabaseSync(dbName);
+        expoDb = SQLite.openDatabaseSync(dbName);
+        db = drizzle(expoDb);
+        MediaManager.setup(db);
+    }
 
     if (error) {
         try {
@@ -56,6 +55,12 @@ export default function Index() {
             console.error("Serious error with migrations: " + e);
         }
     }
+
+    useEffect(() => {
+        if (success) {
+            MediaManager.setup(db);
+        }
+    }, [success]);
 
     useEffect(() => {
         (async () => {
