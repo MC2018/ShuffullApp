@@ -9,9 +9,8 @@ import { State, usePlaybackState } from "react-native-track-player";
 import { Song } from "../services/db/models";
 import { Downloader } from "../tools/Downloader";
 
-const defaultArt: ImageURISource = require("../../assets/images/default-album-art.jpg");
+const defaultArt: ImageURISource = require("@/assets/images/default-album-art.jpg");
 const { width, height } = Dimensions.get("window");
-const margin = 5;
 
 function getPlayButtonImage(state: State | undefined): ImageURISource {
     switch (state) {
@@ -19,10 +18,10 @@ function getPlayButtonImage(state: State | undefined): ImageURISource {
         case State.Ready:
         case State.Buffering:
         case State.None:
-            return require(`../../assets/images/play.png`);
+            return require(`@/assets/images/play.png`);
         case State.Playing:
         default:
-            return require(`../../assets/images/pause.png`);
+            return require(`@/assets/images/pause.png`);
     }
 }
 
@@ -51,7 +50,7 @@ export default function PlayerBar() {
     
     useEffect(() => {
         (async () => {
-            if (songId == -1) {
+            if (songId == undefined) {
                 setSongInfo(null);
                 return;
             }
@@ -80,7 +79,7 @@ export default function PlayerBar() {
         }
     };
 
-    if (songInfo == null || songId == -1) {
+    if (songInfo == undefined) {
         return <></>;
     }
 
@@ -104,11 +103,14 @@ const imageDimensions = {
     width: 40,
     height: 40
 };
+const playerBarHeight = 50;
+const margin = 5;
+export const totalPlayerBarHeight = playerBarHeight + margin * 2;
 
 const styles = StyleSheet.create({
     container: {
         width: width - margin * 2,
-        height: 50,
+        height: playerBarHeight,
         backgroundColor: "#ccc",
         position: "absolute",
         bottom: 0,

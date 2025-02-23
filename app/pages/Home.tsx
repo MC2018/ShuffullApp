@@ -2,7 +2,6 @@ import { Button, Text, View } from "react-native";
 import { Playlist } from "../services/db/models";
 import PlayPauseButton from "../components/PlayPauseButton";
 import React from "react";
-import PlaylistSelector from "../components/PlaylistSelector";
 import { MediaManager } from "../tools";
 import DownloadButton from "../components/DownloadButton";
 import DownloadPlaylistButton from "../components/DownloadPlaylistButton";
@@ -21,22 +20,8 @@ export default function HomePage({ navigation, route }: any) {
         );
     }
 
-    const handlePlaylistSelected = async (playlist: Playlist | undefined) => {
-        const playlistId = playlist?.playlistId ?? -1;
-        const wasPlaying = await MediaManager.isPlaying();
-
-        if (playlistId == -1) {
-            return;
-        }
-
-        await MediaManager.setPlaylist(playlistId);
-
-        if (wasPlaying) {
-            await MediaManager.play();
-        }
-    };
-
     return (
+        <>
         <View
             style={{
                 flex: 1,
@@ -46,21 +31,10 @@ export default function HomePage({ navigation, route }: any) {
             >
             <Button onPress={logout} title="Logout" />
             <PlayPauseButton />
-            {userId != undefined ? 
-                <>
-                    <PlaylistSelector
-                        userId={userId}
-                        onPlaylistSelected={handlePlaylistSelected}></PlaylistSelector>
-                </>
-                :
-                <>
-                </>
-            }
-            
             <DownloadButton></DownloadButton>
-            <DownloadPlaylistButton></DownloadPlaylistButton>
             <Skimmer></Skimmer>
-            <PlayerBar></PlayerBar>
         </View>
+        <PlayerBar></PlayerBar>
+        </>
     );
 }

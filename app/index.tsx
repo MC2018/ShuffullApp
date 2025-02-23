@@ -90,7 +90,6 @@ export default function Index() {
 
         await db.insert(localSessionDataTable).values([{
             userId: authResponse.user.userId,
-            currentPlaylistId: -1,
             activelyDownload: false,
             token: authResponse.token,
             expiration: new Date(authResponse.expiration)

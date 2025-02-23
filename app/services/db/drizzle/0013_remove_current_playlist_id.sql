@@ -1,0 +1,1 @@
+ALTER TABLE `local_session_data` DROP COLUMN `current_playlist_id`;

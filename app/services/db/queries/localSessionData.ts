@@ -22,7 +22,3 @@ export async function getActiveLocalSessionData(db: GenericDb): Promise<LocalSes
 
     return undefined;
 }
-
-export async function setActiveLocalSessionPlaylistId(db: GenericDb, playlistId: number): Promise<void> {
-    await db.update(localSessionDataTable).set({currentPlaylistId: playlistId});
-}

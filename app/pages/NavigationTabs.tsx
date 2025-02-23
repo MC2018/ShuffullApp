@@ -8,6 +8,7 @@ import { useEffect, useState } from "react";
 import Songs from "./Songs";
 import { useDb } from "../services/db/DbProvider";
 import { logout } from "../services/LogoutProvider";
+import Library from "./Library";
 
 const Tab = createBottomTabNavigator();
 
@@ -41,6 +42,7 @@ export default function NavigationTabs() {
         <Tab.Navigator screenOptions={{ headerShown: false }}>
             <Tab.Screen name="Songs" component={Songs} />
             <Tab.Screen name="Home" component={Home} initialParams={{ userId }} />
+            <Tab.Screen name="Library" component={Library} initialParams={{ userId }} />
         </Tab.Navigator>
     );
 }

@@ -10,18 +10,45 @@ import { getPlaybackState } from "react-native-track-player/lib/src/trackPlayer"
 import { Downloader } from "./Downloader";
 import { create } from "zustand";
 import path from "path-browserify";
+import { SongFilters } from "../types/SongFilters";
 
 let queue: number[] = [];
 let db: ExpoSQLiteDatabase;
-let initialized = false;
+let trackPlayerInitialized = false;
 
 interface ActiveSongState {
-    songId: number;
+    songId: number | undefined;
     setSongId: (songId: number) => void;
 }
 
+export async function getSongFilters(): Promise<SongFilters> {
+    const songFiltersStr = await AsyncStorage.getItem(STORAGE_KEYS.CURRENT_SONG_FILTERS);
+    let songFilters = new SongFilters();
+
+    if (songFiltersStr == null || !songFiltersStr.length) {
+        await AsyncStorage.setItem(STORAGE_KEYS.CURRENT_SONG_FILTERS, JSON.stringify(songFilters));
+    } else {
+        // TODO: problem could arise if songfilters is changed
+        const parsedFilters: SongFilters = JSON.parse(songFiltersStr);
+        Object.setPrototypeOf(parsedFilters, SongFilters.prototype);
+        songFilters = parsedFilters;
+    }
+
+    return songFilters;
+}
+
+export async function setSongFilters(songFilters: SongFilters, resetAndPlay: boolean = false): Promise<void> {
+    await AsyncStorage.setItem(STORAGE_KEYS.CURRENT_SONG_FILTERS, JSON.stringify(songFilters));
+    const t = await AsyncStorage.getItem(STORAGE_KEYS.CURRENT_SONG_FILTERS);
+
+    if (resetAndPlay) {
+        await reset();
+        await play();
+    }
+}
+
 export const useActiveSong = create<ActiveSongState>((set) => ({
-    songId: -1,
+    songId: undefined,
     setSongId: (id) => set({ songId: id }),
 }));
 
@@ -34,8 +61,6 @@ export async function setup(activeDb: ExpoSQLiteDatabase) {
     if (currentlyPlayingSong != undefined) {
         useActiveSong.getState().setSongId(currentlyPlayingSong.songId);
     }
-
-    initialized = true;
 }
 
 async function initTrackPlayer() {
@@ -71,6 +96,8 @@ async function initTrackPlayer() {
             ],
         });
     }
+
+    trackPlayerInitialized = true;
 }
 
 async function setupEventListeners() {
@@ -84,9 +111,9 @@ async function setupEventListeners() {
             return;
         }
 
-        const playlistId = await getCurrentPlaylistId();
+        const songFilters = await getSongFilters();
 
-        if (playlistId == -1 || playlistId == undefined) {
+        if (songFilters.artistIds) {
             return;
         }
 
@@ -113,7 +140,7 @@ export async function play() {
 }
 
 export async function playSpecificSong(songId: number) {
-    await setPlaylist(-1);
+    await setSongFilters(new SongFilters(), true);
     startNewSong(songId);
 }
 
@@ -139,14 +166,13 @@ export async function skip() {
         if (recentlyPlayedSong != undefined) {
             songId = recentlyPlayedSong.songId;
         } else {
-            const localSessionData = await DbQueries.getActiveLocalSessionData(db);
+            const songFilters = await getSongFilters();
 
-            if (localSessionData != undefined &&
-                (localSessionData.currentPlaylistId == undefined || localSessionData.currentPlaylistId == -1)) {
+            if (!songFilters.playlistIds.length) {
                 return;
             }
 
-            songId = await getNextSongId();
+            songId = await getRandomSongId();
         }
     }
 
@@ -200,15 +226,13 @@ export async function generateUrl(song: Song, offline: boolean) {
 }
 
 export async function reset() {
-    if (!initialized) {
+    if (!trackPlayerInitialized) {
         return;
     }
 
     clearQueue();
     await clearSong();
     await clearRecentlyPlayed();
-
-    initialized = false;
 }
 
 export async function clearSong() {
@@ -224,19 +248,11 @@ export function clearQueue() {
 
 export async function clearRecentlyPlayed() {
     await DbQueries.removeAllRecentlyPlayedSongs(db);
-}
-
-export async function getCurrentPlaylistId() {
-    return (await DbQueries.getActiveLocalSessionData(db))?.currentPlaylistId ?? undefined;
+    
 }
 
 export async function isPlaying() {
     return (await getPlaybackState()).state == State.Playing;
-}
-
-export async function setPlaylist(playlistId: number) {
-    await DbQueries.setActiveLocalSessionPlaylistId(db, playlistId);
-    await reset();
 }
 
 export async function getCurrentlyPlayingSong() {
@@ -341,12 +357,13 @@ async function startNewSong(songId: number, recentlyPlayedSong?: RecentlyPlayedS
     await DbQueries.addRequests(db, [updateSongLastPlayedRequest]);
 }
 
-async function getNextSongId(): Promise<number | undefined> {
-    const currentPlaylistId = await getCurrentPlaylistId();
+// TODO: support multiple playlists, and all filters in general
+async function getRandomSongId(): Promise<number | undefined> {
+    const songFilters = await getSongFilters();
     let songId: number | undefined;
 
-    if (currentPlaylistId != undefined && currentPlaylistId != -1) {
-        songId = await DbQueries.getRandomSongIdByPlaylist(db, currentPlaylistId);
+    if (songFilters.playlistIds.length) {
+        songId = await DbQueries.getRandomSongIdByPlaylist(db, songFilters.playlistIds[0]);
         
         if (songId == undefined) {
             throw Error("Attempted to get a playlist song, but no songs exist.");
