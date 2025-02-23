@@ -1,4 +1,5 @@
 export * from "./_misc";
+export * from "./downloadedSong";
 export * from "./downloadQueue";
 export * from "./localSessionData";
 export * from "./playlist";

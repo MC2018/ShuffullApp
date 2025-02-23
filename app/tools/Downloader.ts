@@ -159,6 +159,7 @@ export class Downloader {
                 from: downloadedAlbumArtFile.uri,
                 to: path.join(albumArtFolder, albumArtFileName)
             });
+            await DbQueries.addDownloadedSong(this.db, song.songId);
             await DbQueries.removeFromDownloadQueue(this.db, song.songId);
         } catch (e) {
             console.error(e);

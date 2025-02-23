@@ -1,6 +1,6 @@
 import { GenericDb } from "../GenericDb";
 import { Artist, Song } from "../models";
-import { artistTable, playlistSongTable, songArtistTable, songTable, userSongTable } from "../schema";
+import { artistTable, downloadedSongTable, playlistSongTable, songArtistTable, songTable, userSongTable } from "../schema";
 import { eq, gt, lt, ExtractTablesWithRelations, inArray, sql, isNotNull, and, desc, asc, or } from "drizzle-orm";
 
 export type SongWithArtists = {
@@ -102,6 +102,33 @@ export async function getRandomSongIdByPlaylist(db: GenericDb, playlistId: numbe
         .innerJoin(playlistSongTable, eq(songTable.songId, playlistSongTable.songId))
         .leftJoin(userSongTable, eq(songTable.songId, userSongTable.songId))
         .where(eq(playlistSongTable.playlistId, playlistId))
+        .orderBy(asc(userSongTable.lastPlayed), sql`RANDOM()`) // Random is for when lastPlayed is the same
+        .offset(randomSongIndex)
+        .limit(1);
+
+    if (song.length == 0) {
+        return undefined;
+    }
+
+    return song[0].songId;
+}
+
+export async function getRandomDownloadedSongId(db: GenericDb): Promise<number | undefined> {
+    // TODO: figure out if there's simpler way to do this in the following query
+    const songCount = (await db.select({
+        count: sql<number>`COUNT(*)`.as("count"),
+    }).from(songTable)
+        .innerJoin(downloadedSongTable, eq(songTable.songId, downloadedSongTable.songId))
+        )[0].count;
+    const randomSongIndex = Math.floor(songCount * Math.random() * 0.3);
+    
+    const song = await db
+        .select({
+            songId: songTable.songId
+        })
+        .from(songTable)
+        .innerJoin(downloadedSongTable, eq(songTable.songId, downloadedSongTable.songId))
+        .leftJoin(userSongTable, eq(songTable.songId, userSongTable.songId))
         .orderBy(asc(userSongTable.lastPlayed), sql`RANDOM()`) // Random is for when lastPlayed is the same
         .offset(randomSongIndex)
         .limit(1);

@@ -1,3 +1,4 @@
+// TODO: fix all foreign keys to have indexes
 import { sqliteTable, text, integer, real, index, primaryKey } from "drizzle-orm/sqlite-core";
 
 export const userTable = sqliteTable("users", {
@@ -24,6 +25,11 @@ export const songTable = sqliteTable("songs", {
     return {
         nameIndex: index("idx_songs_name").on(table.name),
     };
+});
+
+export const downloadedSongTable = sqliteTable("downloaded_songs", {
+    downloadedSongId: integer("downloaded_song_id").primaryKey(),
+    songId: integer("song_id").notNull().references(() => songTable.songId),
 });
 
 export const playlistSongTable = sqliteTable("playlist_songs", {
@@ -69,7 +75,6 @@ export const userSongTable = sqliteTable("user_songs", {
 
 export const localSessionDataTable = sqliteTable("local_session_data", {
     userId: integer("user_id").primaryKey(),
-    currentPlaylistId: integer("current_playlist_id").notNull(),
     activelyDownload: integer("actively_download", { mode: "boolean" }).notNull(),
     token: text("token").notNull(),
     expiration: integer("expiration", { mode: "timestamp_ms" }).notNull()
