@@ -77,7 +77,6 @@ export const PlaylistSchema = z.object({
     playlistId: z.number().int(),
     userId: z.number().int(),
     name: z.string(),
-    currentSongId: z.number().int(),
     percentUntilReplayable: z.number().min(0).max(1),
     version: z.coerce.date(),
     playlistSongs: PlaylistSongListSchema.nullish()

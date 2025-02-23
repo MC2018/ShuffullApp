@@ -11,7 +11,6 @@ export const playlistTable = sqliteTable("playlists", {
     playlistId: integer("playlist_id").primaryKey(),
     userId: integer("user_id").notNull().references(() => userTable.userId),
     name: text("name").notNull(),
-    currentSongId: integer("current_song_id").notNull(),
     percentUntilReplayable: real("percent_until_replayable").notNull(),
     version: integer("version", { mode: "timestamp_ms" }).notNull(),
 });
