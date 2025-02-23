@@ -7,8 +7,20 @@ import PlayerBar from "../components/PlayerBar";
 import SongCollectionSelector from "../components/selectors/SongCollectionSelector";
 import LocalDownloadsSelector from "../components/selectors/LocalDownloadsSelector";
 import { useDb } from "../services/db/DbProvider";
+import { createStackNavigator } from "@react-navigation/stack";
 
-export default function LibraryPage({ navigation, route }: any) {
+const SongStack = createStackNavigator();
+
+export default function LibraryStackScreen({ navigation, route }: any) {
+    
+    return (
+        <SongStack.Navigator screenOptions={{ headerShown: false }}>
+            <SongStack.Screen name="Library" component={LibraryPage} initialParams={route.params} />
+        </SongStack.Navigator>
+    );
+}
+
+export function LibraryPage({ navigation, route }: any) {
     const [ playlists, setPlaylists ] = React.useState<Playlist[]>([]);
     const { userId } = route.params;
     const db = useDb();

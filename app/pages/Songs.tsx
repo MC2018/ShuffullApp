@@ -5,8 +5,19 @@ import * as DbQueries from "../services/db/queries";
 import { MediaManager } from "../tools";
 import React from "react";
 import PlayerBar, { totalPlayerBarHeight } from "../components/PlayerBar";
+import { createStackNavigator } from "@react-navigation/stack";
 
-export default function Songs() {
+const SongStack = createStackNavigator();
+
+export default function SongsStackScreen() {
+    return (
+        <SongStack.Navigator screenOptions={{ headerShown: false }}>
+            <SongStack.Screen name="Song" component={SongsPage} />
+        </SongStack.Navigator>
+    );
+}
+
+export function SongsPage() {
     const [songs, setSongs] = useState<DbQueries.SongWithArtists[]>([]);
     const [filteredSongs, setFilteredSongs] = useState<DbQueries.SongWithArtists[]>([]);
     const db = useDb();
