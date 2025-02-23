@@ -2,7 +2,7 @@ import { Button, Text, View } from "react-native";
 import { Playlist } from "../services/db/models";
 import PlayPauseButton from "../components/PlayPauseButton";
 import React from "react";
-import { MediaManager } from "../tools";
+import { MediaManager, Navigator } from "../tools";
 import DownloadButton from "../components/DownloadButton";
 import DownloadPlaylistButton from "../components/DownloadPlaylistButton";
 import { logout } from "../services/LogoutProvider";
@@ -13,11 +13,10 @@ import PlaylistPage from "./Playlist";
 
 const HomeStack = createStackNavigator();
 
-export default function HomeStackScreen() {
+export default function HomeStackScreen({ navigation, route }: any) {
     return (
         <HomeStack.Navigator screenOptions={{ headerShown: false }}>
-            <HomeStack.Screen name="Home" component={HomePage} />
-            <HomeStack.Screen name="Playlist" component={PlaylistPage} initialParams={{userId: 1}} />
+            <HomeStack.Screen name="Home" component={HomePage} initialParams={route.params} />
         </HomeStack.Navigator>
     );
 }
@@ -36,7 +35,6 @@ export function HomePage({ navigation, route }: any) {
             <PlayPauseButton />
             <DownloadButton></DownloadButton>
             <Skimmer></Skimmer>
-            <Button title="T" onPress={() => navigation.navigate("Library", {userId: 1})}></Button>
         </View>
         <PlayerBar></PlayerBar>
         </>

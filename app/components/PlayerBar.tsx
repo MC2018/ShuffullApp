@@ -2,7 +2,7 @@ import { MediaManager } from "../tools";
 import { Image, View, Text, Dimensions, StyleSheet, ImageSourcePropType, Pressable, ImageURISource } from "react-native";
 import React, { useEffect, useState } from "react";
 import { useActiveSong } from "../tools/mediaManager";
-import { SongWithArtists } from "../services/db/queries";
+import { SongDetails } from "../services/db/queries";
 import { useDb } from "../services/db/DbProvider";
 import * as DbQueries from "../services/db/queries";
 import { State, usePlaybackState } from "react-native-track-player";
@@ -45,7 +45,7 @@ export default function PlayerBar() {
     const db = useDb();
     const playbackState = usePlaybackState();
     const { songId } = useActiveSong();
-    const [ songInfo, setSongInfo ] = useState<SongWithArtists | null>(null);
+    const [ songInfo, setSongInfo ] = useState<SongDetails | null>(null);
     const [ albumArt, setAlbumArt ] = useState<GenericImageSource>(defaultArt);
     
     useEffect(() => {

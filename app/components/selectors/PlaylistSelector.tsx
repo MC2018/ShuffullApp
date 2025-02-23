@@ -8,25 +8,13 @@ import { SongFilterType } from "@/app/types/SongFilters";
 export interface PlaylistSelectorProps {
     playlist: Playlist;
     imageSource: ImageSourcePropType | string;
-    onSelected: () => void;
+    onSelectPlaylist: (playlist: Playlist) => void;
 }
 
-export default function PlaylistSelector({ playlist, imageSource, onSelected }: PlaylistSelectorProps) {
-    const handleSelected = async () => {
-        const songFilters = await MediaManager.getSongFilters();
-        const newPlaylistIds = [playlist.playlistId];
-
-        if (newPlaylistIds == songFilters.playlistIds) {
-            return;
-        }
-
-        songFilters.setPrimaryFilter(SongFilterType.Playlist, newPlaylistIds);
-        await MediaManager.setSongFilters(songFilters, true);
-    };
-
+export default function PlaylistSelector({ playlist, imageSource, onSelectPlaylist }: PlaylistSelectorProps) {
     return <SongCollectionSelector
         collectionName={playlist.name}
         imageSource={require("@/assets/images/default-album-art.jpg")}
-        onSelected={handleSelected}>
+        onSelected={() => onSelectPlaylist(playlist)}>
     </SongCollectionSelector>;
 }

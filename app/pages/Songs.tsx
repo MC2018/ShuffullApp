@@ -6,31 +6,32 @@ import { MediaManager } from "../tools";
 import React from "react";
 import PlayerBar, { totalPlayerBarHeight } from "../components/PlayerBar";
 import { createStackNavigator } from "@react-navigation/stack";
+import { SongList } from "../components/SongList";
 
 const SongStack = createStackNavigator();
 
-export default function SongsStackScreen() {
+export default function SongsStackScreen({ navigation, route }: any) {
     return (
         <SongStack.Navigator screenOptions={{ headerShown: false }}>
-            <SongStack.Screen name="Song" component={SongsPage} />
+            <SongStack.Screen name="Song" component={SongsPage} initialParams={route.params} />
         </SongStack.Navigator>
     );
 }
 
 export function SongsPage() {
-    const [songs, setSongs] = useState<DbQueries.SongWithArtists[]>([]);
-    const [filteredSongs, setFilteredSongs] = useState<DbQueries.SongWithArtists[]>([]);
+    const [songs, setSongs] = useState<DbQueries.SongDetails[]>([]);
+    const [filteredSongs, setFilteredSongs] = useState<DbQueries.SongDetails[]>([]);
     const db = useDb();
 
     useEffect(() => {
         (async () => {
-            const songs = await DbQueries.getAllSongsWithArtists(db);
+            const songs = await DbQueries.getAllSongDetails(db);
             setSongs(songs);
             setFilteredSongs(songs);
         })();
     }, []);
 
-    const selectSong = async (songInfo: DbQueries.SongWithArtists) => {
+    const handleSongSelect = async (songInfo: DbQueries.SongDetails) => {
         await MediaManager.playSpecificSong(songInfo.song.songId);
     };
 
@@ -53,14 +54,7 @@ export function SongsPage() {
             }}>
             <Text style={{fontSize: 24, marginBottom: 20}}>Songs</Text>
             <TextInput placeholder="Search" onChangeText={filterSongs}></TextInput>
-            <FlatList data={filteredSongs} renderItem={({ item }) => 
-                <View style={{margin: 5}} onTouchEnd={() => selectSong(item)}>
-                    <Text style={{fontSize: 18}}>{item.song.name}</Text>
-                    <Text>
-                        {item.artists.length > 0 ? item.artists.map(x => x.name).join(", ") : "Unknown Artist"}
-                    </Text>
-                </View>
-            } />
+            <SongList songs={filteredSongs} onSelectSong={handleSongSelect} />
         </View>
         <PlayerBar></PlayerBar>
         </>

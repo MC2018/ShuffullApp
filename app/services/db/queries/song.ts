@@ -3,27 +3,28 @@ import { Artist, Song } from "../models";
 import { artistTable, downloadedSongTable, playlistSongTable, songArtistTable, songTable, userSongTable } from "../schema";
 import { eq, gt, lt, ExtractTablesWithRelations, inArray, sql, isNotNull, and, desc, asc, or } from "drizzle-orm";
 
-export type SongWithArtists = {
+export type SongDetails = {
     song: Song;
     artists: Artist[];
 }
 
-export async function getAllSongsWithArtists(db: GenericDb): Promise<SongWithArtists[]> {
-    const result: SongWithArtists[] = [];
-
-    const rawData = await db.select({
-        song: songTable,
-        artist: artistTable
-    }).from(songTable)
+export async function getAllSongDetails(db: GenericDb): Promise<SongDetails[]> {
+    const result: SongDetails[] = [];
+    const rawData = await db
+        .select({
+            song: songTable,
+            artist: artistTable
+        })
+        .from(songTable)
         .leftJoin(songArtistTable, eq(songTable.songId, songArtistTable.songId))
         .leftJoin(artistTable, eq(songArtistTable.artistId, artistTable.artistId))
         .orderBy(asc(songTable.songId));
     
-    let nextSongWithArtist: SongWithArtists | undefined = undefined;
+    let nextSongDetails: SongDetails | undefined = undefined;
 
     for (let i = 0; i < rawData.length; i++) {
-        if (nextSongWithArtist == undefined || rawData[i].song.songId != nextSongWithArtist.song.songId) {
-            nextSongWithArtist = {
+        if (nextSongDetails == undefined || rawData[i].song.songId != nextSongDetails.song.songId) {
+            nextSongDetails = {
                 song: rawData[i].song,
                 artists: []
             };
@@ -32,11 +33,49 @@ export async function getAllSongsWithArtists(db: GenericDb): Promise<SongWithArt
         const artist = rawData[i].artist;
 
         if (artist != null) {
-            nextSongWithArtist.artists.push(artist);
+            nextSongDetails.artists.push(artist);
         }
 
-        if (i + 1 >= rawData.length || rawData[i + 1].song.songId != nextSongWithArtist.song.songId) {
-            result.push(nextSongWithArtist);
+        if (i + 1 >= rawData.length || rawData[i + 1].song.songId != nextSongDetails.song.songId) {
+            result.push(nextSongDetails);
+        }
+    }
+
+    return result;
+}
+
+// TODO: this is duplicated code from above, try to remove in the future
+export async function getSongDetailsByPlaylist(db: GenericDb, playlistId: number): Promise<SongDetails[]> {
+    const result: SongDetails[] = [];
+    const rawData = await db
+        .selectDistinct({
+            song: songTable,
+            artist: artistTable
+        })
+        .from(songTable)
+        .innerJoin(playlistSongTable, eq(playlistSongTable.playlistId, playlistId))
+        .leftJoin(songArtistTable, eq(songTable.songId, songArtistTable.songId))
+        .leftJoin(artistTable, eq(songArtistTable.artistId, artistTable.artistId))
+        .orderBy(asc(songTable.songId));
+    
+    let nextSongDetails: SongDetails | undefined = undefined;
+
+    for (let i = 0; i < rawData.length; i++) {
+        if (nextSongDetails == undefined || rawData[i].song.songId != nextSongDetails.song.songId) {
+            nextSongDetails = {
+                song: rawData[i].song,
+                artists: []
+            };
+        }
+        
+        const artist = rawData[i].artist;
+
+        if (artist != null) {
+            nextSongDetails.artists.push(artist);
+        }
+
+        if (i + 1 >= rawData.length || rawData[i + 1].song.songId != nextSongDetails.song.songId) {
+            result.push(nextSongDetails);
         }
     }
 
@@ -44,16 +83,22 @@ export async function getAllSongsWithArtists(db: GenericDb): Promise<SongWithArt
 }
 
 export async function getSongsByPlaylist(db: GenericDb, playlistId: number): Promise<Song[]> {
-    return await db.select({
-        songId: songTable.songId,
-        fileExtension: songTable.fileExtension,
-        fileHash: songTable.fileHash,
-        name: songTable.name,
-    })
+    return await db
+        .select({
+            songId: songTable.songId,
+            fileExtension: songTable.fileExtension,
+            fileHash: songTable.fileHash,
+            name: songTable.name,
+            artist: {
+                artistId: artistTable.artistId,
+                name: artistTable.name
+            }
+        })
         .from(songTable)
-        .innerJoin(playlistSongTable, eq(songTable.songId, playlistSongTable.songId))
-        .where(eq(playlistSongTable.playlistId, playlistId));
+        .leftJoin(songArtistTable, eq(songTable.songId, songArtistTable.songId))
+        .leftJoin(artistTable, eq(songArtistTable.artistId, artistTable.artistId));
 }
+
 
 export async function updateSongs(db: GenericDb, songs: Song[]): Promise<void> {
     if (!songs.length) {
@@ -142,7 +187,7 @@ export async function getRandomDownloadedSongId(db: GenericDb): Promise<number |
 
 // TODO: add more than just artists to this
 // TODO: this doesn't work if there are multiple artists
-export async function fetchSongDetails(db: GenericDb, songId: number): Promise<SongWithArtists> {
+export async function fetchSongDetails(db: GenericDb, songId: number): Promise<SongDetails> {
     const song = await db
         .select({
             songId: songTable.songId,
@@ -165,7 +210,7 @@ export async function fetchSongDetails(db: GenericDb, songId: number): Promise<S
         throw Error(errMsg);
     }
 
-    let result: SongWithArtists = {
+    let result: SongDetails = {
         song: song[0],
         artists: []
     };
