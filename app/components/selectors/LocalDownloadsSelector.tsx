@@ -11,7 +11,7 @@ export default function LocalDownloadsSelector() {
         const songFilters = new SongFilters();
         songFilters.localOnly = true;
 
-        await MediaManager.setSongFilters(songFilters);
+        await MediaManager.setSongFilters(songFilters, true);
     };
 
     return <SongCollectionSelector

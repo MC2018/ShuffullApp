@@ -36,7 +36,7 @@ export default function Index() {
     const [ userId, setUserId ] = useState<number | null>(null);
 
     const resetDb = () => {
-        MediaManager.reset();
+        MediaManager.clear();
         expoDb.closeSync();
         SQLite.deleteDatabaseSync(dbName);
         expoDb = SQLite.openDatabaseSync(dbName);
@@ -69,7 +69,7 @@ export default function Index() {
     
             if (!localSessionData || !hostAddress) {
                 setAutoLoginAttempted(true);
-                MediaManager.reset();
+                MediaManager.clear();
                 return;
             }
 
@@ -115,7 +115,7 @@ export default function Index() {
             expiration: new Date(Date.now())
         });
 
-        MediaManager.reset();
+        MediaManager.clear();
 
         await AsyncStorage.removeItem(STORAGE_KEYS.CURRENT_USER_ID);
 

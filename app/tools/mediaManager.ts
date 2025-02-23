@@ -37,12 +37,11 @@ export async function getSongFilters(): Promise<SongFilters> {
     return songFilters;
 }
 
-export async function setSongFilters(songFilters: SongFilters, resetAndPlay: boolean = false): Promise<void> {
+export async function setSongFilters(songFilters: SongFilters, clearAndPlay: boolean = false): Promise<void> {
     await AsyncStorage.setItem(STORAGE_KEYS.CURRENT_SONG_FILTERS, JSON.stringify(songFilters));
-    const t = await AsyncStorage.getItem(STORAGE_KEYS.CURRENT_SONG_FILTERS);
 
-    if (resetAndPlay) {
-        await reset();
+    if (clearAndPlay) {
+        await clear();
         await play();
     }
 }
@@ -225,7 +224,7 @@ export async function generateUrl(song: Song, offline: boolean) {
     return path.join(hostAddress, "music", Downloader.generateSongFileName(song));
 }
 
-export async function reset() {
+export async function clear() {
     if (!trackPlayerInitialized) {
         return;
     }

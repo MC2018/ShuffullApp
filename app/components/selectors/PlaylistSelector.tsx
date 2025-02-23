@@ -22,7 +22,6 @@ export default function PlaylistSelector({ playlist, imageSource, onSelected }: 
 
         songFilters.setPrimaryFilter(SongFilterType.Playlist, newPlaylistIds);
         await MediaManager.setSongFilters(songFilters, true);
-        await MediaManager.skip();
     };
 
     return <SongCollectionSelector
