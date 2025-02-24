@@ -4,7 +4,7 @@ export class SongFilters {
     artistIds: number[] = [];
     genreIds: number[] = [];
 
-    public setPrimaryFilter(type: SongFilterType, ids: number[]) {
+    public setSoleFilter(type: SongFilterType, ids: number[]) {
         this.playlistIds = [];
         this.artistIds = [];
         this.genreIds = [];

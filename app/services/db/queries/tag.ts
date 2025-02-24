@@ -1,6 +1,6 @@
 import { GenericDb } from "../GenericDb";
 import { Tag } from "../models";
-import { tagTable } from "../schema";
+import { songTable, songTagTable, tagTable } from "../schema";
 import { eq, gt, lt, ExtractTablesWithRelations, inArray, sql, isNotNull, and, desc, asc, or } from "drizzle-orm";
 
 export async function updateTags(db: GenericDb, newTags: Tag[]): Promise<void> {
@@ -19,4 +19,15 @@ export async function updateTags(db: GenericDb, newTags: Tag[]): Promise<void> {
             await db.delete(tagTable).where(eq(tagTable.tagId, tagToRemove.tagId));
         }
     }
+}
+
+export async function getTagsFromSong(db: GenericDb, songId: number): Promise<Tag[]> {
+    return await db
+        .selectDistinct({
+            tagId: tagTable.tagId,
+            name: tagTable.name,
+        })
+        .from(songTagTable)
+        .where(eq(songTagTable.songId, songId))
+        .innerJoin(tagTable, eq(tagTable.tagId, songTagTable.tagId));
 }

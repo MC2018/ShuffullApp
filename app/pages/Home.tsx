@@ -10,6 +10,7 @@ import Skimmer from "../components/Skimmer";
 import PlayerBar from "../components/PlayerBar";
 import { createStackNavigator } from "@react-navigation/stack";
 import PlaylistPage from "./Playlist";
+import { SongTagList } from "../components/SongTagList";
 
 const HomeStack = createStackNavigator();
 
@@ -35,6 +36,7 @@ export function HomePage({ navigation, route }: any) {
             <PlayPauseButton />
             <DownloadButton></DownloadButton>
             <Skimmer></Skimmer>
+            <SongTagList></SongTagList>
         </View>
         <PlayerBar></PlayerBar>
         </>
