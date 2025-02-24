@@ -82,6 +82,44 @@ export async function getSongDetailsByPlaylist(db: GenericDb, playlistId: number
     return result;
 }
 
+// TODO: this is duplicated code from above, try to remove in the future
+export async function getDownloadedSongDetails(db: GenericDb): Promise<SongDetails[]> {
+    const result: SongDetails[] = [];
+    const rawData = await db
+        .selectDistinct({
+            song: songTable,
+            artist: artistTable
+        })
+        .from(songTable)
+        .innerJoin(downloadedSongTable, eq(downloadedSongTable.songId, songTable.songId))
+        .leftJoin(songArtistTable, eq(songTable.songId, songArtistTable.songId))
+        .leftJoin(artistTable, eq(songArtistTable.artistId, artistTable.artistId))
+        .orderBy(asc(songTable.songId));
+    
+    let nextSongDetails: SongDetails | undefined = undefined;
+
+    for (let i = 0; i < rawData.length; i++) {
+        if (nextSongDetails == undefined || rawData[i].song.songId != nextSongDetails.song.songId) {
+            nextSongDetails = {
+                song: rawData[i].song,
+                artists: []
+            };
+        }
+        
+        const artist = rawData[i].artist;
+
+        if (artist != null) {
+            nextSongDetails.artists.push(artist);
+        }
+
+        if (i + 1 >= rawData.length || rawData[i + 1].song.songId != nextSongDetails.song.songId) {
+            result.push(nextSongDetails);
+        }
+    }
+
+    return result;
+}
+
 export async function getSongsByPlaylist(db: GenericDb, playlistId: number): Promise<Song[]> {
     return await db
         .select({

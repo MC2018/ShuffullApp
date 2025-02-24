@@ -11,6 +11,7 @@ import { createStackNavigator } from "@react-navigation/stack";
 import { MediaManager, Navigator } from "../tools";
 import { SongFilterType } from "../types/SongFilters";
 import PlaylistPage from "./Playlist";
+import LocalDownloadsPage from "./LocalDownloads";
 
 const LibraryStack = createStackNavigator();
 
@@ -19,6 +20,7 @@ export default function LibraryStackScreen({ navigation, route }: any) {
         <LibraryStack.Navigator screenOptions={{ headerShown: false }}>
             <LibraryStack.Screen name="Library" component={LibraryPage} initialParams={route.params} />
             <LibraryStack.Screen name="Playlist" component={PlaylistPage} initialParams={route.params} />
+            <LibraryStack.Screen name="LocalDownloads" component={LocalDownloadsPage} initialParams={route.params} />
         </LibraryStack.Navigator>
     );
 }
@@ -43,15 +45,7 @@ export function LibraryPage({ navigation, route }: any) {
     }, []);
 
     const handleSelectPlaylist = async (playlist: Playlist) => {
-        const songFilters = await MediaManager.getSongFilters();
-        const newPlaylistIds = [playlist.playlistId];
-
-        // TODO: check if filters and list are same: if they are, return early
-
         Navigator.toPlaylist(navigation, playlist.playlistId);
-
-        //songFilters.setPrimaryFilter(SongFilterType.Playlist, newPlaylistIds);
-        //await MediaManager.setSongFilters(songFilters, true);
     };
 
     return (
