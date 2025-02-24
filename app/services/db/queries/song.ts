@@ -1,6 +1,6 @@
 import { GenericDb } from "../GenericDb";
 import { Artist, Song } from "../models";
-import { artistTable, downloadedSongTable, playlistSongTable, songArtistTable, songTable, userSongTable } from "../schema";
+import { artistTable, downloadedSongTable, playlistSongTable, playlistTable, songArtistTable, songTable, userSongTable } from "../schema";
 import { eq, gt, lt, ExtractTablesWithRelations, inArray, sql, isNotNull, and, desc, asc, or } from "drizzle-orm";
 
 export type SongDetails = {
@@ -52,12 +52,13 @@ export async function getSongDetailsByPlaylist(db: GenericDb, playlistId: number
             song: songTable,
             artist: artistTable
         })
-        .from(songTable)
-        .innerJoin(playlistSongTable, eq(playlistSongTable.playlistId, playlistId))
+        .from(playlistSongTable)
+        .where(eq(playlistSongTable.playlistId, playlistId))
+        .innerJoin(songTable, eq(songTable.songId, playlistSongTable.songId))
         .leftJoin(songArtistTable, eq(songTable.songId, songArtistTable.songId))
         .leftJoin(artistTable, eq(songArtistTable.artistId, artistTable.artistId))
         .orderBy(asc(songTable.songId));
-    
+
     let nextSongDetails: SongDetails | undefined = undefined;
 
     for (let i = 0; i < rawData.length; i++) {
@@ -90,8 +91,8 @@ export async function getDownloadedSongDetails(db: GenericDb): Promise<SongDetai
             song: songTable,
             artist: artistTable
         })
-        .from(songTable)
-        .innerJoin(downloadedSongTable, eq(downloadedSongTable.songId, songTable.songId))
+        .from(downloadedSongTable)
+        .innerJoin(songTable, eq(songTable.songId, downloadedSongTable.songId))
         .leftJoin(songArtistTable, eq(songTable.songId, songArtistTable.songId))
         .leftJoin(artistTable, eq(songArtistTable.artistId, artistTable.artistId))
         .orderBy(asc(songTable.songId));

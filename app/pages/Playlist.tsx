@@ -65,7 +65,7 @@ export default function PlaylistPage({ navigation, route }: any) {
         const newPlaylistIds = [playlist.playlistId];
 
         // TODO: check if filters and list are same: if they are, return early
-        songFilters.setPrimaryFilter(SongFilterType.Playlist, newPlaylistIds);
+        songFilters.setSoleFilter(SongFilterType.Playlist, newPlaylistIds);
         await MediaManager.setSongFilters(songFilters, true);
     };
 
