@@ -18,3 +18,13 @@ export async function updatePlaylist(db: GenericDb, newPlaylist: Playlist): Prom
 export async function getPlaylists(db: GenericDb, userId: number): Promise<Playlist[]> {
     return await db.select().from(playlistTable).where(eq(playlistTable.userId, userId));
 }
+
+export async function getPlaylist(db: GenericDb, playlistId: number): Promise<Playlist | undefined> {
+    const result = await db.select().from(playlistTable).where(eq(playlistTable.playlistId, playlistId));
+
+    if (!result.length) {
+        return undefined;
+    }
+
+    return result[0];
+}

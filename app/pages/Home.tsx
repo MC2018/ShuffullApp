@@ -2,41 +2,28 @@ import { Button, Text, View } from "react-native";
 import { Playlist } from "../services/db/models";
 import PlayPauseButton from "../components/PlayPauseButton";
 import React from "react";
-import PlaylistSelector from "../components/PlaylistSelector";
-import { MediaManager } from "../tools";
+import { MediaManager, Navigator } from "../tools";
 import DownloadButton from "../components/DownloadButton";
 import DownloadPlaylistButton from "../components/DownloadPlaylistButton";
 import { logout } from "../services/LogoutProvider";
 import Skimmer from "../components/Skimmer";
 import PlayerBar from "../components/PlayerBar";
+import { createStackNavigator } from "@react-navigation/stack";
+import PlaylistPage from "./Playlist";
 
-export default function HomePage({ navigation, route }: any) {
-    const { userId } = route.params;
+const HomeStack = createStackNavigator();
 
-    if (userId == undefined || typeof userId !== "number") {
-        return (
-            <View>
-                <Text>Loading...</Text>
-            </View>
-        );
-    }
-
-    const handlePlaylistSelected = async (playlist: Playlist | undefined) => {
-        const playlistId = playlist?.playlistId ?? -1;
-        const wasPlaying = await MediaManager.isPlaying();
-
-        if (playlistId == -1) {
-            return;
-        }
-
-        await MediaManager.setPlaylist(playlistId);
-
-        if (wasPlaying) {
-            await MediaManager.play();
-        }
-    };
-
+export default function HomeStackScreen({ navigation, route }: any) {
     return (
+        <HomeStack.Navigator screenOptions={{ headerShown: false }}>
+            <HomeStack.Screen name="Home" component={HomePage} initialParams={route.params} />
+        </HomeStack.Navigator>
+    );
+}
+
+export function HomePage({ navigation, route }: any) {
+    return (
+        <>
         <View
             style={{
                 flex: 1,
@@ -46,21 +33,10 @@ export default function HomePage({ navigation, route }: any) {
             >
             <Button onPress={logout} title="Logout" />
             <PlayPauseButton />
-            {userId != undefined ? 
-                <>
-                    <PlaylistSelector
-                        userId={userId}
-                        onPlaylistSelected={handlePlaylistSelected}></PlaylistSelector>
-                </>
-                :
-                <>
-                </>
-            }
-            
             <DownloadButton></DownloadButton>
-            <DownloadPlaylistButton></DownloadPlaylistButton>
             <Skimmer></Skimmer>
-            <PlayerBar></PlayerBar>
         </View>
+        <PlayerBar></PlayerBar>
+        </>
     );
 }

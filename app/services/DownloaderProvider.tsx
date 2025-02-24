@@ -26,12 +26,8 @@ export default function DownloaderProvider({ children }: DownloaderProviderProps
     return <DownloaderContext.Provider value={downloader}>{children}</DownloaderContext.Provider>
 };
 
-export function useDownloader() {
+export function useDownloader(): Downloader | null {
     const context = useContext(DownloaderContext);
-
-    if (!context) {
-        throw Error("Downloader Context null.");
-    }
 
     return context;
 }

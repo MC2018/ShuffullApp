@@ -1,39 +1,24 @@
-import { View, Text, FlatList, TextInput } from "react-native";
-import { useDb } from "../services/db/DbProvider";
-import { useEffect, useState } from "react";
+import { Button, ScrollView, Text, View, StyleSheet, TextInput } from "react-native";
+import { Playlist } from "../services/db/models";
+import React, { useEffect, useState } from "react";
 import * as DbQueries from "../services/db/queries";
+import { useDb } from "../services/db/DbProvider";
 import { MediaManager } from "../tools";
-import React from "react";
 import PlayerBar, { totalPlayerBarHeight } from "../components/PlayerBar";
-import { createStackNavigator } from "@react-navigation/stack";
 import { SongList } from "../components/SongList";
 
-const SongStack = createStackNavigator();
-
-export default function SongsStackScreen({ navigation, route }: any) {
-    return (
-        <SongStack.Navigator screenOptions={{ headerShown: false }}>
-            <SongStack.Screen name="Song" component={SongsPage} initialParams={route.params} />
-        </SongStack.Navigator>
-    );
-}
-
-export function SongsPage() {
+export default function LocalDownloadsPage({ navigation, route }: any) {
     const [songs, setSongs] = useState<DbQueries.SongDetails[]>([]);
     const [filteredSongs, setFilteredSongs] = useState<DbQueries.SongDetails[]>([]);
     const db = useDb();
 
     useEffect(() => {
         (async () => {
-            const songs = await DbQueries.getAllSongDetails(db);
-            setSongs(songs);
-            setFilteredSongs(songs);
+            const dbSongs = await DbQueries.getDownloadedSongDetails(db);
+            setSongs(dbSongs);
+            setFilteredSongs(dbSongs);
         })();
     }, []);
-
-    const handleSongSelect = async (songInfo: DbQueries.SongDetails) => {
-        await MediaManager.playSpecificSong(songInfo.song.songId);
-    };
 
     const filterSongs = async (search: string) => {
         if (search == "") {
@@ -45,6 +30,10 @@ export function SongsPage() {
         setFilteredSongs(filtered);
     }
 
+    const handleSelectSong = async (songDetails: DbQueries.SongDetails) => {
+        await MediaManager.playSpecificSong(songDetails.song.songId);
+    };
+
     return (
         <>
         <View
@@ -52,9 +41,9 @@ export function SongsPage() {
                 flex: 1,
                 paddingBottom: totalPlayerBarHeight
             }}>
-            <Text style={{fontSize: 24, marginBottom: 20}}>Songs</Text>
+            <Text style={{fontSize: 24, marginBottom: 20}}>Downloaded Songs</Text>
             <TextInput placeholder="Search" onChangeText={filterSongs}></TextInput>
-            <SongList songs={filteredSongs} onSelectSong={handleSongSelect} />
+            <SongList songs={filteredSongs} onSelectSong={handleSelectSong} />
         </View>
         <PlayerBar></PlayerBar>
         </>

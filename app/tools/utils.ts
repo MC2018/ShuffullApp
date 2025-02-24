@@ -51,3 +51,7 @@ export async function verifyFileIntegrity(uri: string) {
 }
 
 export const sleep = (time: number) => new Promise((resolve) => setTimeout(() => resolve(null), time));
+
+export function isAnyNullish(...args: any[]): boolean {
+    return args.some(arg => arg == null || arg == undefined);
+}

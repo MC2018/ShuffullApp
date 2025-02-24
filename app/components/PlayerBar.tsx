@@ -2,16 +2,15 @@ import { MediaManager } from "../tools";
 import { Image, View, Text, Dimensions, StyleSheet, ImageSourcePropType, Pressable, ImageURISource } from "react-native";
 import React, { useEffect, useState } from "react";
 import { useActiveSong } from "../tools/mediaManager";
-import { SongWithArtists } from "../services/db/queries";
+import { SongDetails } from "../services/db/queries";
 import { useDb } from "../services/db/DbProvider";
 import * as DbQueries from "../services/db/queries";
 import { State, usePlaybackState } from "react-native-track-player";
 import { Song } from "../services/db/models";
 import { Downloader } from "../tools/Downloader";
 
-const defaultArt: ImageURISource = require("../../assets/images/default-album-art.jpg");
+const defaultArt: ImageURISource = require("@/assets/images/default-album-art.jpg");
 const { width, height } = Dimensions.get("window");
-const margin = 5;
 
 function getPlayButtonImage(state: State | undefined): ImageURISource {
     switch (state) {
@@ -19,10 +18,10 @@ function getPlayButtonImage(state: State | undefined): ImageURISource {
         case State.Ready:
         case State.Buffering:
         case State.None:
-            return require(`../../assets/images/play.png`);
+            return require(`@/assets/images/play.png`);
         case State.Playing:
         default:
-            return require(`../../assets/images/pause.png`);
+            return require(`@/assets/images/pause.png`);
     }
 }
 
@@ -46,12 +45,12 @@ export default function PlayerBar() {
     const db = useDb();
     const playbackState = usePlaybackState();
     const { songId } = useActiveSong();
-    const [ songInfo, setSongInfo ] = useState<SongWithArtists | null>(null);
+    const [ songInfo, setSongInfo ] = useState<SongDetails | null>(null);
     const [ albumArt, setAlbumArt ] = useState<GenericImageSource>(defaultArt);
     
     useEffect(() => {
         (async () => {
-            if (songId == -1) {
+            if (songId == undefined) {
                 setSongInfo(null);
                 return;
             }
@@ -80,7 +79,7 @@ export default function PlayerBar() {
         }
     };
 
-    if (songInfo == null || songId == -1) {
+    if (songInfo == undefined) {
         return <></>;
     }
 
@@ -104,11 +103,14 @@ const imageDimensions = {
     width: 40,
     height: 40
 };
+const playerBarHeight = 50;
+const margin = 5;
+export const totalPlayerBarHeight = playerBarHeight + margin * 2;
 
 const styles = StyleSheet.create({
     container: {
         width: width - margin * 2,
-        height: 50,
+        height: playerBarHeight,
         backgroundColor: "#ccc",
         position: "absolute",
         bottom: 0,

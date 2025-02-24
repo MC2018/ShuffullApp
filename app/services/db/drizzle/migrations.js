@@ -14,6 +14,9 @@ import m0009 from './0009_reset_request.sql';
 import m0010 from './0010_readd_request.sql';
 import m0011 from './0011_add_download_manager.sql';
 import m0012 from './0012_split_file_name.sql';
+import m0013 from './0013_remove_current_playlist_id.sql';
+import m0014 from './0014_create_downloaded_song.sql';
+import m0015 from './0015_remove_current_song_id.sql';
 
   export default {
     journal,
@@ -30,7 +33,10 @@ m0008,
 m0009,
 m0010,
 m0011,
-m0012
+m0012,
+m0013,
+m0014,
+m0015
     }
   }
   
