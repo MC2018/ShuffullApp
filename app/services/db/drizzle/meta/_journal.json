@@ -113,6 +113,20 @@
       "when": 1740306342365,
       "tag": "0015_remove_current_song_id",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "6",
+      "when": 1740815153379,
+      "tag": "0016_add_genre_jam",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1741681729130,
+      "tag": "0017_add_tag_type",
+      "breakpoints": true
     }
   ]
 }

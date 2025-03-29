@@ -19,12 +19,3 @@ export async function updateSongTags(db: GenericDb, songTags: SongTag[]): Promis
 export async function updateSongArtists(db: GenericDb, songArtists: SongArtist[]): Promise<void> {
     await db.insert(songArtistTable).values(songArtists).onConflictDoNothing();
 }
-
-export async function updateArtists(db: GenericDb, artists: Artist[]): Promise<void> {
-    await db.insert(artistTable).values(artists).onConflictDoUpdate({
-        target: artistTable.artistId,
-        set: {
-            name: sql`excluded.name`
-        }
-    });
-}

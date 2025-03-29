@@ -26,8 +26,13 @@ export async function getTagsFromSong(db: GenericDb, songId: number): Promise<Ta
         .selectDistinct({
             tagId: tagTable.tagId,
             name: tagTable.name,
+            type: tagTable.type,
         })
         .from(songTagTable)
         .where(eq(songTagTable.songId, songId))
         .innerJoin(tagTable, eq(tagTable.tagId, songTagTable.tagId));
+}
+
+export async function getTags(db: GenericDb): Promise<Tag[]> {
+    return await db.select().from(tagTable);
 }

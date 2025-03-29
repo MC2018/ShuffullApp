@@ -1,11 +1,143 @@
+import { SongFilters } from "@/app/types/SongFilters";
 import { GenericDb } from "../GenericDb";
-import { Artist, Song } from "../models";
-import { artistTable, downloadedSongTable, playlistSongTable, playlistTable, songArtistTable, songTable, userSongTable } from "../schema";
+import { Artist, GenreJam, Song } from "../models";
+import { artistTable, downloadedSongTable, genreJamTable, playlistSongTable, playlistTable, songArtistTable, songTable, userSongTable } from "../schema";
 import { eq, gt, lt, ExtractTablesWithRelations, inArray, sql, isNotNull, and, desc, asc, or } from "drizzle-orm";
 
 export type SongDetails = {
     song: Song;
     artists: Artist[];
+}
+
+type FilteredSongs = {
+    songId: number,
+    lastPlayed?: number,
+};
+
+export async function getFilteredSong(db: GenericDb, songFilters: SongFilters) {
+    const whitelistArtists = JSON.stringify(songFilters.whitelists.artistIds);
+    const whitelistPlaylists = JSON.stringify(songFilters.whitelists.playlistIds);
+    const whitelistGenres = JSON.stringify(songFilters.whitelists.genreIds);
+    const whitelistLanguages = JSON.stringify(songFilters.whitelists.languageIds);
+    const whitelistTimePeriods = JSON.stringify(songFilters.whitelists.timePeriodIds);
+    const blacklistArtists = JSON.stringify(songFilters.blacklists.artistIds);
+    const blacklistPlaylists = JSON.stringify(songFilters.blacklists.playlistIds);
+    const blacklistGenres = JSON.stringify(songFilters.blacklists.genreIds);
+    const blacklistLanguages = JSON.stringify(songFilters.blacklists.languageIds);
+    const blacklistTimePeriods = JSON.stringify(songFilters.blacklists.timePeriodIds);
+    const whitelistsEmpty = !songFilters.hasAnyWhitelistFilter();
+    const blacklistsEmpty = !songFilters.hasAnyBlacklistFilter();
+
+    const filteredSongs = db.all<FilteredSongs>(sql`
+        WITH FilteredSongs AS (
+            SELECT s.song_id, us.last_played
+            FROM songs s
+            LEFT JOIN user_songs us ON s.song_id = us.song_id
+            WHERE
+                ${songFilters.localOnly ? "EXISTS (SELECT 1 FROM downloaded_songs ds WHERE ds.song_id = s.song_id)" : "1 = 1"}
+            AND (
+                ${whitelistsEmpty ? 1 : 0} = 1 OR
+                (
+                    (
+                        -- Group for artist/playlist: if both are empty, pass; otherwise require a match on at least one.
+                        (${whitelistArtists} = '[]' AND ${whitelistPlaylists} = '[]')
+                        OR EXISTS (
+                            SELECT 1
+                            FROM song_artists sa
+                            WHERE sa.song_id = s.song_id
+                            AND sa.artist_id IN (
+                                SELECT value FROM json_each(${whitelistArtists})
+                            )
+                        )
+                        OR EXISTS (
+                            SELECT 1
+                            FROM playlist_songs ps
+                            WHERE ps.song_id = s.song_id
+                            AND ps.playlist_id IN (
+                                SELECT value FROM json_each(${whitelistPlaylists})
+                            )
+                        )
+                    )
+                    AND 
+                    -- For each tag filter, if non-empty, require at least one match.
+                    (${whitelistGenres} = '[]' OR EXISTS (
+                        SELECT 1
+                        FROM song_tags st
+                        WHERE st.song_id = s.song_id
+                        AND st.tag_id IN (
+                            SELECT value FROM json_each(${whitelistGenres})
+                        )
+                    ))
+                    AND (${whitelistTimePeriods} = '[]' OR EXISTS (
+                        SELECT 1
+                        FROM song_tags st
+                        WHERE st.song_id = s.song_id
+                        AND st.tag_id IN (
+                            SELECT value FROM json_each(${whitelistTimePeriods})
+                        )
+                    ))
+                    AND (${whitelistLanguages} = '[]' OR EXISTS (
+                        SELECT 1
+                        FROM song_tags st
+                        WHERE st.song_id = s.song_id
+                        AND st.tag_id IN (
+                            SELECT value FROM json_each(${whitelistLanguages})
+                        )
+                    ))
+                )
+            )
+            AND (
+                ${blacklistsEmpty ? 1 : 0} = 1 OR NOT (
+                    EXISTS (
+                        SELECT 1
+                        FROM song_artists sa
+                        WHERE sa.song_id = s.song_id
+                        AND sa.artist_id IN (
+                            SELECT value FROM json_each(${blacklistArtists})
+                        )
+                    )
+                    OR EXISTS (
+                        SELECT 1
+                        FROM playlist_songs ps
+                        WHERE ps.song_id = s.song_id
+                        AND ps.playlist_id IN (
+                            SELECT value FROM json_each(${blacklistPlaylists})
+                        )
+                    )
+                    OR EXISTS (
+                        SELECT 1
+                        FROM song_tags st
+                        WHERE st.song_id = s.song_id
+                        AND st.tag_id IN (
+                            SELECT value FROM json_each(${blacklistGenres})
+                        )
+                    )
+                    OR EXISTS (
+                        SELECT 1
+                        FROM song_tags st
+                        WHERE st.song_id = s.song_id
+                        AND st.tag_id IN (
+                            SELECT value FROM json_each(${blacklistLanguages})
+                        )
+                    )
+                    OR EXISTS (
+                        SELECT 1
+                        FROM song_tags st
+                        WHERE st.song_id = s.song_id
+                        AND st.tag_id IN (
+                            SELECT value FROM json_each(${blacklistTimePeriods})
+                        )
+                    )
+                )
+            )
+            ORDER BY us.last_played ASC
+        )
+        SELECT song_id as songId, last_played AS lastPlayed
+        FROM FilteredSongs
+        LIMIT 500
+    `);
+
+    return filteredSongs;
 }
 
 export async function getAllSongDetails(db: GenericDb): Promise<SongDetails[]> {

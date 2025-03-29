@@ -1,9 +1,7 @@
 import React from "react";
 import { Button, Image, ImageSourcePropType, Pressable, Text, StyleSheet } from "react-native";
-import { MediaManager } from "../../tools";
 import SongCollectionSelector from "./SongCollectionSelector";
 import { Playlist } from "@/app/services/db/models";
-import { SongFilterType } from "@/app/types/SongFilters";
 
 export interface PlaylistSelectorProps {
     playlist: Playlist;

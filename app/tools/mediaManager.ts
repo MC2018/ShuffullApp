@@ -110,12 +110,6 @@ async function setupEventListeners() {
             return;
         }
 
-        const songFilters = await getSongFilters();
-
-        if (songFilters.artistIds) {
-            return;
-        }
-
         await skip();
     });
 }
@@ -154,7 +148,7 @@ export async function skip() {
     if (queue.length > 0) {
         const currentSong = await DbQueries.getCurrentlyPlayingSong(db);
 
-        songId = queue.shift()!;
+        songId = queue.shift();
 
         if (currentSong != undefined) {
             await DbQueries.removeRecentlyPlayedSongsAfter(db, currentSong?.lastPlayed);
@@ -165,12 +159,6 @@ export async function skip() {
         if (recentlyPlayedSong != undefined) {
             songId = recentlyPlayedSong.songId;
         } else {
-            const songFilters = await getSongFilters();
-
-            if (!songFilters.playlistIds.length) {
-                return;
-            }
-
             songId = await getRandomSongId();
         }
     }
@@ -356,20 +344,27 @@ async function startNewSong(songId: number, recentlyPlayedSong?: RecentlyPlayedS
     await DbQueries.addRequests(db, [updateSongLastPlayedRequest]);
 }
 
-// TODO: support multiple playlists, and all filters in general
 async function getRandomSongId(): Promise<number | undefined> {
     const songFilters = await getSongFilters();
     let songId: number | undefined;
 
-    if (songFilters.playlistIds.length) {
-        songId = await DbQueries.getRandomSongIdByPlaylist(db, songFilters.playlistIds[0]);
+    if (songFilters.hasAnyFilter()) {
+        const filteredSongs = await DbQueries.getFilteredSong(db, songFilters);
         
-        if (songId == undefined) {
-            throw Error("Attempted to get a playlist song, but no songs exist.");
+        if (!filteredSongs.length) {
+            return undefined;
         }
+
+        const percentage = 0.3;
+        const percentageUpperBoundIndex = filteredSongs.length * percentage;
+        const nullUpperBoundIndex = filteredSongs.findIndex(x => x.lastPlayed != null) ?? 0;
+        const upperBoundIndex = Math.max(percentageUpperBoundIndex, nullUpperBoundIndex);
+        const randomSongIndex = Math.floor(upperBoundIndex * Math.random());
+
+        songId = filteredSongs[randomSongIndex].songId;
     } else {
         // Use case: when you select a specific song to play, the next song to play will be nothing
-        return undefined;
+        songId = undefined;
     }
 
     return songId;

@@ -41,7 +41,7 @@ export default function NavigationTabs() {
 
             setUserId(parseInt(currentUserId));
         })();
-    });
+    }, []);
 
     if (userId == undefined) {
         return (

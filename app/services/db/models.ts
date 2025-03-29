@@ -26,3 +26,4 @@ export type UpdateSongLastPlayedRequest = Request & {
 };
 export type DownloadQueue = typeof Schema.downloadQueueTable.$inferSelect;
 export type DownloadedSong = typeof Schema.downloadedSongTable.$inferSelect;
+export type GenreJam = typeof Schema.genreJamTable.$inferSelect;
