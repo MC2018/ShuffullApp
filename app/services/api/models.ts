@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { TagType } from "../db/schema";
 
 export const UserSchema = z.object({
     userId: z.number().int(),
@@ -25,7 +26,8 @@ export type SongArtist = z.infer<typeof SongArtistSchema>;
 
 export const TagSchema = z.object({
     tagId: z.number().int(),
-    name: z.string()
+    name: z.string(),
+    type: z.preprocess(x => typeof x === "number" ? x : undefined, z.nativeEnum(TagType))
 });
 export const TagListSchema = TagSchema.array();
 export type Tag = z.infer<typeof TagSchema>;

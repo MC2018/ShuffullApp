@@ -9,7 +9,6 @@ import LocalDownloadsSelector from "../components/selectors/LocalDownloadsSelect
 import { useDb } from "../services/db/DbProvider";
 import { createStackNavigator } from "@react-navigation/stack";
 import { MediaManager, Navigator } from "../tools";
-import { SongFilterType } from "../types/SongFilters";
 import PlaylistPage from "./Playlist";
 import LocalDownloadsPage from "./LocalDownloads";
 

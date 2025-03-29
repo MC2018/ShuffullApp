@@ -1,5 +1,6 @@
 // TODO: fix all foreign keys to have indexes
 import { sqliteTable, text, integer, real, index, primaryKey } from "drizzle-orm/sqlite-core";
+import { WhitelistSetting } from "./types";
 
 export const userTable = sqliteTable("users", {
     userId: integer("user_id").primaryKey(),
@@ -48,9 +49,16 @@ export const songArtistTable = sqliteTable("song_artists", {
     artistId: integer("artist_id").notNull().references(() => artistTable.artistId),
 });
 
+export enum TagType {
+    Genre = 0,
+    TimePeriod = 1,
+    Language = 2
+};
+
 export const tagTable = sqliteTable("tags", {
     tagId: integer("tag_id").primaryKey(),
     name: text("name").notNull(),
+    type: integer("type").$type<TagType>().notNull()
 });
 
 export const songTagTable = sqliteTable("song_tags", {
@@ -103,4 +111,11 @@ export const downloadQueueTable = sqliteTable("download_queue", {
     downloadQueueId: integer("download_queue_id").primaryKey(),
     songId: integer("song_id").notNull().references(() => songTable.songId).unique(),
     priority: integer("priority").notNull(),
+});
+
+export const genreJamTable = sqliteTable("genre_jam", {
+    genreJamId: text("genre_jam_id").primaryKey(),
+    name: text("name").notNull(),
+    whitelists: text("whitelists", { mode: "json" }).$type<WhitelistSetting>().notNull(),
+    blacklists: text("blacklists", { mode: "json" }).$type<WhitelistSetting>().notNull(),
 });

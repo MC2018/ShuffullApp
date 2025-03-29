@@ -31,7 +31,7 @@ export function SongsPage() {
         })();
     }, []);
 
-    const handleSongSelect = async (songInfo: DbQueries.SongDetails) => {
+    const handleSelectSong = async (songInfo: DbQueries.SongDetails) => {
         await MediaManager.playSpecificSong(songInfo.song.songId);
     };
 
@@ -54,7 +54,7 @@ export function SongsPage() {
             }}>
             <Text style={{fontSize: 24, marginBottom: 20}}>Songs</Text>
             <TextInput placeholder="Search" onChangeText={filterSongs}></TextInput>
-            <SongList songs={filteredSongs} onSelectSong={handleSongSelect} />
+            <SongList songs={filteredSongs} onSelectSong={handleSelectSong} />
         </View>
         <PlayerBar></PlayerBar>
         </>

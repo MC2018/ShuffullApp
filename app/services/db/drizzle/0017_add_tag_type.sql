@@ -1,0 +1,1 @@
+ALTER TABLE `tags` ADD `type` integer NOT NULL;
