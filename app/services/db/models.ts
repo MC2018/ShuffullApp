@@ -17,11 +17,11 @@ export type AuthenticateRequest = Request & {
     userHash: string,
 };
 export type CreateUserSongRequest = Request & {
-    songId: number
+    songId: string
 };
 export type OverallSyncRequest = Request;
 export type UpdateSongLastPlayedRequest = Request & {
-    songId: number,
+    songId: string,
     lastPlayed: Date
 };
 export type DownloadQueue = typeof Schema.downloadQueueTable.$inferSelect;

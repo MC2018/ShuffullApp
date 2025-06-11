@@ -2,7 +2,7 @@ import { Button, ScrollView, Text, View, StyleSheet, TextInput, TouchableOpacity
 import React, { ReactNode, useEffect, useState } from "react";
 import * as DbQueries from "../services/db/queries";
 import { useDb } from "../services/db/DbProvider";
-import { generateGuid, MediaManager } from "../tools";
+import { MediaManager, generateId } from "../tools";
 import PlayerBar, { totalPlayerBarHeight } from "../components/PlayerBar";
 import { FilterPillInfo, WhitelistingMode, WhitelistingStatus } from "../components/selectors/FilterSelectionPill";
 import ModalPopup from "../components/ModalPopup";
@@ -19,14 +19,14 @@ export default function GenreJamEditor({ navigation, route }: any) {
     const [ filterType, setFilterType ] = useState<FilterType>();
     const [ modalContents, setModalContents ] = useState<ReactNode>();
     const [filters, setFilters] = useState({
-        playlists: [] as FilterPillInfo<number>[],
-        artists: [] as FilterPillInfo<number>[],
-        genres: [] as FilterPillInfo<number>[],
-        timePeriods: [] as FilterPillInfo<number>[],
-        languages: [] as FilterPillInfo<number>[],
+        playlists: [] as FilterPillInfo<string>[],
+        artists: [] as FilterPillInfo<string>[],
+        genres: [] as FilterPillInfo<string>[],
+        timePeriods: [] as FilterPillInfo<string>[],
+        languages: [] as FilterPillInfo<string>[],
     });
     type FilterType = keyof typeof filters;
-    const handleUpdatedSelection = (filterType: FilterType, pillInfo: FilterPillInfo<number>, newStatus: WhitelistingStatus) => {
+    const handleUpdatedSelection = (filterType: FilterType, pillInfo: FilterPillInfo<string>, newStatus: WhitelistingStatus) => {
         setFilters(prevFilters => {
             const newFilter = prevFilters[filterType].map(x => 
                 x.id === pillInfo.id ? { ...x, whitelistingStatus: newStatus } : x
@@ -82,7 +82,7 @@ export default function GenreJamEditor({ navigation, route }: any) {
 
     const generateGenreJam = (name: string) => {
         const genreJam: GenreJam = {
-            genreJamId: generateGuid(),
+            genreJamId: generateId(),
             name: name,
             whitelists: {
                 artistIds: filters.artists.filter(x => x.whitelistingStatus == WhitelistingStatus.Whitelisted).map(x => x.id),

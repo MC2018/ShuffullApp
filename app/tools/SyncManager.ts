@@ -2,7 +2,7 @@ import { ApiClient } from "../services/api/apiClient";
 import * as DbQueries from "../services/db/queries";
 import * as DbModels from "../services/db/models";
 import * as ApiModels from "../services/api/models";
-import { distinctBy, generateGuid } from "./utils";
+import { distinctBy, generateId } from "./utils";
 import { HttpStatusCode } from "axios";
 import { RequestType } from "../enums";
 import { getProcessingMethod, ProcessingMethod } from "../enums";
@@ -12,12 +12,12 @@ import { GenericDb } from "../services/db/GenericDb";
 export class SyncManager {
     db: GenericDb;
     api: ApiClient;
-    userId: number;
+    userId: string;
     timerId: NodeJS.Timeout;
     syncing = false;
     logout: () => Promise<void>;
     
-    constructor(db: GenericDb, api: ApiClient, userId: number, logout: () => Promise<void>) {
+    constructor(db: GenericDb, api: ApiClient, userId: string, logout: () => Promise<void>) {
         this.db = db;
         this.api = api;
         this.userId = userId;
@@ -95,14 +95,14 @@ export class SyncManager {
                     return;
                 } else if (200 <= statusCode && statusCode <= 299) {
                     // TODO: move this to DbQueries?
-                    await DbQueries.deleteRequests(this.db, requestBatch.map(x => x.requestGuid));
+                    await DbQueries.deleteRequests(this.db, requestBatch.map(x => x.requestId));
                 } else if (400 <= statusCode && statusCode <= 499) {
                     // TODO: same as above
                     // TODO: I don't think this should always remove request
-                    await DbQueries.deleteRequests(this.db, requestBatch.map(x => x.requestGuid));
+                    await DbQueries.deleteRequests(this.db, requestBatch.map(x => x.requestId));
                     break;
                 } else if (500 <= statusCode) {
-                    console.log("Cannot access server.");
+                    console.log(`Cannot access server. Status code: ${statusCode}`);
                     endedPrematurely = true;
                     return;
                 }
@@ -114,7 +114,7 @@ export class SyncManager {
 
             // Run all pulling changes
             const overallSyncRequest: DbModels.OverallSyncRequest = {
-                requestGuid: generateGuid(),
+                requestId: generateId(),
                 timeRequested: new Date(Date.now()),
                 requestType: RequestType.OverallSync,
                 userId: this.userId
@@ -192,7 +192,7 @@ export class SyncManager {
 
                 // Refresh playlists
                 const accessiblePlaylists = await this.api.playlistGetAll();
-                const playlistsToFetch: number[] = [];
+                const playlistsToFetch: string[] = [];
                 let updatedPlaylists: ApiModels.Playlist[] = [];
 
                 // Remove playlists from local if they are no longer accessible

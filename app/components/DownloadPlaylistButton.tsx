@@ -10,7 +10,7 @@ export interface DownloadPlaylistProps {
 }
 
 export default function DownloadPlaylistButton({ playlist }: DownloadPlaylistProps) {
-    const downloader = useDownloader();
+    const downloader = useDownloader()!;
     const handleDownloadPlaylist = async () => {
         await downloader.addPlaylistToDownloadQueue(playlist.playlistId, DownloadPriority.Medium);
     };

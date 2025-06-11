@@ -10,7 +10,7 @@ export async function updateUser(db: GenericDb, newUser: User): Promise<void> {
     ]);
 }
 
-export async function getUser(db: GenericDb, userId: number): Promise<User | undefined> {
+export async function getUser(db: GenericDb, userId: string): Promise<User | undefined> {
     const user = await db.select().from(userTable).where(eq(userTable.userId, userId)).limit(1);
 
     if (user.length == 0) {
@@ -18,4 +18,10 @@ export async function getUser(db: GenericDb, userId: number): Promise<User | und
     }
 
     return user[0];
+}
+
+export async function getUsers(db: GenericDb): Promise<User[]> {
+    const users = await db.select().from(userTable);
+
+    return users;
 }

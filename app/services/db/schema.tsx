@@ -3,21 +3,21 @@ import { sqliteTable, text, integer, real, index, primaryKey } from "drizzle-orm
 import { WhitelistSetting } from "./types";
 
 export const userTable = sqliteTable("users", {
-    userId: integer("user_id").primaryKey(),
+    userId: text("user_id").primaryKey(),
     username: text("username").notNull(),
     version: integer("version", { mode: "timestamp_ms" }).notNull(),
 });
 
 export const playlistTable = sqliteTable("playlists", {
-    playlistId: integer("playlist_id").primaryKey(),
-    userId: integer("user_id").notNull().references(() => userTable.userId),
+    playlistId: text("playlist_id").primaryKey(),
+    userId: text("user_id").notNull().references(() => userTable.userId),
     name: text("name").notNull(),
     percentUntilReplayable: real("percent_until_replayable").notNull(),
     version: integer("version", { mode: "timestamp_ms" }).notNull(),
 });
 
 export const songTable = sqliteTable("songs", {
-    songId: integer("song_id").primaryKey(),
+    songId: text("song_id").primaryKey(),
     fileExtension: text("file_extension").notNull(),
     fileHash: text("file_hash").notNull(),
     name: text("name").notNull(),
@@ -28,25 +28,25 @@ export const songTable = sqliteTable("songs", {
 });
 
 export const downloadedSongTable = sqliteTable("downloaded_songs", {
-    downloadedSongId: integer("downloaded_song_id").primaryKey(),
-    songId: integer("song_id").notNull().references(() => songTable.songId),
+    downloadedSongId: text("downloaded_song_id").primaryKey(),
+    songId: text("song_id").notNull().references(() => songTable.songId),
 });
 
 export const playlistSongTable = sqliteTable("playlist_songs", {
-    playlistSongId: integer("playlist_song_id").primaryKey(),
-    playlistId: integer("playlist_id").notNull().references(() => playlistTable.playlistId),
-    songId: integer("song_id").notNull().references(() => songTable.songId),
+    playlistSongId: text("playlist_song_id").primaryKey(),
+    playlistId: text("playlist_id").notNull().references(() => playlistTable.playlistId),
+    songId: text("song_id").notNull().references(() => songTable.songId),
 });
 
 export const artistTable = sqliteTable("artists", {
-    artistId: integer("artist_id").primaryKey(),
+    artistId: text("artist_id").primaryKey(),
     name: text("name").notNull(),
 });
 
 export const songArtistTable = sqliteTable("song_artists", {
-    songArtistId: integer("song_artist_id").primaryKey(),
-    songId: integer("song_id").notNull().references(() => songTable.songId),
-    artistId: integer("artist_id").notNull().references(() => artistTable.artistId),
+    songArtistId: text("song_artist_id").primaryKey(),
+    songId: text("song_id").notNull().references(() => songTable.songId),
+    artistId: text("artist_id").notNull().references(() => artistTable.artistId),
 });
 
 export enum TagType {
@@ -56,20 +56,20 @@ export enum TagType {
 };
 
 export const tagTable = sqliteTable("tags", {
-    tagId: integer("tag_id").primaryKey(),
+    tagId: text("tag_id").primaryKey(),
     name: text("name").notNull(),
     type: integer("type").$type<TagType>().notNull()
 });
 
 export const songTagTable = sqliteTable("song_tags", {
-    songTagId: integer("song_tag_id").primaryKey(),
-    songId: integer("song_id").notNull().references(() => songTable.songId),
-    tagId: integer("tag_id").notNull().references(() => tagTable.tagId),
+    songTagId: text("song_tag_id").primaryKey(),
+    songId: text("song_id").notNull().references(() => songTable.songId),
+    tagId: text("tag_id").notNull().references(() => tagTable.tagId),
 });
 
 export const userSongTable = sqliteTable("user_songs", {
-    userId: integer("user_id").notNull().references(() => userTable.userId),
-    songId: integer("song_id").notNull().references(() => songTable.songId),
+    userId: text("user_id").notNull().references(() => userTable.userId),
+    songId: text("song_id").notNull().references(() => songTable.songId),
     lastPlayed: integer("last_played", { "mode": "timestamp_ms" }).notNull(),
     version: integer("version", { "mode": "timestamp_ms" }).notNull(),
 }, (table) => {
@@ -81,35 +81,35 @@ export const userSongTable = sqliteTable("user_songs", {
 });
 
 export const localSessionDataTable = sqliteTable("local_session_data", {
-    userId: integer("user_id").primaryKey(),
+    userId: text("user_id").primaryKey(),
     activelyDownload: integer("actively_download", { mode: "boolean" }).notNull(),
     token: text("token").notNull(),
     expiration: integer("expiration", { mode: "timestamp_ms" }).notNull()
 });
 
 export const recentlyPlayedSongTable = sqliteTable("recently_played_songs", {
-    recentlyPlayedSongGuid: text("recently_played_song_guid").primaryKey(),
-    songId: integer("song_id").notNull().references(() => songTable.songId),
+    recentlyPlayedSongId: text("recently_played_song_id").primaryKey(),
+    songId: text("song_id").notNull().references(() => songTable.songId),
     timestampSeconds: integer("timestamp_seconds"),
     lastPlayed: integer("last_played", { mode: "timestamp_ms" }).notNull(),
 });
 
 export const requestTable = sqliteTable("requests", {
-    requestGuid: text("request_guid").primaryKey(),
+    requestId: text("request_id").primaryKey(),
     timeRequested: integer("time_request", { mode: "timestamp_ms" }).notNull(),
     requestType: integer("request_type").notNull(),
-    userId: integer("user_id").notNull(),
+    userId: text("user_id").notNull(),
 
     // Optional fields depending on the request
     username: text("username"),
     userHash: text("user_hash"),
-    songId: integer("song_id"),
+    songId: text("song_id"),
     lastPlayed: integer("last_played", { mode: "timestamp_ms" })
 });
 
 export const downloadQueueTable = sqliteTable("download_queue", {
-    downloadQueueId: integer("download_queue_id").primaryKey(),
-    songId: integer("song_id").notNull().references(() => songTable.songId).unique(),
+    downloadQueueId: text("download_queue_id").primaryKey(),
+    songId: text("song_id").notNull().references(() => songTable.songId).unique(),
     priority: integer("priority").notNull(),
 });
 

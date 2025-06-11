@@ -10,7 +10,7 @@ export type SongDetails = {
 }
 
 type FilteredSongs = {
-    songId: number,
+    songId: string,
     lastPlayed?: number,
 };
 
@@ -177,7 +177,7 @@ export async function getAllSongDetails(db: GenericDb): Promise<SongDetails[]> {
 }
 
 // TODO: this is duplicated code from above, try to remove in the future
-export async function getSongDetailsByPlaylist(db: GenericDb, playlistId: number): Promise<SongDetails[]> {
+export async function getSongDetailsByPlaylist(db: GenericDb, playlistId: string): Promise<SongDetails[]> {
     const result: SongDetails[] = [];
     const rawData = await db
         .selectDistinct({
@@ -253,7 +253,7 @@ export async function getDownloadedSongDetails(db: GenericDb): Promise<SongDetai
     return result;
 }
 
-export async function getSongsByPlaylist(db: GenericDb, playlistId: number): Promise<Song[]> {
+export async function getSongsByPlaylist(db: GenericDb, playlistId: string): Promise<Song[]> {
     return await db
         .select({
             songId: songTable.songId,
@@ -280,7 +280,7 @@ export async function updateSongs(db: GenericDb, songs: Song[]): Promise<void> {
     await db.insert(songTable).values(songs);
 }
 
-export async function getRandomSongId(db: GenericDb): Promise<number | undefined> {
+export async function getRandomSongId(db: GenericDb): Promise<string | undefined> {
     const songCount = (await db.select({
         count: sql<number>`COUNT(*)`.as("count"),
     }).from(songTable))[0].count;
@@ -301,7 +301,7 @@ export async function getRandomSongId(db: GenericDb): Promise<number | undefined
     return song[0].songId;
 }
 
-export async function getRandomSongIdByPlaylist(db: GenericDb, playlistId: number): Promise<number | undefined> {
+export async function getRandomSongIdByPlaylist(db: GenericDb, playlistId: string): Promise<string | undefined> {
     // TODO: figure out if there's simpler way to do this in the following query
     const songCount = (await db.select({
         count: sql<number>`COUNT(*)`.as("count"),
@@ -329,7 +329,7 @@ export async function getRandomSongIdByPlaylist(db: GenericDb, playlistId: numbe
     return song[0].songId;
 }
 
-export async function getRandomDownloadedSongId(db: GenericDb): Promise<number | undefined> {
+export async function getRandomDownloadedSongId(db: GenericDb): Promise<string | undefined> {
     // TODO: figure out if there's simpler way to do this in the following query
     const songCount = (await db.select({
         count: sql<number>`COUNT(*)`.as("count"),
@@ -358,7 +358,7 @@ export async function getRandomDownloadedSongId(db: GenericDb): Promise<number |
 
 // TODO: add more than just artists to this
 // TODO: this doesn't work if there are multiple artists
-export async function fetchSongDetails(db: GenericDb, songId: number): Promise<SongDetails> {
+export async function fetchSongDetails(db: GenericDb, songId: string): Promise<SongDetails> {
     const song = await db
         .select({
             songId: songTable.songId,
@@ -401,7 +401,7 @@ export async function fetchSongDetails(db: GenericDb, songId: number): Promise<S
     return result;
 }
 
-export async function getSong(db: GenericDb, songId: number): Promise<Song | undefined> {
+export async function getSong(db: GenericDb, songId: string): Promise<Song | undefined> {
     const song = await db.select().from(songTable).where(eq(songTable.songId, songId));
 
     if (!song.length) {
@@ -411,6 +411,6 @@ export async function getSong(db: GenericDb, songId: number): Promise<Song | und
     return song[0];
 }
 
-export async function getAllSongIds(db: GenericDb): Promise<number[]> {
+export async function getAllSongIds(db: GenericDb): Promise<string[]> {
     return (await db.select({ songId: songTable.songId }).from(songTable)).map(x => x.songId);
 }

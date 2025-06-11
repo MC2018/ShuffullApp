@@ -29,7 +29,7 @@ export function LibraryPage({ navigation, route }: any) {
     const { userId } = route.params;
     const db = useDb();
 
-    if (userId == undefined || typeof userId !== "number") {
+    if (userId == undefined || typeof userId !== "string") {
         return (
             <View>
                 <Text>Loading...</Text>

@@ -19,6 +19,8 @@ import m0014 from './0014_create_downloaded_song.sql';
 import m0015 from './0015_remove_current_song_id.sql';
 import m0016 from './0016_add_genre_jam.sql';
 import m0017 from './0017_add_tag_type.sql';
+import m0018 from './0018_soft_reset_tables.sql';
+import m0019 from './0019_readd_tables_with_string_ids.sql';
 
   export default {
     journal,
@@ -40,7 +42,9 @@ m0013,
 m0014,
 m0015,
 m0016,
-m0017
+m0017,
+m0018,
+m0019
     }
   }
   
