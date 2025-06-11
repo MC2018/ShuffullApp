@@ -40,7 +40,7 @@ export class SongFilters {
         return songFilters;
     }
 
-    public setSoleFilter(type: SongFilterType, ids: number[]) {
+    public setSoleFilter(type: SongFilterType, ids: string[]) {
         this.whitelists = {
             artistIds: [],
             playlistIds: [],

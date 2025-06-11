@@ -28,7 +28,7 @@ export default function HomeStackScreen({ navigation, route }: any) {
 }
 
 export function HomePage({ navigation, route }: any) {
-    const [ userId, setUserId ] = useState<number | null>(null);
+    const [ userId, setUserId ] = useState<string | null>(null);
 
     const handleGenreJamEditorSelected = () => {
         if (userId == null) {
@@ -46,7 +46,7 @@ export function HomePage({ navigation, route }: any) {
                 return;
             }
 
-            setUserId(parseInt(cachedUserId));
+            setUserId(cachedUserId);
         })();
     }, []);
 

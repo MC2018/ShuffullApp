@@ -2,30 +2,30 @@ import { z } from "zod";
 import { TagType } from "../db/schema";
 
 export const UserSchema = z.object({
-    userId: z.number().int(),
+    userId: z.string(),
     username: z.string(),
     version: z.coerce.date()
 });
 export type User = z.infer<typeof UserSchema>;
 
 export const ArtistSchema = z.object({
-    artistId: z.number().int(),
+    artistId: z.string(),
     name: z.string()
 });
 export const ArtistListSchema = ArtistSchema.array();
 export type Artist = z.infer<typeof ArtistSchema>;
 
 export const SongArtistSchema = z.object({
-    songArtistId: z.number().int(),
-    songId: z.number().int(),
-    artistId: z.number().int(),
+    songArtistId: z.string(),
+    songId: z.string(),
+    artistId: z.string(),
     artist: ArtistSchema.nullish()
 });
 export const SongArtistListSchema = SongArtistSchema.array();
 export type SongArtist = z.infer<typeof SongArtistSchema>;
 
 export const TagSchema = z.object({
-    tagId: z.number().int(),
+    tagId: z.string(),
     name: z.string(),
     type: z.preprocess(x => typeof x === "number" ? x : undefined, z.nativeEnum(TagType))
 });
@@ -33,16 +33,16 @@ export const TagListSchema = TagSchema.array();
 export type Tag = z.infer<typeof TagSchema>;
 
 export const SongTagSchema = z.object({
-    songTagId: z.number().int(),
-    songId: z.number().int(),
-    tagId: z.number().int(),
+    songTagId: z.string(),
+    songId: z.string(),
+    tagId: z.string(),
     tags: TagListSchema.nullish()
 });
 export const SongTagListSchema = SongTagSchema.array();
 export type SongTag = z.infer<typeof SongTagSchema>;
 
 export const SongSchema = z.object({
-    songId: z.number().int(),
+    songId: z.string(),
     fileExtension: z.string(),
     fileHash: z.string(),
     name: z.string(),
@@ -53,8 +53,8 @@ export const SongListSchema = SongSchema.array();
 export type Song = z.infer<typeof SongSchema>;
 
 export const UserSongSchema = z.object({
-    userId: z.number().int(),
-    songId: z.number().int(),
+    userId: z.string(),
+    songId: z.string(),
     lastPlayed: z.coerce.date(),
     version: z.coerce.date()
 });
@@ -69,15 +69,15 @@ export const AuthenticateResponseSchema = z.object({
 export type AuthenticateResponse = z.infer<typeof AuthenticateResponseSchema>;
 
 export const PlaylistSongSchema = z.object({
-    playlistSongId: z.number().int(),
-    playlistId: z.number().int(),
-    songId: z.number().int()
+    playlistSongId: z.string(),
+    playlistId: z.string(),
+    songId: z.string()
 });
 export const PlaylistSongListSchema = PlaylistSongSchema.array();
 
 export const PlaylistSchema = z.object({
-    playlistId: z.number().int(),
-    userId: z.number().int(),
+    playlistId: z.string(),
+    userId: z.string(),
     name: z.string(),
     percentUntilReplayable: z.number().min(0).max(1),
     version: z.coerce.date(),

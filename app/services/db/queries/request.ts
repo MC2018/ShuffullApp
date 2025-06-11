@@ -11,8 +11,8 @@ export async function getRequests(db: GenericDb): Promise<Request[]> {
     return await db.select().from(requestTable);
 }
 
-export async function deleteRequests(db: GenericDb, requestGuids: string[]): Promise<void> {
-    await db.delete(requestTable).where(inArray(requestTable.requestGuid, requestGuids));
+export async function deleteRequests(db: GenericDb, requestIds: string[]): Promise<void> {
+    await db.delete(requestTable).where(inArray(requestTable.requestId, requestIds));
 }
 
 // TODO: move all requests from SyncManager to here

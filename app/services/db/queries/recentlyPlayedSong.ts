@@ -13,8 +13,8 @@ export async function getCurrentlyPlayingSong(db: GenericDb): Promise<RecentlyPl
     return result[0];
 }
 
-export async function getRecentlyPlayedSong(db: GenericDb, recentlyPlayedSongGuid: string): Promise<RecentlyPlayedSong | undefined> {
-    const result = await db.select().from(recentlyPlayedSongTable).where(eq(recentlyPlayedSongTable.recentlyPlayedSongGuid, recentlyPlayedSongGuid));
+export async function getRecentlyPlayedSong(db: GenericDb, recentlyPlayedSongId: string): Promise<RecentlyPlayedSong | undefined> {
+    const result = await db.select().from(recentlyPlayedSongTable).where(eq(recentlyPlayedSongTable.recentlyPlayedSongId, recentlyPlayedSongId));
 
     if (!result.length) {
         return undefined;
@@ -29,10 +29,10 @@ export async function resetRecentlyPlayedSongTimestamps(db: GenericDb): Promise<
     }).where(isNotNull(recentlyPlayedSongTable.timestampSeconds));
 }
 
-export async function setRecentlyPlayedSongTimestampSeconds(db: GenericDb, recentlyPlayedSongGuid: string, timestampSeconds: number): Promise<void> {
+export async function setRecentlyPlayedSongTimestampSeconds(db: GenericDb, recentlyPlayedSongId: string, timestampSeconds: number): Promise<void> {
     await db.update(recentlyPlayedSongTable).set({
         timestampSeconds: timestampSeconds
-    }).where(eq(recentlyPlayedSongTable.recentlyPlayedSongGuid, recentlyPlayedSongGuid));
+    }).where(eq(recentlyPlayedSongTable.recentlyPlayedSongId, recentlyPlayedSongId));
 }
 
 export async function addRecentlyPlayedSong(db: GenericDb, recentlyPlayedSong: RecentlyPlayedSong): Promise<void> {

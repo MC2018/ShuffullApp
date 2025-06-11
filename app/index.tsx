@@ -33,7 +33,7 @@ export default function Index() {
     const [ loginRefreshes, setLoginRefreshes ] = useState<number>(0);
     const { success, error } = useMigrations(db, migrations);
     const [ autoLoginAttempted, setAutoLoginAttempted ] = useState<boolean>(false);
-    const [ userId, setUserId ] = useState<number | null>(null);
+    const [ userId, setUserId ] = useState<string | null>(null);
 
     const resetDb = () => {
         MediaManager.clear();

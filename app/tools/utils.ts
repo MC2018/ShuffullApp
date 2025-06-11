@@ -1,6 +1,6 @@
-import uuid from "react-native-uuid";
 import * as FileSystem from "expo-file-system";
 import { shaHash } from "./hasher";
+import { monotonicFactory } from "ulid";
 
 export function distinctBy<T, K>(array: T[], keySelector: (item: T) => K): T[] {
     const seen = new Set<K>();
@@ -14,8 +14,10 @@ export function distinctBy<T, K>(array: T[], keySelector: (item: T) => K): T[] {
     });
 }
 
-export function generateGuid() {
-    return uuid.v4();
+// TODO: Math.random() is not cryptographically secure
+export function generateId(): string {
+    const ulid = monotonicFactory(() => Math.random());
+    return ulid();
 }
 
 export function generateRange(x: number): number[] {

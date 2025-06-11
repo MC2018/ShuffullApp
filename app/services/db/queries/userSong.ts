@@ -32,13 +32,13 @@ export async function updateUserSongs(db: GenericDb, userSongs: UserSong[]): Pro
     }
 }
 
-export async function updateUserSongLastPlayed(db: GenericDb, userId: number, songId: number, lastPlayed: Date): Promise<void> {
+export async function updateUserSongLastPlayed(db: GenericDb, userId: string, songId: string, lastPlayed: Date): Promise<void> {
     await db.update(userSongTable).set({
         lastPlayed: lastPlayed
     }).where(and(eq(userSongTable.userId, userId), eq(userSongTable.songId, songId)));
 }
 
-export async function getUserSong(db: GenericDb, userId: number, songId: number) {
+export async function getUserSong(db: GenericDb, userId: string, songId: string) {
     const userSong = await db.select().from(userSongTable).where(and(eq(userSongTable.userId, userId), eq(userSongTable.songId, songId)));
 
     if (!userSong.length) {

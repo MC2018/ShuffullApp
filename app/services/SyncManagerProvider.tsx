@@ -5,7 +5,7 @@ import { useApi } from "./api/apiProvider";
 import { logout } from "./LogoutProvider";
 
 interface SyncManagerProviderProps {
-    userId: number;
+    userId: string;
 };
 
 const SyncManagerContext = createContext<SyncManager | null>(null);

@@ -4,7 +4,7 @@ import { CreateUserSongRequest, RecentlyPlayedSong, Song, UpdateSongLastPlayedRe
 import * as DbQueries from "../services/db/queries";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { STORAGE_KEYS } from "../constants/storageKeys";
-import { generateGuid, generateRange } from "./utils";
+import { generateRange, generateId } from "./utils";
 import { RequestType } from "../enums";
 import { getPlaybackState } from "react-native-track-player/lib/src/trackPlayer";
 import { Downloader } from "./Downloader";
@@ -12,13 +12,13 @@ import { create } from "zustand";
 import path from "path-browserify";
 import { SongFilters } from "../types/SongFilters";
 
-let queue: number[] = [];
+let queue: string[] = [];
 let db: ExpoSQLiteDatabase;
 let trackPlayerInitialized = false;
 
 interface ActiveSongState {
-    songId: number | undefined;
-    setSongId: (songId: number) => void;
+    songId: string | undefined;
+    setSongId: (songId: string) => void;
 }
 
 export async function getSongFilters(): Promise<SongFilters> {
@@ -132,7 +132,7 @@ export async function play() {
     }
 }
 
-export async function playSpecificSong(songId: number) {
+export async function playSpecificSong(songId: string) {
     await setSongFilters(new SongFilters(), true);
     startNewSong(songId);
 }
@@ -143,7 +143,7 @@ export async function pause() {
 
 export async function skip() {
     let recentlyPlayedSong: RecentlyPlayedSong | undefined;
-    let songId: number | undefined;
+    let songId: string | undefined;
 
     if (queue.length > 0) {
         const currentSong = await DbQueries.getCurrentlyPlayingSong(db);
@@ -191,7 +191,7 @@ export async function getPosition() {
     return progress.position;
 }
 
-export async function addToQueue(songId: number) {
+export async function addToQueue(songId: string) {
     // Confirms that the song id exists
     const song = await DbQueries.getSong(db, songId);
 
@@ -250,7 +250,7 @@ export async function seekTo(seconds: number) {
     await TrackPlayer.seekTo(seconds);
 }
 
-async function startNewSong(songId: number, recentlyPlayedSong?: RecentlyPlayedSong) {
+async function startNewSong(songId: string, recentlyPlayedSong?: RecentlyPlayedSong) {
     const localSessionData = await DbQueries.getActiveLocalSessionData(db);
     const songWithArtist = await DbQueries.fetchSongDetails(db, songId);
     const song = songWithArtist.song;
@@ -272,7 +272,7 @@ async function startNewSong(songId: number, recentlyPlayedSong?: RecentlyPlayedS
     await DbQueries.resetRecentlyPlayedSongTimestamps(db);
 
     if (recentlyPlayedSong != undefined) {
-        if ((await DbQueries.getRecentlyPlayedSong(db, recentlyPlayedSong.recentlyPlayedSongGuid)) != undefined) {
+        if ((await DbQueries.getRecentlyPlayedSong(db, recentlyPlayedSong.recentlyPlayedSongId)) != undefined) {
             recentlyPlayedSongFound = true;
         }
     }
@@ -300,11 +300,11 @@ async function startNewSong(songId: number, recentlyPlayedSong?: RecentlyPlayedS
     if (recentlyPlayedSongFound) {
         const timestampSeconds = recentlyPlayedSong?.timestampSeconds ?? 0;
         await TrackPlayer.seekTo(timestampSeconds);
-        await DbQueries.setRecentlyPlayedSongTimestampSeconds(db, recentlyPlayedSong?.recentlyPlayedSongGuid!, timestampSeconds);
+        await DbQueries.setRecentlyPlayedSongTimestampSeconds(db, recentlyPlayedSong?.recentlyPlayedSongId!, timestampSeconds);
     } else {
         await DbQueries.addRecentlyPlayedSong(db, {
             songId: songId,
-            recentlyPlayedSongGuid: generateGuid(),
+            recentlyPlayedSongId: generateId(),
             timestampSeconds: 0,
             lastPlayed: timeSongStarted
         });
@@ -317,7 +317,7 @@ async function startNewSong(songId: number, recentlyPlayedSong?: RecentlyPlayedS
         const newUserSongRequest: CreateUserSongRequest = {
             userId: localSessionData.userId,
             songId: songId,
-            requestGuid: generateGuid(),
+            requestId: generateId(),
             timeRequested: timeSongStarted,
             requestType: RequestType.CreateUserSong
         };
@@ -333,7 +333,7 @@ async function startNewSong(songId: number, recentlyPlayedSong?: RecentlyPlayedS
     }
 
     const updateSongLastPlayedRequest: UpdateSongLastPlayedRequest = {
-        requestGuid: generateGuid(),
+        requestId: generateId(),
         lastPlayed: timeSongStarted,
         songId: songId,
         timeRequested: timeSongStarted,
@@ -344,9 +344,9 @@ async function startNewSong(songId: number, recentlyPlayedSong?: RecentlyPlayedS
     await DbQueries.addRequests(db, [updateSongLastPlayedRequest]);
 }
 
-async function getRandomSongId(): Promise<number | undefined> {
+async function getRandomSongId(): Promise<string | undefined> {
     const songFilters = await getSongFilters();
-    let songId: number | undefined;
+    let songId: string | undefined;
 
     if (songFilters.hasAnyFilter()) {
         const filteredSongs = await DbQueries.getFilteredSong(db, songFilters);

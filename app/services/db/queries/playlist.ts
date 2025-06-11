@@ -3,7 +3,7 @@ import { Playlist } from "../models";
 import { playlistTable } from "../schema";
 import { eq, gt, lt, ExtractTablesWithRelations, inArray, sql, isNotNull, and, desc, asc, or } from "drizzle-orm";
 
-export async function removeOldPlaylists(db: GenericDb, accessiblePlaylistIds: number[]): Promise<void> {
+export async function removeOldPlaylists(db: GenericDb, accessiblePlaylistIds: string[]): Promise<void> {
     const localPlaylistIds = (await db.select().from(playlistTable)).map(x => x.playlistId).filter(x => accessiblePlaylistIds.includes(x));
     await db.delete(playlistTable).where(inArray(playlistTable.playlistId, localPlaylistIds));
 }
@@ -15,11 +15,11 @@ export async function updatePlaylist(db: GenericDb, newPlaylist: Playlist): Prom
     ]);
 }
 
-export async function getPlaylists(db: GenericDb, userId: number): Promise<Playlist[]> {
+export async function getPlaylists(db: GenericDb, userId: string): Promise<Playlist[]> {
     return await db.select().from(playlistTable).where(eq(playlistTable.userId, userId));
 }
 
-export async function getPlaylist(db: GenericDb, playlistId: number): Promise<Playlist | undefined> {
+export async function getPlaylist(db: GenericDb, playlistId: string): Promise<Playlist | undefined> {
     const result = await db.select().from(playlistTable).where(eq(playlistTable.playlistId, playlistId));
 
     if (!result.length) {

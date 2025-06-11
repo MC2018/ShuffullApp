@@ -21,7 +21,7 @@ export async function updateTags(db: GenericDb, newTags: Tag[]): Promise<void> {
     }
 }
 
-export async function getTagsFromSong(db: GenericDb, songId: number): Promise<Tag[]> {
+export async function getTagsFromSong(db: GenericDb, songId: string): Promise<Tag[]> {
     return await db
         .selectDistinct({
             tagId: tagTable.tagId,

@@ -1,9 +1,9 @@
 import { GenericDb } from "../GenericDb";
 import { LocalSessionData } from "../models";
-import { localSessionDataTable } from "../schema";
+import { localSessionDataTable, userTable } from "../schema";
 import { eq, gt, lt, ExtractTablesWithRelations, inArray, sql, isNotNull, and, desc, asc, or } from "drizzle-orm";
 
-export async function getLocalSessionData(db: GenericDb, userId: number): Promise<LocalSessionData | undefined> {
+export async function getLocalSessionData(db: GenericDb, userId: string): Promise<LocalSessionData | undefined> {
     const result = await db.select().from(localSessionDataTable).where(eq(localSessionDataTable.userId, userId)).limit(1);
 
     if (result.length) {

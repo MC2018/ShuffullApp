@@ -48,14 +48,14 @@ export class Downloader {
         clearInterval(this.timerId);
     }
 
-    public async addSongToDownloadQueue(songId: number, priority: DownloadPriority) {
+    public async addSongToDownloadQueue(songId: string, priority: DownloadPriority) {
         await DbQueries.addToDownloadQueue(this.db, [songId], priority);
     }
 
     // TODO: this could be optimized to prevent spam-presses
-    async addPlaylistToDownloadQueue(playlistId: number, priority: DownloadPriority) {
+    async addPlaylistToDownloadQueue(playlistId: string, priority: DownloadPriority) {
         let songs = await DbQueries.getSongsByPlaylist(this.db, playlistId);
-        const existingSongs: number[] = [];
+        const existingSongs: string[] = [];
 
         for (let i = 0; i < songs.length; i++) {
             const localSongUri = Downloader.generateLocalSongUri(songs[i]);

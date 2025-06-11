@@ -1,7 +1,7 @@
 export type WhitelistSetting = {
-    artistIds: number[],
-    playlistIds: number[],
-    genreIds: number[],
-    timePeriodIds: number[],
-    languageIds: number[],
+    artistIds: string[],
+    playlistIds: string[],
+    genreIds: string[],
+    timePeriodIds: string[],
+    languageIds: string[],
 };

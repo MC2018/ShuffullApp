@@ -57,7 +57,7 @@ export class ApiClient {
         return PlaylistListSchema.parse(response.data);
     }
 
-    public async playlistGetList(playlistIds: number[]): Promise<Playlist[]> {
+    public async playlistGetList(playlistIds: string[]): Promise<Playlist[]> {
         const endpoint = "playlist/getlist";
         const playlistIdsJson = `[${playlistIds.join(",")}]`;
         const response = await this.client.post(endpoint, playlistIdsJson, {
@@ -88,7 +88,8 @@ export class ApiClient {
         return parsePaginatedResponse(UserSongSchema, response.data);
     }
 
-    public async userSongCreateMany(songIds: number[]) {
+    public async userSongCreateMany(songIds: string[]) {
+
         const endpoint = "usersong/createmany";
         const songIdsJson = `[${songIds.join(",")}]`;
         const response = await this.client.put(endpoint, songIdsJson, {
@@ -118,7 +119,7 @@ export class ApiClient {
         }
     }
 
-    public async songGetList(songIds: number[]) {
+    public async songGetList(songIds: string[]) {
         const endpoint = "song/getlist";
         const songIdsJson = `[${songIds.join(",")}]`;
         const response = await this.client.post(endpoint, songIdsJson, {

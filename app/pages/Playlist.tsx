@@ -10,7 +10,7 @@ import { useDownloader } from "../services/DownloaderProvider";
 import { SongFilterType } from "../types/SongFilters";
 
 interface PlaylistPageParams {
-    playlistId: number
+    playlistId: string
 };
 
 export default function PlaylistPage({ navigation, route }: any) {

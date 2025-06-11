@@ -3,7 +3,7 @@ import { Artist, PlaylistSong, SongArtist, SongTag } from "../models";
 import { artistTable, playlistSongTable, songArtistTable, songTagTable } from "../schema";
 import { eq, gt, lt, ExtractTablesWithRelations, inArray, sql, isNotNull, and, desc, asc, or } from "drizzle-orm";
 
-export async function updatePlaylistSongs(db: GenericDb, playlistId: number, newPlaylistSongs: PlaylistSong[]): Promise<void> {
+export async function updatePlaylistSongs(db: GenericDb, playlistId: string, newPlaylistSongs: PlaylistSong[]): Promise<void> {
     if (!newPlaylistSongs.length) {
         return;
     }

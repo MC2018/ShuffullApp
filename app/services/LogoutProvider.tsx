@@ -28,7 +28,7 @@ export default function LogoutProvider({ children, onLogout }: LogoutProviderPro
                 return;
             }
             
-            const localSessionData = await DbQueries.getLocalSessionData(db, parseInt(currentUserId));
+            const localSessionData = await DbQueries.getLocalSessionData(db, currentUserId);
                     
             if (!localSessionData || localSessionData.expiration < new Date(Date.now())) {
                 await logout();
