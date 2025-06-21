@@ -25,7 +25,7 @@ export class ApiClient {
     }
 
     public async userAuthenticate(username: string, userHash: string): Promise<AuthenticateResponse> {
-        const endpoint = "user/authenticate";
+        const endpoint = "/user/authenticate";
         const response = await this.client.post(`${endpoint}?username=${username}&userHash=${userHash}`);
 
         if (!isSuccessfulStatus(response.status)) {
@@ -36,7 +36,7 @@ export class ApiClient {
     }
 
     public async tagGetAll(): Promise<Tag[]> {
-        const endpoint = "tag/getall";
+        const endpoint = "/tag/getall";
         const response = await this.client.get(endpoint);
 
         if (!isSuccessfulStatus(response.status)) {
@@ -47,7 +47,7 @@ export class ApiClient {
     }
 
     public async playlistGetAll() {
-        const endpoint = "playlist/getall";
+        const endpoint = "/playlist/getall";
         const response = await this.client.get(endpoint);
 
         if (!isSuccessfulStatus(response.status)) {
@@ -58,8 +58,8 @@ export class ApiClient {
     }
 
     public async playlistGetList(playlistIds: string[]): Promise<Playlist[]> {
-        const endpoint = "playlist/getlist";
-        const playlistIdsJson = `[${playlistIds.join(",")}]`;
+        const endpoint = "/playlist/getlist";
+        const playlistIdsJson = JSON.stringify(playlistIds);
         const response = await this.client.post(endpoint, playlistIdsJson, {
             headers: {
                 "Content-Type": "application/json"
@@ -74,7 +74,7 @@ export class ApiClient {
     }
 
     public async userSongGetAll(afterDate: Date) {
-        const endpoint = "usersong/getall";
+        const endpoint = "/usersong/getall";
         const response = await this.client.get(endpoint, {
             params: {
                 afterDate: afterDate.toISOString()
@@ -90,8 +90,8 @@ export class ApiClient {
 
     public async userSongCreateMany(songIds: string[]) {
 
-        const endpoint = "usersong/createmany";
-        const songIdsJson = `[${songIds.join(",")}]`;
+        const endpoint = "/usersong/createmany";
+        const songIdsJson = JSON.stringify(songIds);
         const response = await this.client.put(endpoint, songIdsJson, {
             headers: {
                 "Content-Type": "application/json"
@@ -106,7 +106,7 @@ export class ApiClient {
     }
 
     public async userSongUpdateLastPlayed(requests: UpdateSongLastPlayedRequest[]) {
-        const endpoint = "usersong/updatelastplayed";
+        const endpoint = "/usersong/updatelastplayed";
         const requestsJson = JSON.stringify(requests);
         const response = await this.client.post(endpoint, requestsJson, {
             headers: {
@@ -120,8 +120,8 @@ export class ApiClient {
     }
 
     public async songGetList(songIds: string[]) {
-        const endpoint = "song/getlist";
-        const songIdsJson = `[${songIds.join(",")}]`;
+        const endpoint = "/song/getlist";
+        const songIdsJson = JSON.stringify(songIds);
         const response = await this.client.post(endpoint, songIdsJson, {
             headers: {
                 "Content-Type": "application/json"
@@ -136,7 +136,7 @@ export class ApiClient {
     }
 
     public async userGet() {
-        const endpoint = "user/get";
+        const endpoint = "/user/get";
         const response = await this.client.get(endpoint);
 
         if (!isSuccessfulStatus(response.status)) {
