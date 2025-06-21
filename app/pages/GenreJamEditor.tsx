@@ -1,8 +1,8 @@
 import { Button, ScrollView, Text, View, StyleSheet, TextInput, TouchableOpacity, Modal } from "react-native";
 import React, { ReactNode, useEffect, useState } from "react";
-import * as DbQueries from "../services/db/queries";
+import DbQueries from "../services/db/queries";
 import { useDb } from "../services/db/DbProvider";
-import { MediaManager, generateId } from "../tools";
+import { generateId } from "../tools";
 import PlayerBar, { totalPlayerBarHeight } from "../components/music-control/organisms/PlayerBar";
 import { FilterPillInfo, WhitelistingMode, WhitelistingStatus } from "../components/whitelist-filter/atoms/FilterSelectionPill";
 import { GenreJam } from "../services/db/models";
@@ -11,6 +11,7 @@ import FilterSelectionType from "../components/whitelist-filter/molecules/Filter
 import { TagType } from "../services/db/schema";
 import FilterPillSelector from "../components/whitelist-filter/molecules/FilterPillSelector";
 import ModalPopupTemplate from "../components/common/templates/ModalPopupTemplate";
+import { MediaManager } from "../services/media-manager";
 
 export default function GenreJamEditor({ navigation, route }: any) {
     const db = useDb();

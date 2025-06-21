@@ -7,11 +7,10 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { STORAGE_KEYS } from "../constants/storageKeys";
 import { useEffect, useState } from "react";
 import SongsStackScreen from "./Songs";
-import { useDb } from "../services/db/DbProvider";
-import { logout } from "../services/LogoutProvider";
 import LibraryStackScreen from "./Library";
 import Playlist from "./Playlist";
 import HomeStackScreen from "./Home";
+import { logout } from "../services/auth/LogoutProvider";
 
 const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();

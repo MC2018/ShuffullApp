@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { useDb } from "./db/DbProvider";
-import * as DbQueries from "./db/queries";
+import DbQueries from "./db/queries";
 import React from "react";
 import BackgroundService from 'react-native-background-actions';
-import { sleep, MediaManager, generateId } from "../tools";
+import { sleep, generateId } from "../tools";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { STORAGE_KEYS } from "../constants/storageKeys";
+import { MediaManager } from "./media-manager";
 
 export default function SongProgressSync() {
     const db = useDb();

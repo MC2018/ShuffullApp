@@ -1,12 +1,13 @@
 import { View, Text, FlatList, TextInput } from "react-native";
 import { useDb } from "../services/db/DbProvider";
 import { useEffect, useState } from "react";
-import * as DbQueries from "../services/db/queries";
-import { MediaManager } from "../tools";
+import DbQueries from "../services/db/queries";
 import React from "react";
 import PlayerBar, { totalPlayerBarHeight } from "../components/music-control/organisms/PlayerBar";
 import { createStackNavigator } from "@react-navigation/stack";
 import { SongList } from "../components/songs/molecules/SongList";
+import { SongDetails } from "../services/db/types";
+import { MediaManager } from "../services/media-manager";
 
 const SongStack = createStackNavigator();
 
@@ -19,8 +20,8 @@ export default function SongsStackScreen({ navigation, route }: any) {
 }
 
 export function SongsPage() {
-    const [songs, setSongs] = useState<DbQueries.SongDetails[]>([]);
-    const [filteredSongs, setFilteredSongs] = useState<DbQueries.SongDetails[]>([]);
+    const [songs, setSongs] = useState<SongDetails[]>([]);
+    const [filteredSongs, setFilteredSongs] = useState<SongDetails[]>([]);
     const db = useDb();
 
     useEffect(() => {
@@ -31,7 +32,7 @@ export function SongsPage() {
         })();
     }, []);
 
-    const handleSelectSong = async (songInfo: DbQueries.SongDetails) => {
+    const handleSelectSong = async (songInfo: SongDetails) => {
         await MediaManager.playSpecificSong(songInfo.song.songId);
     };
 

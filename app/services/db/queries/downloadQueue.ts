@@ -1,8 +1,9 @@
-import { DownloadPriority, generateId } from "@/app/tools";
+import { generateId } from "@/app/tools";
 import { GenericDb } from "../GenericDb";
 import { downloadQueueTable } from "../schema";
 import { eq, gt, lt, ExtractTablesWithRelations, inArray, sql, isNotNull, and, desc, asc, or } from "drizzle-orm";
 import { DownloadQueue } from "../models";
+import { DownloadPriority } from "../types";
 
 // TODO: I may want to add a way to change priority
 export async function addToDownloadQueue(db: GenericDb, songIds: string[], priority: DownloadPriority): Promise<void> {

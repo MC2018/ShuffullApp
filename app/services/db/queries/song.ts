@@ -3,11 +3,7 @@ import { GenericDb } from "../GenericDb";
 import { Artist, GenreJam, Song } from "../models";
 import { artistTable, downloadedSongTable, genreJamTable, playlistSongTable, playlistTable, songArtistTable, songTable, userSongTable } from "../schema";
 import { eq, gt, lt, ExtractTablesWithRelations, inArray, sql, isNotNull, and, desc, asc, or } from "drizzle-orm";
-
-export type SongDetails = {
-    song: Song;
-    artists: Artist[];
-}
+import { SongDetails } from "../types";
 
 type FilteredSongs = {
     songId: string,

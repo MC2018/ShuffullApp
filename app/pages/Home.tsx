@@ -2,21 +2,22 @@ import { Button, Text, View } from "react-native";
 import { Playlist, Tag } from "../services/db/models";
 import PlayPauseButton from "../components/music-control/atoms/PlayPauseButton";
 import React, { useEffect, useState } from "react";
-import { DownloadPriority, isAnyNullish, MediaManager, Navigator } from "../tools";
+import { isAnyNullish, Navigator } from "../tools";
 import DownloadButton from "../components/downloading/atoms/DownloadButton";
-import { logout } from "../services/LogoutProvider";
+import { logout } from "../services/auth/LogoutProvider";
 import Skimmer from "../components/music-control/atoms/Skimmer";
 import PlayerBar from "../components/music-control/organisms/PlayerBar";
 import { createStackNavigator } from "@react-navigation/stack";
-import PlaylistPage from "./Playlist";
-import * as DbQueries from "@/app/services/db/queries";
+import DbQueries from "@/app/services/db/queries";
 import { TagList } from "../components/tags/molecules/TagList";
 import { useDb } from "../services/db/DbProvider";
 import GenreJamEditor from "./GenreJamEditor";
 import { STORAGE_KEYS } from "../constants/storageKeys";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useDownloader } from "../services/DownloaderProvider";
-import { useActiveSong } from "../tools/mediaManager";
+import { useActiveSong } from "../services/media-manager/mediaManager";
+import { useDownloader } from "../services/downloader/DownloaderProvider";
+import { DownloadPriority } from "../services/db/types";
+import { MediaManager } from "../services/media-manager";
 
 const HomeStack = createStackNavigator();
 

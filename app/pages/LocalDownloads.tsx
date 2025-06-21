@@ -1,15 +1,16 @@
 import { Button, ScrollView, Text, View, StyleSheet, TextInput } from "react-native";
 import { Playlist } from "../services/db/models";
 import React, { useEffect, useState } from "react";
-import * as DbQueries from "../services/db/queries";
+import DbQueries from "../services/db/queries";
 import { useDb } from "../services/db/DbProvider";
-import { MediaManager } from "../tools";
 import PlayerBar, { totalPlayerBarHeight } from "../components/music-control/organisms/PlayerBar";
 import { SongList } from "../components/songs/molecules/SongList";
+import { SongDetails } from "../services/db/types";
+import { MediaManager } from "../services/media-manager";
 
 export default function LocalDownloadsPage({ navigation, route }: any) {
-    const [songs, setSongs] = useState<DbQueries.SongDetails[]>([]);
-    const [filteredSongs, setFilteredSongs] = useState<DbQueries.SongDetails[]>([]);
+    const [songs, setSongs] = useState<SongDetails[]>([]);
+    const [filteredSongs, setFilteredSongs] = useState<SongDetails[]>([]);
     const db = useDb();
 
     useEffect(() => {
@@ -30,7 +31,7 @@ export default function LocalDownloadsPage({ navigation, route }: any) {
         setFilteredSongs(filtered);
     }
 
-    const handleSelectSong = async (songDetails: DbQueries.SongDetails) => {
+    const handleSelectSong = async (songDetails: SongDetails) => {
         await MediaManager.playSpecificSong(songDetails.song.songId);
     };
 

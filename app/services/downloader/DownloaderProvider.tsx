@@ -1,6 +1,6 @@
 import React, { createContext, ReactNode, useContext, useEffect, useState } from "react";
-import { useDb } from "./db/DbProvider";
-import { Downloader } from "../tools";
+import { useDb } from "../db/DbProvider";
+import { Downloader } from "./Downloader";
 
 interface DownloaderProviderProps {
     children: ReactNode;

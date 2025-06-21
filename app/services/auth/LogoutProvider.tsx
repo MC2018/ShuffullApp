@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from "react";
 import { ReactNode } from 'react';
-import * as DbQueries from "./db/queries";
-import { useDb } from "./db/DbProvider";
+import DbQueries from "../db/queries";
+import { useDb } from "../db/DbProvider";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { STORAGE_KEYS } from "../constants/storageKeys";
+import { STORAGE_KEYS } from "@/app/constants/storageKeys";
 
 interface LogoutProviderProps {
     children: ReactNode;
@@ -11,6 +11,7 @@ interface LogoutProviderProps {
 };
 let callOnLogout: () => Promise<void>;
 
+// TODO: rename to AuthProvider, make it handle session management (userId etc)
 export default function LogoutProvider({ children, onLogout }: LogoutProviderProps) {
     const [ timerIncrement, setTimerIncrement ] = useState(0);
 

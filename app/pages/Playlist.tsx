@@ -1,22 +1,23 @@
 import { Button, ScrollView, Text, View, StyleSheet, TextInput } from "react-native";
 import { Playlist } from "../services/db/models";
 import React, { useEffect, useState } from "react";
-import * as DbQueries from "../services/db/queries";
+import DbQueries from "../services/db/queries";
 import { useDb } from "../services/db/DbProvider";
-import { DownloadPriority, MediaManager } from "../tools";
 import PlayerBar, { totalPlayerBarHeight } from "../components/music-control/organisms/PlayerBar";
 import { SongList } from "../components/songs/molecules/SongList";
-import { useDownloader } from "../services/DownloaderProvider";
 import { SongFilterType } from "../types/SongFilters";
+import { DownloadPriority, SongDetails } from "../services/db/types";
+import { useDownloader } from "../services/downloader/DownloaderProvider";
+import { MediaManager } from "../services/media-manager";
 
 interface PlaylistPageParams {
     playlistId: string
 };
 
 export default function PlaylistPage({ navigation, route }: any) {
-    const [songs, setSongs] = useState<DbQueries.SongDetails[]>([]);
+    const [songs, setSongs] = useState<SongDetails[]>([]);
     const [playlist, setPlaylist] = useState<Playlist | null>(null);
-    const [filteredSongs, setFilteredSongs] = useState<DbQueries.SongDetails[]>([]);
+    const [filteredSongs, setFilteredSongs] = useState<SongDetails[]>([]);
     const db = useDb();
     const downloader = useDownloader();
     const { playlistId }: PlaylistPageParams = route.params;
@@ -48,7 +49,7 @@ export default function PlaylistPage({ navigation, route }: any) {
         setFilteredSongs(filtered);
     }
 
-    const handleSelectSong = async (songDetails: DbQueries.SongDetails) => {
+    const handleSelectSong = async (songDetails: SongDetails) => {
         await MediaManager.playSpecificSong(songDetails.song.songId);
     };
 
