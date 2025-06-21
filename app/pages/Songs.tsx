@@ -4,9 +4,9 @@ import { useEffect, useState } from "react";
 import * as DbQueries from "../services/db/queries";
 import { MediaManager } from "../tools";
 import React from "react";
-import PlayerBar, { totalPlayerBarHeight } from "../components/PlayerBar";
+import PlayerBar, { totalPlayerBarHeight } from "../components/music-control/organisms/PlayerBar";
 import { createStackNavigator } from "@react-navigation/stack";
-import { SongList } from "../components/SongList";
+import { SongList } from "../components/songs/molecules/SongList";
 
 const SongStack = createStackNavigator();
 

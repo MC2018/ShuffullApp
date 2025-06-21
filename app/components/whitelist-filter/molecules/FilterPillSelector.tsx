@@ -1,6 +1,6 @@
 import { Button, ScrollView, Text, View, StyleSheet, TextInput, TouchableOpacity, Modal } from "react-native";
 import React, { useEffect, useState } from "react";
-import FilterSelectionPill, { FilterPillInfo, WhitelistingMode, WhitelistingStatus } from "./FilterSelectionPill";
+import FilterSelectionPill, { FilterPillInfo, WhitelistingMode, WhitelistingStatus } from "../atoms/FilterSelectionPill";
 import FilterSelectionPillGroup from "./FilterSelectionPillGroup";
 
 interface FilterPillSelectorProps<T> {

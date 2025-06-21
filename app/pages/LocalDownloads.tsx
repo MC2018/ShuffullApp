@@ -4,8 +4,8 @@ import React, { useEffect, useState } from "react";
 import * as DbQueries from "../services/db/queries";
 import { useDb } from "../services/db/DbProvider";
 import { MediaManager } from "../tools";
-import PlayerBar, { totalPlayerBarHeight } from "../components/PlayerBar";
-import { SongList } from "../components/SongList";
+import PlayerBar, { totalPlayerBarHeight } from "../components/music-control/organisms/PlayerBar";
+import { SongList } from "../components/songs/molecules/SongList";
 
 export default function LocalDownloadsPage({ navigation, route }: any) {
     const [songs, setSongs] = useState<DbQueries.SongDetails[]>([]);

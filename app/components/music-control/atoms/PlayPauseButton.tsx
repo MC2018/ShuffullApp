@@ -1,4 +1,4 @@
-import { MediaManager } from "../tools";
+import { MediaManager } from "@/app/tools";
 import { Button } from "react-native";
 import React from "react";
 

@@ -1,8 +1,5 @@
 import React from "react";
 import { Button, Image, ImageSourcePropType, Pressable, Text, StyleSheet } from "react-native";
-import { useProgress } from "react-native-track-player";
-import Slider from "@react-native-community/slider";
-import { MediaManager } from "../../tools";
 
 export interface SongCollectionSelectorProps {
     collectionName: string;
