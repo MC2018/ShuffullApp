@@ -1,5 +1,5 @@
 import React from "react";
-import { MediaManager, Navigator } from "../../tools";
+import { MediaManager, Navigator } from "../../../tools";
 import SongCollectionSelector from "./SongCollectionSelector";
 import { useNavigation } from "@react-navigation/native";
 

@@ -4,8 +4,8 @@ import React, { useEffect, useState } from "react";
 import * as DbQueries from "../services/db/queries";
 import { useDb } from "../services/db/DbProvider";
 import { DownloadPriority, MediaManager } from "../tools";
-import PlayerBar, { totalPlayerBarHeight } from "../components/PlayerBar";
-import { SongList } from "../components/SongList";
+import PlayerBar, { totalPlayerBarHeight } from "../components/music-control/organisms/PlayerBar";
+import { SongList } from "../components/songs/molecules/SongList";
 import { useDownloader } from "../services/DownloaderProvider";
 import { SongFilterType } from "../types/SongFilters";
 

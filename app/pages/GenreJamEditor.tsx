@@ -3,14 +3,14 @@ import React, { ReactNode, useEffect, useState } from "react";
 import * as DbQueries from "../services/db/queries";
 import { useDb } from "../services/db/DbProvider";
 import { MediaManager, generateId } from "../tools";
-import PlayerBar, { totalPlayerBarHeight } from "../components/PlayerBar";
-import { FilterPillInfo, WhitelistingMode, WhitelistingStatus } from "../components/selectors/FilterSelectionPill";
-import ModalPopup from "../components/ModalPopup";
-import FilterPillSelector from "../components/selectors/FilterPillSelector";
+import PlayerBar, { totalPlayerBarHeight } from "../components/music-control/organisms/PlayerBar";
+import { FilterPillInfo, WhitelistingMode, WhitelistingStatus } from "../components/whitelist-filter/atoms/FilterSelectionPill";
 import { GenreJam } from "../services/db/models";
 import { SongFilters } from "../types/SongFilters";
-import FilterSelectionType from "../components/selectors/FilterSelectionType";
+import FilterSelectionType from "../components/whitelist-filter/molecules/FilterSelectionType";
 import { TagType } from "../services/db/schema";
+import FilterPillSelector from "../components/whitelist-filter/molecules/FilterPillSelector";
+import ModalPopupTemplate from "../components/common/templates/ModalPopupTemplate";
 
 export default function GenreJamEditor({ navigation, route }: any) {
     const db = useDb();
@@ -128,9 +128,9 @@ export default function GenreJamEditor({ navigation, route }: any) {
             <FilterSelectionType title="Languages" pillsInfo={filters.languages} onEditRequest={() => handleEditRequest("languages")}></FilterSelectionType>
 
             {/* Modal */}
-            <ModalPopup visible={modalVisible} onRequestClose={() => setModalVisible(false)}>
+            <ModalPopupTemplate visible={modalVisible} onRequestClose={() => setModalVisible(false)}>
                 {modalContents}
-            </ModalPopup>
+            </ModalPopupTemplate>
         </View>
         <PlayerBar></PlayerBar>
         </>

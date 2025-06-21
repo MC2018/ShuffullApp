@@ -1,13 +1,13 @@
-import { MediaManager } from "../tools";
+import { MediaManager } from "@/app/tools";
 import { Image, View, Text, Dimensions, StyleSheet, ImageSourcePropType, Pressable, ImageURISource } from "react-native";
 import React, { useEffect, useState } from "react";
-import { useActiveSong } from "../tools/mediaManager";
-import { SongDetails } from "../services/db/queries";
-import { useDb } from "../services/db/DbProvider";
-import * as DbQueries from "../services/db/queries";
+import { useActiveSong } from "@/app/tools/mediaManager";
+import { SongDetails } from "@/app/services/db/queries";
+import { useDb } from "@/app/services/db/DbProvider";
+import * as DbQueries from "@/app/services/db/queries";
 import { State, usePlaybackState } from "react-native-track-player";
-import { Song } from "../services/db/models";
-import { Downloader } from "../tools/Downloader";
+import { Song } from "@/app/services/db/models";
+import { Downloader } from "@/app/tools/Downloader";
 
 const defaultArt: ImageURISource = require("@/assets/images/default-album-art.jpg");
 const { width, height } = Dimensions.get("window");
