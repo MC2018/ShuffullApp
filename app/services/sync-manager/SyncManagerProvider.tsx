@@ -1,8 +1,8 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
-import { useDb } from "./db/DbProvider";
-import { SyncManager } from "../tools";
-import { useApi } from "./api/apiProvider";
-import { logout } from "./LogoutProvider";
+import { useDb } from "../db/DbProvider";
+import { useApi } from "../api/ApiProvider";
+import { logout } from "../auth/LogoutProvider";
+import { SyncManager } from "./SyncManager";
 
 interface SyncManagerProviderProps {
     userId: string;

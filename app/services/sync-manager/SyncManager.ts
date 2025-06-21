@@ -1,13 +1,12 @@
-import { ApiClient } from "../services/api/apiClient";
-import * as DbQueries from "../services/db/queries";
-import * as DbModels from "../services/db/models";
-import * as ApiModels from "../services/api/models";
-import { distinctBy, generateId } from "./utils";
+import { ApiClient } from "@/app/services/api/ApiClient";
+import DbQueries from "@/app/services/db/queries";
+import * as DbModels from "@/app/services/db/models";
+import * as ApiModels from "@/app/services/api/models";
+import { distinctBy, generateId } from "@/app/tools";
 import { HttpStatusCode } from "axios";
-import { RequestType } from "../enums";
-import { getProcessingMethod, ProcessingMethod } from "../enums";
-import { ApiStatusFailureError } from "../services/api/errors";
-import { GenericDb } from "../services/db/GenericDb";
+import { RequestType, getProcessingMethod, ProcessingMethod } from "@/app/enums";
+import { ApiStatusFailureError } from "@/app/services/api/errors";
+import { GenericDb } from "@/app/services/db/GenericDb";
 
 export class SyncManager {
     db: GenericDb;

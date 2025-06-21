@@ -1,7 +1,8 @@
-import { MediaManager } from "@/app/tools";
 import { Button } from "react-native";
 import React from "react";
+import { MediaManager } from "@/app/services/media-manager";
 
+// TODO: not a proper atom, it's calling MediaManager directly
 export default function PlayPauseButton() {
     const handlePlay = async () => {
 

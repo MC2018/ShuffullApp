@@ -1,13 +1,14 @@
 import { ExpoSQLiteDatabase } from "drizzle-orm/expo-sqlite";
-import * as DbQueries from "../services/db/queries";
+import DbQueries from "../db/queries";
 import * as FileSystem from "expo-file-system";
-import { verifyFileIntegrity } from "./utils";
+import { verifyFileIntegrity } from "../../tools/utils";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { STORAGE_KEYS } from "../constants/storageKeys";
+import { STORAGE_KEYS } from "../../constants/storageKeys";
 import { getNetworkStateAsync, NetworkStateType } from "expo-network";
-import { GenericDb } from "../services/db/GenericDb";
+import { GenericDb } from "../db/GenericDb";
 import path from "path-browserify";
-import { Song } from "../services/db/models";
+import { Song } from "../db/models";
+import { DownloadPriority } from "../db/types";
 
 if (FileSystem.documentDirectory == null) {
     throw new Error("documentDirectory is null");
@@ -193,10 +194,4 @@ export class Downloader {
 
         return path.join(hostAddress, "albumart", `${song.fileHash}.jpg`);
     }
-}
-
-export enum DownloadPriority {
-    Low = 1,
-    Medium = 2,
-    High = 3
 }

@@ -6,21 +6,21 @@ import migrations from "./services/db/drizzle/migrations"
 import { DbProvider } from "./services/db/DbProvider";
 import LoginPage from "./pages/Login";
 import { useEffect, useState } from "react";
-import { ApiProvider } from "./services/api/apiProvider";
-import { ApiClient } from "./services/api/apiClient";
 import { localSessionDataTable } from "./services/db/schema";
 import { LocalSessionData } from "./services/db/models";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { STORAGE_KEYS } from "./constants/storageKeys";
-import * as DbQueries from "./services/db/queries";
-import { MediaManager } from "./tools";
+import DbQueries from "./services/db/queries";
+import { MediaManager } from "./services/media-manager";
 import { Hasher } from "./tools";
 import React from "react";
 import NavigationTabs from "./pages/NavigationTabs";
-import LogoutProvider from "./services/LogoutProvider";
-import DownloaderProvider from "./services/DownloaderProvider";
-import SyncManagerProvider from "./services/SyncManagerProvider";
+import LogoutProvider from "./services/auth/LogoutProvider";
+import DownloaderProvider from "./services/downloader/DownloaderProvider";
+import SyncManagerProvider from "./services/sync-manager/SyncManagerProvider";
 import SongProgressSync from "./services/SongProgressSync";
+import { ApiClient } from "./services/api/ApiClient";
+import { ApiProvider } from "./services/api/ApiProvider";
 
 const dbName = "shuffull-db";
 let expoDb = SQLite.openDatabaseSync(dbName);

@@ -1,16 +1,16 @@
 import { ExpoSQLiteDatabase } from "drizzle-orm/expo-sqlite";
 import TrackPlayer, { Capability, Event, PlaybackState, RemoteSeekEvent, State } from "react-native-track-player";
-import { CreateUserSongRequest, RecentlyPlayedSong, Song, UpdateSongLastPlayedRequest } from "../services/db/models";
-import * as DbQueries from "../services/db/queries";
+import { CreateUserSongRequest, RecentlyPlayedSong, Song, UpdateSongLastPlayedRequest } from "../db/models";
+import DbQueries from "../db/queries";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { STORAGE_KEYS } from "../constants/storageKeys";
-import { generateRange, generateId } from "./utils";
-import { RequestType } from "../enums";
+import { STORAGE_KEYS } from "../../constants/storageKeys";
+import { generateRange, generateId } from "../../tools/utils";
+import { RequestType } from "../../enums";
 import { getPlaybackState } from "react-native-track-player/lib/src/trackPlayer";
-import { Downloader } from "./Downloader";
+import { Downloader } from "../downloader/Downloader";
 import { create } from "zustand";
 import path from "path-browserify";
-import { SongFilters } from "../types/SongFilters";
+import { SongFilters } from "../../types/SongFilters";
 
 let queue: string[] = [];
 let db: ExpoSQLiteDatabase;
