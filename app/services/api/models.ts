@@ -8,21 +8,10 @@ export const UserSchema = z.object({
 });
 export type User = z.infer<typeof UserSchema>;
 
-export const ArtistSchema = z.object({
-    artistId: z.string(),
-    name: z.string()
+// GET /api/v1/users/me wraps the user in a { user } envelope.
+export const UserResponseSchema = z.object({
+    user: UserSchema
 });
-export const ArtistListSchema = ArtistSchema.array();
-export type Artist = z.infer<typeof ArtistSchema>;
-
-export const SongArtistSchema = z.object({
-    songArtistId: z.string(),
-    songId: z.string(),
-    artistId: z.string(),
-    artist: ArtistSchema.nullish()
-});
-export const SongArtistListSchema = SongArtistSchema.array();
-export type SongArtist = z.infer<typeof SongArtistSchema>;
 
 export const TagSchema = z.object({
     tagId: z.string(),
@@ -32,25 +21,30 @@ export const TagSchema = z.object({
 export const TagListSchema = TagSchema.array();
 export type Tag = z.infer<typeof TagSchema>;
 
-export const SongTagSchema = z.object({
-    songTagId: z.string(),
-    songId: z.string(),
-    tagId: z.string(),
-    tags: TagListSchema.nullish()
+// GET /api/v1/tags -> { tags: [...] }
+export const TagListResponseSchema = z.object({
+    tags: TagListSchema
 });
-export const SongTagListSchema = SongTagSchema.array();
-export type SongTag = z.infer<typeof SongTagSchema>;
 
+// The API returns songs denormalized: `artists` and `tags` are plain name strings with no IDs.
+// The app re-normalizes these into its local artist/tag/join tables during sync (see SyncManager).
+// `externalSongId` has no local column and is intentionally not consumed here.
 export const SongSchema = z.object({
     songId: z.string(),
+    name: z.string(),
     fileExtension: z.string(),
     fileHash: z.string(),
-    name: z.string(),
-    songTags: SongTagListSchema.nullish(),
-    songArtists: SongArtistListSchema.nullish()
+    externalSongId: z.string().nullish(),
+    artists: z.array(z.string()).default([]),
+    tags: z.array(z.string()).default([])
 });
 export const SongListSchema = SongSchema.array();
 export type Song = z.infer<typeof SongSchema>;
+
+// POST /api/v1/songs/list -> { songs: [...] }
+export const SongListResponseSchema = z.object({
+    songs: SongListSchema
+});
 
 export const UserSongSchema = z.object({
     userId: z.string(),
@@ -61,6 +55,12 @@ export const UserSongSchema = z.object({
 export const UserSongListSchema = UserSongSchema.array();
 export type UserSong = z.infer<typeof UserSongSchema>;
 
+// GET /api/v1/user-songs -> { userSongs: [...], endOfList }
+export const UserSongPageSchema = z.object({
+    userSongs: UserSongListSchema,
+    endOfList: z.boolean()
+});
+
 export const AuthenticateResponseSchema = z.object({
     user: UserSchema,
     token: z.string(),
@@ -68,29 +68,21 @@ export const AuthenticateResponseSchema = z.object({
 });
 export type AuthenticateResponse = z.infer<typeof AuthenticateResponseSchema>;
 
-export const PlaylistSongSchema = z.object({
-    playlistSongId: z.string(),
-    playlistId: z.string(),
-    songId: z.string()
-});
-export const PlaylistSongListSchema = PlaylistSongSchema.array();
-
+// The API returns playlist membership as a flat list of song IDs (`songIds`); the app turns these
+// into local playlist_song join rows during sync. `currentSongId` has no local column today.
 export const PlaylistSchema = z.object({
     playlistId: z.string(),
     userId: z.string(),
     name: z.string(),
+    currentSongId: z.string().nullish(),
     percentUntilReplayable: z.number().min(0).max(1),
     version: z.coerce.date(),
-    playlistSongs: PlaylistSongListSchema.nullish()
+    songIds: z.array(z.string()).default([])
 });
 export const PlaylistListSchema = PlaylistSchema.array();
 export type Playlist = z.infer<typeof PlaylistSchema>;
 
-export const PaginatedResponseSchema = <T extends z.ZodType>(itemSchema: T) => z.object({
-    items: z.array(itemSchema),
-    endOfList: z.boolean()
+// GET /api/v1/playlists and POST /api/v1/playlists/list -> { playlists: [...] }
+export const PlaylistListResponseSchema = z.object({
+    playlists: PlaylistListSchema
 });
-export function parsePaginatedResponse<T>(itemSchema: z.ZodType<T>, data: any) {
-    const schema = PaginatedResponseSchema(itemSchema);
-    return schema.parse(data);
-}

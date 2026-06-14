@@ -1,5 +1,5 @@
 import axios, { AxiosInstance } from "axios";
-import { AuthenticateResponse, AuthenticateResponseSchema, parsePaginatedResponse, Playlist, PlaylistListSchema, SongListSchema, Tag, TagListSchema, TagSchema, UserSchema, UserSongListSchema, UserSongSchema } from "./models";
+import { AuthenticateResponse, AuthenticateResponseSchema, Playlist, PlaylistListResponseSchema, SongListResponseSchema, Tag, TagListResponseSchema, UserResponseSchema, UserSongPageSchema } from "./models";
 import { ApiStatusFailureError } from "./errors";
 import { UpdateSongLastPlayedRequest } from "../db/models";
 
@@ -25,125 +25,200 @@ export class ApiClient {
     }
 
     public async userAuthenticate(username: string, userHash: string): Promise<AuthenticateResponse> {
-        const endpoint = "/user/authenticate";
-        const response = await this.client.post(`${endpoint}?username=${username}&userHash=${userHash}`);
+        const endpoint = "/api/v1/users/authenticate";
+        console.log(`[API] Calling endpoint: ${endpoint}`);
+        try {
+            const response = await this.client.post(`${endpoint}?username=${username}&userHash=${userHash}`);
 
-        if (!isSuccessfulStatus(response.status)) {
-            throw new ApiStatusFailureError(endpoint, response);
+            if (!isSuccessfulStatus(response.status)) {
+                console.log(`[API] Endpoint ${endpoint} failed with status: ${response.status}`);
+                throw new ApiStatusFailureError(endpoint, response);
+            }
+
+            console.log(`[API] Endpoint ${endpoint} succeeded`);
+            return AuthenticateResponseSchema.parse(response.data);
+        } catch (error) {
+            console.log(`[API] Endpoint ${endpoint} failed with error:`, error);
+            throw error;
         }
-
-        return AuthenticateResponseSchema.parse(response.data);
     }
 
     public async tagGetAll(): Promise<Tag[]> {
-        const endpoint = "/tag/getall";
-        const response = await this.client.get(endpoint);
+        const endpoint = "/api/v1/tags";
+        console.log(`[API] Calling endpoint: ${endpoint}`);
+        try {
+            const response = await this.client.get(endpoint);
 
-        if (!isSuccessfulStatus(response.status)) {
-            throw new ApiStatusFailureError(endpoint, response);
+            if (!isSuccessfulStatus(response.status)) {
+                console.log(`[API] Endpoint ${endpoint} failed with status: ${response.status}`);
+                throw new ApiStatusFailureError(endpoint, response);
+            }
+
+            console.log(`[API] Endpoint ${endpoint} succeeded`);
+            return TagListResponseSchema.parse(response.data).tags;
+        } catch (error) {
+            console.log(`[API] Endpoint ${endpoint} failed with error:`, error);
+            throw error;
         }
-        
-        return TagListSchema.parse(response.data);
     }
 
     public async playlistGetAll() {
-        const endpoint = "/playlist/getall";
-        const response = await this.client.get(endpoint);
+        const endpoint = "/api/v1/playlists";
+        console.log(`[API] Calling endpoint: ${endpoint}`);
+        try {
+            const response = await this.client.get(endpoint);
 
-        if (!isSuccessfulStatus(response.status)) {
-            throw new ApiStatusFailureError(endpoint, response);
+            if (!isSuccessfulStatus(response.status)) {
+                console.log(`[API] Endpoint ${endpoint} failed with status: ${response.status}`);
+                throw new ApiStatusFailureError(endpoint, response);
+            }
+
+            console.log(`[API] Endpoint ${endpoint} succeeded`);
+            return PlaylistListResponseSchema.parse(response.data).playlists;
+        } catch (error) {
+            console.log(`[API] Endpoint ${endpoint} failed with error:`, error);
+            throw error;
         }
-        
-        return PlaylistListSchema.parse(response.data);
     }
 
     public async playlistGetList(playlistIds: string[]): Promise<Playlist[]> {
-        const endpoint = "/playlist/getlist";
-        const playlistIdsJson = JSON.stringify(playlistIds);
-        const response = await this.client.post(endpoint, playlistIdsJson, {
-            headers: {
-                "Content-Type": "application/json"
+        const endpoint = "/api/v1/playlists/list";
+        console.log(`[API] Calling endpoint: ${endpoint}`);
+        try {
+            const playlistIdsJson = JSON.stringify(playlistIds);
+            const response = await this.client.post(endpoint, playlistIdsJson, {
+                headers: {
+                    "Content-Type": "application/json"
+                }
+            });
+
+            if (!isSuccessfulStatus(response.status)) {
+                console.log(`[API] Endpoint ${endpoint} failed with status: ${response.status}`);
+                throw new ApiStatusFailureError(endpoint, response);
             }
-        });
 
-        if (!isSuccessfulStatus(response.status)) {
-            throw new ApiStatusFailureError(endpoint, response);
+            console.log(`[API] Endpoint ${endpoint} succeeded`);
+            return PlaylistListResponseSchema.parse(response.data).playlists;
+        } catch (error) {
+            console.log(`[API] Endpoint ${endpoint} failed with error:`, error);
+            throw error;
         }
-
-        return PlaylistListSchema.parse(response.data);
     }
 
     public async userSongGetAll(afterDate: Date) {
-        const endpoint = "/usersong/getall";
-        const response = await this.client.get(endpoint, {
-            params: {
-                afterDate: afterDate.toISOString()
+        const endpoint = "/api/v1/user-songs";
+        console.log(`[API] Calling endpoint: ${endpoint}`);
+        try {
+            const response = await this.client.get(endpoint, {
+                params: {
+                    afterDate: afterDate.toISOString()
+                }
+            });
+
+            if (!isSuccessfulStatus(response.status)) {
+                console.log(`[API] Endpoint ${endpoint} failed with status: ${response.status}`);
+                throw new ApiStatusFailureError(endpoint, response);
             }
-        });
 
-        if (!isSuccessfulStatus(response.status)) {
-            throw new ApiStatusFailureError(endpoint, response);
+            console.log(`[API] Endpoint ${endpoint} succeeded`);
+            // Keep the { items, endOfList } shape SyncManager consumes; the API key is `userSongs`.
+            const page = UserSongPageSchema.parse(response.data);
+            return { items: page.userSongs, endOfList: page.endOfList };
+        } catch (error) {
+            console.log(`[API] Endpoint ${endpoint} failed with error:`, error);
+            throw error;
         }
-
-        return parsePaginatedResponse(UserSongSchema, response.data);
     }
 
     public async userSongCreateMany(songIds: string[]) {
 
-        const endpoint = "/usersong/createmany";
-        const songIdsJson = JSON.stringify(songIds);
-        const response = await this.client.put(endpoint, songIdsJson, {
-            headers: {
-                "Content-Type": "application/json"
+        const endpoint = "/api/v1/user-songs";
+        console.log(`[API] Calling endpoint: ${endpoint}`);
+        try {
+            const songIdsJson = JSON.stringify(songIds);
+            const response = await this.client.put(endpoint, songIdsJson, {
+                headers: {
+                    "Content-Type": "application/json"
+                }
+            });
+
+            if (!isSuccessfulStatus(response.status)) {
+                console.log(`[API] Endpoint ${endpoint} failed with status: ${response.status}`);
+                throw new ApiStatusFailureError(endpoint, response);
             }
-        });
 
-        if (!isSuccessfulStatus(response.status)) {
-            throw new ApiStatusFailureError(endpoint, response);
+            console.log(`[API] Endpoint ${endpoint} succeeded`);
+            return;
+        } catch (error) {
+            console.log(`[API] Endpoint ${endpoint} failed with error:`, error);
+            throw error;
         }
-
-        return;
     }
 
     public async userSongUpdateLastPlayed(requests: UpdateSongLastPlayedRequest[]) {
-        const endpoint = "/usersong/updatelastplayed";
-        const requestsJson = JSON.stringify(requests);
-        const response = await this.client.post(endpoint, requestsJson, {
-            headers: {
-                "Content-Type": "application/json"
-            }
-        });
+        const endpoint = "/api/v1/user-songs/last-played";
+        console.log(`[API] Calling endpoint: ${endpoint}`);
+        try {
+            const requestsJson = JSON.stringify(requests);
+            const response = await this.client.post(endpoint, requestsJson, {
+                headers: {
+                    "Content-Type": "application/json"
+                }
+            });
 
-        if (!isSuccessfulStatus(response.status)) {
-            throw new ApiStatusFailureError(endpoint, response);
+            if (!isSuccessfulStatus(response.status)) {
+                console.log(`[API] Endpoint ${endpoint} failed with status: ${response.status}`);
+                throw new ApiStatusFailureError(endpoint, response);
+            }
+
+            console.log(`[API] Endpoint ${endpoint} succeeded`);
+        } catch (error) {
+            console.log(`[API] Endpoint ${endpoint} failed with error:`, error);
+            throw error;
         }
     }
 
     public async songGetList(songIds: string[]) {
-        const endpoint = "/song/getlist";
-        const songIdsJson = JSON.stringify(songIds);
-        const response = await this.client.post(endpoint, songIdsJson, {
-            headers: {
-                "Content-Type": "application/json"
+        const endpoint = "/api/v1/songs/list";
+        console.log(`[API] Calling endpoint: ${endpoint}`);
+        try {
+            const songIdsJson = JSON.stringify(songIds);
+            const response = await this.client.post(endpoint, songIdsJson, {
+                headers: {
+                    "Content-Type": "application/json"
+                }
+            });
+
+            if (!isSuccessfulStatus(response.status)) {
+                console.log(`[API] Endpoint ${endpoint} failed with status: ${response.status}`);
+                throw new ApiStatusFailureError(endpoint, response);
             }
-        });
 
-        if (!isSuccessfulStatus(response.status)) {
-            throw new ApiStatusFailureError(endpoint, response);
+            console.log(`[API] Endpoint ${endpoint} succeeded`);
+            return SongListResponseSchema.parse(response.data).songs;
+        } catch (error) {
+            console.log(`[API] Endpoint ${endpoint} failed with error:`, error);
+            throw error;
         }
-
-        return SongListSchema.parse(response.data);
     }
 
     public async userGet() {
-        const endpoint = "/user/get";
-        const response = await this.client.get(endpoint);
+        const endpoint = "/api/v1/users/me";
+        console.log(`[API] Calling endpoint: ${endpoint}`);
+        try {
+            const response = await this.client.get(endpoint);
 
-        if (!isSuccessfulStatus(response.status)) {
-            throw new ApiStatusFailureError(endpoint, response);
+            if (!isSuccessfulStatus(response.status)) {
+                console.log(`[API] Endpoint ${endpoint} failed with status: ${response.status}`);
+                throw new ApiStatusFailureError(endpoint, response);
+            }
+
+            console.log(`[API] Endpoint ${endpoint} succeeded`);
+            return UserResponseSchema.parse(response.data).user;
+        } catch (error) {
+            console.log(`[API] Endpoint ${endpoint} failed with error:`, error);
+            throw error;
         }
-
-        return UserSchema.parse(response.data);
     }
 }
 

@@ -2,7 +2,7 @@ import { ApiClient } from "@/app/services/api/ApiClient";
 import DbQueries from "@/app/services/db/queries";
 import * as DbModels from "@/app/services/db/models";
 import * as ApiModels from "@/app/services/api/models";
-import { distinctBy, generateId } from "@/app/tools";
+import { deterministicId, distinctBy, generateId } from "@/app/tools";
 import { HttpStatusCode } from "axios";
 import { RequestType, getProcessingMethod, ProcessingMethod } from "@/app/enums";
 import { ApiStatusFailureError } from "@/app/services/api/errors";
@@ -211,10 +211,16 @@ export class SyncManager {
                     updatedPlaylists = await this.api.playlistGetList(playlistsToFetch);
 
                     for (const updatedPlaylist of updatedPlaylists) {
-                        if (updatedPlaylist.playlistSongs != null) {
-                            await DbQueries.updatePlaylist(tx, updatedPlaylist);
-                            await DbQueries.updatePlaylistSongs(tx, updatedPlaylist.playlistId, updatedPlaylist.playlistSongs);
-                        }
+                        await DbQueries.updatePlaylist(tx, updatedPlaylist);
+
+                        // The API now returns membership as a flat songIds list; rebuild the local
+                        // playlist_song join rows from it with stable, content-derived IDs.
+                        const playlistSongs: DbModels.PlaylistSong[] = updatedPlaylist.songIds.map(songId => ({
+                            playlistSongId: deterministicId("playlist-song", updatedPlaylist.playlistId, songId),
+                            playlistId: updatedPlaylist.playlistId,
+                            songId
+                        }));
+                        await DbQueries.updatePlaylistSongs(tx, updatedPlaylist.playlistId, playlistSongs);
                     }
                 }
 
@@ -245,32 +251,72 @@ export class SyncManager {
                 // Combine UserSongs+PlaylistSongs and cross-verify which songs aren't on the local device
                 const localSongIds = await DbQueries.getAllSongIds(tx);
                 const newSongIds = [
-                    ...updatedPlaylists.flatMap(x => x.playlistSongs?.map(song => song.songId)).filter(x => x != undefined),
+                    ...updatedPlaylists.flatMap(x => x.songIds),
                     ...updatedUserSongs.map(x => x.songId)
                 ]
                 .filter((value, index, self) => self.indexOf(value) === index)
                 .filter(songId => songId && !localSongIds.includes(songId));
-                
+
+                // The API returns songs denormalized (artists/tags are plain name strings with no
+                // IDs). Re-normalize them into the local artist/tag/join tables: synthesize a stable
+                // artist ID from the name, and map tag names back onto local tag IDs (tags were just
+                // refreshed above). Join-row IDs are content-derived so re-syncing stays idempotent.
+                const localTags = await DbQueries.getTags(tx);
+                const tagIdByName = new Map(localTags.map(tag => [tag.name, tag.tagId]));
+
                 for (let i = 0; i * 500 < newSongIds.length; i++) {
                     const songIdsSubset = newSongIds.slice(i * 500, i * 500 + 500);
                     const newSongs = await this.api.songGetList(songIdsSubset);
-                    
+
                     await DbQueries.updateSongs(tx, newSongs);
 
-                    const songArtists = distinctBy(newSongs.flatMap(x => x.songArtists), x => x?.songArtistId).filter(x => x != null);
-                    const artists = distinctBy(songArtists.flatMap(x => x.artist), x => x?.artistId).filter(x => x != null);
-                    const songTags = distinctBy(newSongs.flatMap(x => x.songTags), x => x?.songTagId).filter(x => x != null);
+                    const artists: DbModels.Artist[] = [];
+                    const songArtists: DbModels.SongArtist[] = [];
+                    const songTags: DbModels.SongTag[] = [];
 
-                    if (songArtists.length) {
-                        await DbQueries.updateSongArtists(tx, songArtists);
+                    for (const song of newSongs) {
+                        for (const artistName of song.artists) {
+                            const artistId = deterministicId("artist", artistName);
+                            artists.push({ artistId, name: artistName });
+                            songArtists.push({
+                                songArtistId: deterministicId("song-artist", song.songId, artistId),
+                                songId: song.songId,
+                                artistId
+                            });
+                        }
+
+                        for (const tagName of song.tags) {
+                            const tagId = tagIdByName.get(tagName);
+
+                            // Skip tag names the local tag list doesn't know about (e.g. a tag added
+                            // server-side since the tag refresh); it'll link on the next full sync.
+                            if (tagId == null) {
+                                continue;
+                            }
+
+                            songTags.push({
+                                songTagId: deterministicId("song-tag", song.songId, tagId),
+                                songId: song.songId,
+                                tagId
+                            });
+                        }
                     }
 
-                    if (artists.length) {
-                        await DbQueries.updateArtists(tx, artists);
+                    // Insert artists before the join rows that reference them.
+                    const distinctArtists = distinctBy(artists, x => x.artistId);
+                    const distinctSongArtists = distinctBy(songArtists, x => x.songArtistId);
+                    const distinctSongTags = distinctBy(songTags, x => x.songTagId);
+
+                    if (distinctArtists.length) {
+                        await DbQueries.updateArtists(tx, distinctArtists);
                     }
 
-                    if (songTags.length) {
-                        await DbQueries.updateSongTags(tx, songTags);
+                    if (distinctSongArtists.length) {
+                        await DbQueries.updateSongArtists(tx, distinctSongArtists);
+                    }
+
+                    if (distinctSongTags.length) {
+                        await DbQueries.updateSongTags(tx, distinctSongTags);
                     }
                 }
             }, {

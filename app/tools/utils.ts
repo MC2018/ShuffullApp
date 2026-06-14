@@ -20,6 +20,26 @@ export function generateId(): string {
     return ulid();
 }
 
+// Stable, content-derived ID for rows the API no longer supplies an ID for: synthesized artists
+// and the song/playlist join rows (the API now returns artist/tag names and a flat songIds list
+// with no IDs). Deterministic so re-syncing the same logical row yields the same primary key,
+// keeping the `onConflictDoNothing` inserts idempotent. FNV-1a, 64-bit, base-36 encoded. Parts are
+// joined with a separator; every caller leads with a unique kind tag and the only free-form part
+// (an artist name) always comes last, so distinct inputs never collide.
+export function deterministicId(...parts: string[]): string {
+    const input = parts.join(" ");
+    let hash = 0xcbf29ce484222325n;
+    const prime = 0x100000001b3n;
+    const mask = 0xffffffffffffffffn;
+
+    for (let i = 0; i < input.length; i++) {
+        hash ^= BigInt(input.charCodeAt(i));
+        hash = (hash * prime) & mask;
+    }
+
+    return hash.toString(36);
+}
+
 export function generateRange(x: number): number[] {
     return Array.from({ length: x }, (_, i) => i);
 }
