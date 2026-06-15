@@ -21,6 +21,7 @@ import SyncManagerProvider from "./services/sync-manager/SyncManagerProvider";
 import SongProgressSync from "./services/SongProgressSync";
 import { ApiClient } from "./services/api/ApiClient";
 import { ApiProvider } from "./services/api/ApiProvider";
+import { AuthenticateResponse } from "./services/api/models";
 
 const dbName = "shuffull-db";
 let expoDb = SQLite.openDatabaseSync(dbName);
@@ -83,11 +84,9 @@ export default function Index() {
         })();
     }, [loginRefreshes]);
 
-    const handleLogin = async (username: string, password: string, hostAddress: string) => {
-        const userHash = await Hasher.argon2Hash(`${username};${password}`);
-        const api = new ApiClient(hostAddress, "");
-        const authResponse = await api.userAuthenticate(username, userHash);
-
+    // Persists the session returned by either authenticate or create (both return the same
+    // { user, token, expiration } envelope) and flips the app into its logged-in state.
+    const bootstrapSession = async (authResponse: AuthenticateResponse) => {
         await db.insert(localSessionDataTable).values([{
             userId: authResponse.user.userId,
             activelyDownload: false,
@@ -101,13 +100,27 @@ export default function Index() {
             }
         });
         const localSessionData = await DbQueries.getLocalSessionData(db, authResponse.user.userId);
-        
+
         if (!localSessionData) {
             throw Error("Critical error: Local session data cannot find data after upserting.");
         }
 
         await AsyncStorage.setItem(STORAGE_KEYS.CURRENT_USER_ID, localSessionData.userId.toString());
         setLoginRefreshes(loginRefreshes + 1);
+    };
+
+    const handleLogin = async (username: string, password: string, hostAddress: string) => {
+        const userHash = await Hasher.argon2Hash(`${username};${password}`);
+        const api = new ApiClient(hostAddress, "");
+        const authResponse = await api.userAuthenticate(username, userHash);
+        await bootstrapSession(authResponse);
+    };
+
+    const handleRegister = async (username: string, password: string, hostAddress: string) => {
+        const userHash = await Hasher.argon2Hash(`${username};${password}`);
+        const api = new ApiClient(hostAddress, "");
+        const authResponse = await api.userCreate(username, userHash);
+        await bootstrapSession(authResponse);
     };
 
     const handleLogout = async () => {
@@ -145,7 +158,7 @@ export default function Index() {
                 </DownloaderProvider>
             </DbProvider>;
     } else {
-        result = <LoginPage onLogin={handleLogin} />;
+        result = <LoginPage onLogin={handleLogin} onRegister={handleRegister} />;
     }
 
     result =

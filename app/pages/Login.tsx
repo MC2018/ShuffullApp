@@ -6,9 +6,10 @@ import React from "react";
 
 export interface LoginProps {
     onLogin: (username: string, password: string, hostAddress: string) => void;
+    onRegister: (username: string, password: string, hostAddress: string) => void;
 }
 
-export default function LoginPage({ onLogin }: LoginProps) {
+export default function LoginPage({ onLogin, onRegister }: LoginProps) {
     const [username, setUsername] = useState("");
     const [password, setPassword] = useState("");
     const [hostAddress, setHostAddress] = useState("");
@@ -25,12 +26,18 @@ export default function LoginPage({ onLogin }: LoginProps) {
         onLogin(username, password, hostAddress);
     };
 
+    async function attemptRegister() {
+        await AsyncStorage.setItem(STORAGE_KEYS.HOST_ADDRESS, hostAddress);
+        onRegister(username, password, hostAddress);
+    };
+
     return (
         <>
             <TextInput value={username} onChangeText={setUsername} placeholder="Username" />
             <TextInput value={password} onChangeText={setPassword} placeholder="Password" secureTextEntry />
             <TextInput value={hostAddress} onChangeText={setHostAddress} placeholder="Host Address" />
             <Button title="Login" onPress={attemptLogin}></Button>
+            <Button title="Create account" onPress={attemptRegister}></Button>
         </>
     );
 }

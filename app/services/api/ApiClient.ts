@@ -43,6 +43,27 @@ export class ApiClient {
         }
     }
 
+    public async userCreate(username: string, userHash: string): Promise<AuthenticateResponse> {
+        const endpoint = "/api/v1/users";
+        console.log(`[API] Calling endpoint: ${endpoint}`);
+        try {
+            const response = await this.client.post(`${endpoint}?username=${username}&userHash=${userHash}`);
+
+            if (!isSuccessfulStatus(response.status)) {
+                console.log(`[API] Endpoint ${endpoint} failed with status: ${response.status}`);
+                throw new ApiStatusFailureError(endpoint, response);
+            }
+
+            console.log(`[API] Endpoint ${endpoint} succeeded`);
+            // Create returns the same { user, token, expiration } envelope as authenticate, so a
+            // successful registration can log the user straight in.
+            return AuthenticateResponseSchema.parse(response.data);
+        } catch (error) {
+            console.log(`[API] Endpoint ${endpoint} failed with error:`, error);
+            throw error;
+        }
+    }
+
     public async tagGetAll(): Promise<Tag[]> {
         const endpoint = "/api/v1/tags";
         console.log(`[API] Calling endpoint: ${endpoint}`);
