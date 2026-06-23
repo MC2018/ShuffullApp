@@ -256,6 +256,12 @@ export async function getSongsByPlaylist(db: GenericDb, playlistId: string): Pro
             fileExtension: songTable.fileExtension,
             fileHash: songTable.fileHash,
             name: songTable.name,
+            syncedLyrics: songTable.syncedLyrics,
+            plainLyrics: songTable.plainLyrics,
+            lyricsInstrumental: songTable.lyricsInstrumental,
+            lyricsOffsetMs: songTable.lyricsOffsetMs,
+            lyricsSource: songTable.lyricsSource,
+            bpm: songTable.bpm,
             artist: {
                 artistId: artistTable.artistId,
                 name: artistTable.name
@@ -361,6 +367,12 @@ export async function fetchSongDetails(db: GenericDb, songId: string): Promise<S
             name: songTable.name,
             fileHash: songTable.fileHash,
             fileExtension: songTable.fileExtension,
+            syncedLyrics: songTable.syncedLyrics,
+            plainLyrics: songTable.plainLyrics,
+            lyricsInstrumental: songTable.lyricsInstrumental,
+            lyricsOffsetMs: songTable.lyricsOffsetMs,
+            lyricsSource: songTable.lyricsSource,
+            bpm: songTable.bpm,
             artist: {
                 artistId: artistTable.artistId,
                 name: artistTable.name

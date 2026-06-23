@@ -36,7 +36,15 @@ export const SongSchema = z.object({
     fileHash: z.string(),
     externalSongId: z.string().nullish(),
     artists: z.array(z.string()).default([]),
-    tags: z.array(z.string()).default([])
+    tags: z.array(z.string()).default([]),
+    // Lyrics + tempo. Defaulted/nullish so older API responses that omit them still parse. Field names match
+    // the songTable columns, so they flow straight through updateSongs' insert.
+    syncedLyrics: z.string().nullable().default(null),
+    plainLyrics: z.string().nullable().default(null),
+    lyricsInstrumental: z.boolean().default(false),
+    lyricsOffsetMs: z.number().default(0),
+    lyricsSource: z.string().nullable().default(null),
+    bpm: z.number().nullable().default(null)
 });
 export const SongListSchema = SongSchema.array();
 export type Song = z.infer<typeof SongSchema>;

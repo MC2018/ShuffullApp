@@ -21,6 +21,14 @@ export const songTable = sqliteTable("songs", {
     fileExtension: text("file_extension").notNull(),
     fileHash: text("file_hash").notNull(),
     name: text("name").notNull(),
+    // Lyrics + tempo from the import contract. syncedLyrics is LRC text already shifted by lyricsOffsetMs;
+    // the player may apply a further manual nudge. Null/0/false when not provided.
+    syncedLyrics: text("synced_lyrics"),
+    plainLyrics: text("plain_lyrics"),
+    lyricsInstrumental: integer("lyrics_instrumental", { mode: "boolean" }).notNull().default(false),
+    lyricsOffsetMs: integer("lyrics_offset_ms").notNull().default(0),
+    lyricsSource: text("lyrics_source"),
+    bpm: integer("bpm"),
 }, (table) => {
     return {
         nameIndex: index("idx_songs_name").on(table.name),
