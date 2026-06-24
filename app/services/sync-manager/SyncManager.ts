@@ -75,6 +75,7 @@ export class SyncManager {
                         } else {
                             requestBatches[requestBatches.length - 1].push(request);
                         }
+                        break;
                     case ProcessingMethod.None:
                     default:
                         break;
@@ -96,10 +97,11 @@ export class SyncManager {
                     // TODO: move this to DbQueries?
                     await DbQueries.deleteRequests(this.db, requestBatch.map(x => x.requestId));
                 } else if (400 <= statusCode && statusCode <= 499) {
-                    // TODO: same as above
-                    // TODO: I don't think this should always remove request
+                    // Client error: retrying won't help, so drop just this batch — but keep processing the
+                    // rest of the queue instead of stalling everything behind it. (A dead-letter store that
+                    // records a reason would be the next step so these aren't silently lost.)
+                    console.warn(`Dropping request batch after ${statusCode} (type ${requestBatch[0]?.requestType}).`);
                     await DbQueries.deleteRequests(this.db, requestBatch.map(x => x.requestId));
-                    break;
                 } else if (500 <= statusCode) {
                     console.log(`Cannot access server. Status code: ${statusCode}`);
                     endedPrematurely = true;
@@ -143,6 +145,9 @@ export class SyncManager {
             case RequestType.CreateUserSong:
                 statusCode = await this.createUserSong(requests as DbModels.CreateUserSongRequest[]);
                 break;
+            case RequestType.SetSongLikeStatus:
+                statusCode = await this.setSongLikeStatus(requests as DbModels.SetSongLikeStatusRequest[]);
+                break;
             default:
                 throw new Error("A request type has no method to call.");
         }
@@ -177,97 +182,96 @@ export class SyncManager {
         }
     }
 
+    private async setSongLikeStatus(requests: DbModels.SetSongLikeStatusRequest[]): Promise<HttpStatusCode> {
+        try {
+            // Processed individually, so each batch is a single song; loop defensively all the same.
+            for (const request of requests) {
+                await this.api.userSongSetLikeStatus(request.songId, request.likeStatus);
+            }
+            return HttpStatusCode.Ok;
+        } catch (e) {
+            if (e instanceof ApiStatusFailureError) {
+                return e.status;
+            }
+
+            return HttpStatusCode.InternalServerError;
+        }
+    }
+
     private async overallSync(): Promise<HttpStatusCode> {
         try {
-            this.db.transaction(async (tx) => {
-                // Update user version
-                const oldUser = await DbQueries.getUser(tx, this.userId);
-                const user = await this.api.userGet();
-                await DbQueries.updateUser(tx, user);
+            // ── Phase 1: read local state + fetch over the network (NO write transaction held) ──
+            // Keeping network I/O out of the DB transaction is the point: an exclusive SQLite lock held
+            // across slow/flaky round-trips would block playback, the progress writer, and downloads.
+            const oldUser = await DbQueries.getUser(this.db, this.userId);
+            const user = await this.api.userGet();
+            const tags = await this.api.tagGetAll();
+            const accessiblePlaylists = await this.api.playlistGetAll();
 
-                // Refresh tags
-                const tags = await this.api.tagGetAll();
+            // Decide which playlists changed (local read) and fetch just those.
+            const localPlaylists = await DbQueries.getPlaylists(this.db, this.userId);
+            const playlistsToFetch: string[] = [];
+            for (const accessiblePlaylist of accessiblePlaylists) {
+                const localPlaylist = localPlaylists.filter(x => x.playlistId == accessiblePlaylist.playlistId);
+                if (!localPlaylist.length || localPlaylist[0].version < accessiblePlaylist.version) {
+                    playlistsToFetch.push(accessiblePlaylist.playlistId);
+                }
+            }
+            const updatedPlaylists: ApiModels.Playlist[] = playlistsToFetch.length
+                ? await this.api.playlistGetList(playlistsToFetch)
+                : [];
+
+            // User songs changed since our last known user version (incremental, paginated).
+            let afterDate: Date = oldUser != undefined ? oldUser.version : new Date("0000-01-01T00:00:00Z");
+            let endOfList = false;
+            const updatedUserSongs: ApiModels.UserSong[] = [];
+            while (!endOfList) {
+                const paginatedResponse = await this.api.userSongGetAll(afterDate);
+                updatedUserSongs.push(...paginatedResponse.items);
+                endOfList = paginatedResponse.endOfList;
+                if (!endOfList && paginatedResponse.items.length) {
+                    afterDate = paginatedResponse.items[paginatedResponse.items.length - 1].version;
+                }
+            }
+
+            // Songs referenced by the updated playlists/user-songs that we don't have locally yet.
+            const localSongIds = await DbQueries.getAllSongIds(this.db);
+            const newSongIds = [
+                ...updatedPlaylists.flatMap(x => x.songIds),
+                ...updatedUserSongs.map(x => x.songId)
+            ]
+            .filter((value, index, self) => self.indexOf(value) === index)
+            .filter(songId => songId && !localSongIds.includes(songId));
+
+            const songBatches: ApiModels.Song[][] = [];
+            for (let i = 0; i * 500 < newSongIds.length; i++) {
+                songBatches.push(await this.api.songGetList(newSongIds.slice(i * 500, i * 500 + 500)));
+            }
+
+            // The API returns songs denormalized (artists/tags are plain name strings); map tag names onto
+            // tag IDs from the freshly-fetched tag list. Join-row IDs are content-derived (idempotent re-sync).
+            const tagIdByName = new Map(tags.map(tag => [tag.name, tag.tagId]));
+
+            // ── Phase 2: apply every write in a single short transaction (NO network inside) ──
+            await this.db.transaction(async (tx) => {
+                await DbQueries.updateUser(tx, user);
                 await DbQueries.updateTags(tx, tags);
 
-                // Refresh playlists
-                const accessiblePlaylists = await this.api.playlistGetAll();
-                const playlistsToFetch: string[] = [];
-                let updatedPlaylists: ApiModels.Playlist[] = [];
-
-                // Remove playlists from local if they are no longer accessible
                 await DbQueries.removeOldPlaylists(tx, accessiblePlaylists.map(x => x.playlistId));
+                for (const updatedPlaylist of updatedPlaylists) {
+                    await DbQueries.updatePlaylist(tx, updatedPlaylist);
 
-                // Create a list of playlists that need updating
-                const localPlaylists = await DbQueries.getPlaylists(tx, this.userId);
-
-                for (const accessiblePlaylist of accessiblePlaylists) {
-                    const localPlaylist = localPlaylists.filter(x => x.playlistId == accessiblePlaylist.playlistId);
-                    
-                    if (!localPlaylist.length || localPlaylist[0].version < accessiblePlaylist.version) {
-                        playlistsToFetch.push(accessiblePlaylist.playlistId);
-                    }
-                }
-                if (playlistsToFetch.length) {
-                    updatedPlaylists = await this.api.playlistGetList(playlistsToFetch);
-
-                    for (const updatedPlaylist of updatedPlaylists) {
-                        await DbQueries.updatePlaylist(tx, updatedPlaylist);
-
-                        // The API now returns membership as a flat songIds list; rebuild the local
-                        // playlist_song join rows from it with stable, content-derived IDs.
-                        const playlistSongs: DbModels.PlaylistSong[] = updatedPlaylist.songIds.map(songId => ({
-                            playlistSongId: deterministicId("playlist-song", updatedPlaylist.playlistId, songId),
-                            playlistId: updatedPlaylist.playlistId,
-                            songId
-                        }));
-                        await DbQueries.updatePlaylistSongs(tx, updatedPlaylist.playlistId, playlistSongs);
-                    }
+                    const playlistSongs: DbModels.PlaylistSong[] = updatedPlaylist.songIds.map(songId => ({
+                        playlistSongId: deterministicId("playlist-song", updatedPlaylist.playlistId, songId),
+                        playlistId: updatedPlaylist.playlistId,
+                        songId
+                    }));
+                    await DbQueries.updatePlaylistSongs(tx, updatedPlaylist.playlistId, playlistSongs);
                 }
 
-                // Refresh user songs
-                let afterDate: Date;
-                let endOfList = false;
-                const updatedUserSongs: ApiModels.UserSong[] = [];
+                await DbQueries.updateUserSongs(tx, updatedUserSongs);
 
-                if (oldUser != undefined) {
-                    afterDate = oldUser.version;
-                } else {
-                    afterDate = new Date("0000-01-01T00:00:00Z")
-                }
-
-                while (!endOfList) {
-                    const paginatedResponse = await this.api.userSongGetAll(afterDate);
-
-                    const userSongs = paginatedResponse.items;
-                    await DbQueries.updateUserSongs(tx, userSongs);
-                    updatedUserSongs.push(...userSongs);
-                    endOfList = paginatedResponse.endOfList;
-
-                    if (!endOfList) {
-                        afterDate = userSongs[userSongs.length - 1].version;
-                    }
-                }
-
-                // Combine UserSongs+PlaylistSongs and cross-verify which songs aren't on the local device
-                const localSongIds = await DbQueries.getAllSongIds(tx);
-                const newSongIds = [
-                    ...updatedPlaylists.flatMap(x => x.songIds),
-                    ...updatedUserSongs.map(x => x.songId)
-                ]
-                .filter((value, index, self) => self.indexOf(value) === index)
-                .filter(songId => songId && !localSongIds.includes(songId));
-
-                // The API returns songs denormalized (artists/tags are plain name strings with no
-                // IDs). Re-normalize them into the local artist/tag/join tables: synthesize a stable
-                // artist ID from the name, and map tag names back onto local tag IDs (tags were just
-                // refreshed above). Join-row IDs are content-derived so re-syncing stays idempotent.
-                const localTags = await DbQueries.getTags(tx);
-                const tagIdByName = new Map(localTags.map(tag => [tag.name, tag.tagId]));
-
-                for (let i = 0; i * 500 < newSongIds.length; i++) {
-                    const songIdsSubset = newSongIds.slice(i * 500, i * 500 + 500);
-                    const newSongs = await this.api.songGetList(songIdsSubset);
-
+                for (const newSongs of songBatches) {
                     await DbQueries.updateSongs(tx, newSongs);
 
                     const artists: DbModels.Artist[] = [];
@@ -288,8 +292,7 @@ export class SyncManager {
                         for (const tagName of song.tags) {
                             const tagId = tagIdByName.get(tagName);
 
-                            // Skip tag names the local tag list doesn't know about (e.g. a tag added
-                            // server-side since the tag refresh); it'll link on the next full sync.
+                            // Skip tag names the local tag list doesn't know about; links on a later sync.
                             if (tagId == null) {
                                 continue;
                             }
