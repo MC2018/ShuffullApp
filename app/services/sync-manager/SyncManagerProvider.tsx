@@ -9,24 +9,24 @@ interface SyncManagerProviderProps {
 };
 
 const SyncManagerContext = createContext<SyncManager | null>(null);
-let syncManager: SyncManager | null = null;
 
 export default function SyncManagerProvider({ userId }: SyncManagerProviderProps) {
     const db = useDb();
     const api = useApi();
+    // Publish the SyncManager through state (not a module-level variable) so the context value actually
+    // updates once it's created — same fix as DownloaderProvider. Harmless today (nothing reads
+    // useSyncManager), but it was the same latent footgun: a static parent never republishes a module var.
+    const [syncManager, setSyncManager] = useState<SyncManager | null>(null);
 
     useEffect(() => {
-        if (syncManager == null) {
-            syncManager = new SyncManager(db, api, userId, logout);
-        }
+        const instance = new SyncManager(db, api, userId, logout);
+        setSyncManager(instance);
 
         return () => {
-            (async () => {
-                await syncManager?.dispose();
-                syncManager = null;
-            })();
+            instance.dispose();
+            setSyncManager(null);
         };
-    }, []);
+    }, [db, api, userId]);
 
     return <SyncManagerContext.Provider value={syncManager} />
 };

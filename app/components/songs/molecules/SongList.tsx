@@ -1,6 +1,6 @@
 import { View, Text, FlatList, TextInput } from "react-native";
 import React from "react";
-import { SongDetails } from "@/app/services/db/queries";
+import { SongDetails } from "@/app/services/db/types";
 
 interface SongListProps {
     songs: SongDetails[],
