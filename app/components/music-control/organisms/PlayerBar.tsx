@@ -1,5 +1,6 @@
 import { Image, View, Text, Dimensions, StyleSheet, ImageSourcePropType, Pressable, ImageURISource } from "react-native";
 import React, { useEffect, useState } from "react";
+import { router } from "expo-router";
 import { useActiveSong } from "@/app/services/media-manager/mediaManager";
 import { useDb } from "@/app/services/db/DbProvider";
 import DbQueries from "@/app/services/db/queries";
@@ -85,13 +86,15 @@ export default function PlayerBar() {
 
     return (
         <View style={styles.container}>
-            <View style={styles.imageContainer}>
-                <Image source={albumArt} style={styles.albumArtImage} defaultSource={defaultArt}></Image>
-            </View>
-            <View style={styles.textContainer}>
-                <Text numberOfLines={1} ellipsizeMode="tail" style={styles.songName}>{songInfo?.song.name}</Text>
-                <Text numberOfLines={1} ellipsizeMode="tail" style={styles.artistName}>{songInfo?.artists.map(x => x.name).join(", ")}</Text>
-            </View>
+            <Pressable style={styles.openArea} onPress={() => router.push("/now-playing")}>
+                <View style={styles.imageContainer}>
+                    <Image source={albumArt} style={styles.albumArtImage} defaultSource={defaultArt}></Image>
+                </View>
+                <View style={styles.textContainer}>
+                    <Text numberOfLines={1} ellipsizeMode="tail" style={styles.songName}>{songInfo?.song.name}</Text>
+                    <Text numberOfLines={1} ellipsizeMode="tail" style={styles.artistName}>{songInfo?.artists.map(x => x.name).join(", ")}</Text>
+                </View>
+            </Pressable>
             <Pressable style={styles.imageContainer} onPress={() => controlMedia()}>
                 <Image source={getPlayButtonImage(playbackState.state)} style={styles.playButtonImage}></Image>
             </Pressable>
@@ -120,6 +123,11 @@ const styles = StyleSheet.create({
         paddingVertical: 2,
         flexDirection: "row",
         alignItems: "center",
+    },
+    openArea: {
+        flexDirection: "row",
+        alignItems: "center",
+        flex: 1,
     },
     textContainer: {
         flexDirection: "column",
