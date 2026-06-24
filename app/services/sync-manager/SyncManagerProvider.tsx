@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { useDb } from "../db/DbProvider";
 import { useApi } from "../api/ApiProvider";
-import { logout } from "../auth/LogoutProvider";
+import { logout } from "../auth/auth";
 import { SyncManager } from "./SyncManager";
 
 interface SyncManagerProviderProps {

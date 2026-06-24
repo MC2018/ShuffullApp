@@ -1,22 +1,23 @@
 import { Button, ScrollView, Text, View, StyleSheet, TextInput, TouchableOpacity, Modal } from "react-native";
 import React, { ReactNode, useEffect, useState } from "react";
-import DbQueries from "../services/db/queries";
-import { useDb } from "../services/db/DbProvider";
-import { generateId } from "../tools";
-import PlayerBar, { totalPlayerBarHeight } from "../components/music-control/organisms/PlayerBar";
-import { FilterPillInfo, WhitelistingMode, WhitelistingStatus } from "../components/whitelist-filter/atoms/FilterSelectionPill";
-import { GenreJam } from "../services/db/models";
-import { SongFilters } from "../types/SongFilters";
-import FilterSelectionType from "../components/whitelist-filter/molecules/FilterSelectionType";
-import { TagType } from "../services/db/schema";
-import FilterPillSelector from "../components/whitelist-filter/molecules/FilterPillSelector";
-import ModalPopupTemplate from "../components/common/templates/ModalPopupTemplate";
-import { MediaManager } from "../services/media-manager";
+import DbQueries from "@/app/services/db/queries";
+import { useDb } from "@/app/services/db/DbProvider";
+import { generateId } from "@/app/tools";
+import PlayerBar, { totalPlayerBarHeight } from "@/app/components/music-control/organisms/PlayerBar";
+import { FilterPillInfo, WhitelistingMode, WhitelistingStatus } from "@/app/components/whitelist-filter/atoms/FilterSelectionPill";
+import { GenreJam } from "@/app/services/db/models";
+import { SongFilters } from "@/app/types/SongFilters";
+import FilterSelectionType from "@/app/components/whitelist-filter/molecules/FilterSelectionType";
+import { TagType } from "@/app/services/db/schema";
+import FilterPillSelector from "@/app/components/whitelist-filter/molecules/FilterPillSelector";
+import ModalPopupTemplate from "@/app/components/common/templates/ModalPopupTemplate";
+import { MediaManager } from "@/app/services/media-manager";
+import { useCurrentUser } from "@/app/services/auth/CurrentUserProvider";
 
-export default function GenreJamEditor({ navigation, route }: any) {
+export default function GenreJamEditor() {
     const db = useDb();
     const [ modalVisible, setModalVisible ] = useState(false);
-    const { userId } = route.params;
+    const userId = useCurrentUser();
     const [ filterType, setFilterType ] = useState<FilterType>();
     const [ modalContents, setModalContents ] = useState<ReactNode>();
     const [filters, setFilters] = useState({
@@ -29,12 +30,12 @@ export default function GenreJamEditor({ navigation, route }: any) {
     type FilterType = keyof typeof filters;
     const handleUpdatedSelection = (filterType: FilterType, pillInfo: FilterPillInfo<string>, newStatus: WhitelistingStatus) => {
         setFilters(prevFilters => {
-            const newFilter = prevFilters[filterType].map(x => 
+            const newFilter = prevFilters[filterType].map(x =>
                 x.id === pillInfo.id ? { ...x, whitelistingStatus: newStatus } : x
             );
             const newFilters = { ...prevFilters, [filterType]: newFilter };
 
-            
+
             return newFilters;
         });
     };
@@ -70,7 +71,7 @@ export default function GenreJamEditor({ navigation, route }: any) {
     useEffect(() => {
         let newModalContents;
         let pillsInfo;
-        
+
         if (filterType == undefined) {
             newModalContents = <></>;
         } else {
@@ -122,7 +123,7 @@ export default function GenreJamEditor({ navigation, route }: any) {
             <Text style={{fontSize: 24}}>Primary Filters</Text>
             <FilterSelectionType title="Playlists" pillsInfo={filters.playlists} onEditRequest={() => handleEditRequest("playlists")}></FilterSelectionType>
             <FilterSelectionType title="Artists" pillsInfo={filters.artists} onEditRequest={() => handleEditRequest("artists")}></FilterSelectionType>
-            
+
             <Text style={{fontSize: 24, marginTop: 20}}>Secondary Filters</Text>
             <FilterSelectionType title="Genres" pillsInfo={filters.genres} onEditRequest={() => handleEditRequest("genres")}></FilterSelectionType>
             <FilterSelectionType title="Time Periods" pillsInfo={filters.timePeriods} onEditRequest={() => handleEditRequest("timePeriods")}></FilterSelectionType>
