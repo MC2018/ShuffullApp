@@ -57,7 +57,9 @@ export const UserSongSchema = z.object({
     userId: z.string(),
     songId: z.string(),
     lastPlayed: z.coerce.date(),
-    version: z.coerce.date()
+    version: z.coerce.date(),
+    // LikeStatus enum as an int; defaulted so older API responses that omit it still parse.
+    likeStatus: z.number().default(0)
 });
 export const UserSongListSchema = UserSongSchema.array();
 export type UserSong = z.infer<typeof UserSongSchema>;

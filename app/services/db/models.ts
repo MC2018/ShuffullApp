@@ -24,6 +24,10 @@ export type UpdateSongLastPlayedRequest = Request & {
     songId: string,
     lastPlayed: Date
 };
+export type SetSongLikeStatusRequest = Request & {
+    songId: string,
+    likeStatus: number
+};
 export type DownloadQueue = typeof Schema.downloadQueueTable.$inferSelect;
 export type DownloadedSong = typeof Schema.downloadedSongTable.$inferSelect;
 export type GenreJam = typeof Schema.genreJamTable.$inferSelect;

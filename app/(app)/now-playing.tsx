@@ -10,6 +10,7 @@ import { Downloader } from "@/app/services/downloader/Downloader";
 import PlayPauseButton from "@/app/components/music-control/atoms/PlayPauseButton";
 import Skimmer from "@/app/components/music-control/atoms/Skimmer";
 import LyricsView from "@/app/components/lyrics/organisms/LyricsView";
+import LikeControl from "@/app/components/likes/atoms/LikeControl";
 
 const defaultArt: ImageURISource = require("@/assets/images/default-album-art.jpg");
 
@@ -65,6 +66,7 @@ export default function NowPlayingScreen() {
                     <View style={styles.controls}>
                         <PlayPauseButton />
                     </View>
+                    <LikeControl songId={details.song.songId} />
                     <View style={styles.lyrics}>
                         <LyricsView song={details.song} />
                     </View>

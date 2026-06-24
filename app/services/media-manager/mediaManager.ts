@@ -5,7 +5,7 @@ import DbQueries from "../db/queries";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { STORAGE_KEYS } from "../../constants/storageKeys";
 import { generateRange, generateId } from "../../tools/utils";
-import { RequestType } from "../../enums";
+import { RequestType, LikeStatus } from "../../enums";
 import { getPlaybackState } from "react-native-track-player/lib/src/trackPlayer";
 import { Downloader } from "../downloader/Downloader";
 import { create } from "zustand";
@@ -326,7 +326,8 @@ async function startNewSong(songId: string, recentlyPlayedSong?: RecentlyPlayedS
             userId: newUserSongRequest.userId,
             songId: newUserSongRequest.songId,
             lastPlayed: newUserSongRequest.timeRequested,
-            version: newUserSongRequest.timeRequested
+            version: newUserSongRequest.timeRequested,
+            likeStatus: LikeStatus.Neutral
         };
         await DbQueries.addUserSong(db, userSong);
         await DbQueries.addRequests(db, [newUserSongRequest]);

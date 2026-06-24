@@ -30,6 +30,9 @@ export async function getFilteredSong(db: GenericDb, songFilters: SongFilters) {
             FROM songs s
             LEFT JOIN user_songs us ON s.song_id = us.song_id
             WHERE
+                -- Dislike = never play again: exclude disliked songs from shuffle (explicit play still allowed).
+                (us.like_status IS NULL OR us.like_status <> 3)
+            AND
                 ${songFilters.localOnly ? "EXISTS (SELECT 1 FROM downloaded_songs ds WHERE ds.song_id = s.song_id)" : "1 = 1"}
             AND (
                 ${whitelistsEmpty ? 1 : 0} = 1 OR

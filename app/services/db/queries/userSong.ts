@@ -51,3 +51,19 @@ export async function getUserSong(db: GenericDb, userId: string, songId: string)
 export async function addUserSong(db: GenericDb, userSong: UserSong): Promise<void> {
     await db.insert(userSongTable).values([userSong]);
 }
+
+// Optimistic local set of a song's like status for a user; upserts a UserSong row (the SITE requires one
+// to exist, but the playing song always does). Bumps version so it survives until the next pull confirms it.
+// Callers queue the matching SetSongLikeStatus request (DbQueries.addRequests) for the sync push.
+export async function setUserSongLikeStatus(db: GenericDb, userId: string, songId: string, likeStatus: number): Promise<void> {
+    const now = new Date();
+    const existing = await getUserSong(db, userId, songId);
+
+    if (existing) {
+        await db.update(userSongTable)
+            .set({ likeStatus, version: now })
+            .where(and(eq(userSongTable.userId, userId), eq(userSongTable.songId, songId)));
+    } else {
+        await db.insert(userSongTable).values([{ userId, songId, likeStatus, lastPlayed: now, version: now }]);
+    }
+}

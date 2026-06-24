@@ -23,6 +23,7 @@ import m0018 from './0018_soft_reset_tables.sql';
 import m0019 from './0019_readd_tables_with_string_ids.sql';
 import m0020 from './0020_add_song_lyrics_bpm.sql';
 import m0021 from './0021_drop_song_lyrics_offset.sql';
+import m0022 from './0022_add_like_status.sql';
 
   export default {
     journal,
@@ -48,7 +49,8 @@ m0017,
 m0018,
 m0019,
 m0020,
-m0021
+m0021,
+m0022
     }
   }
   

@@ -79,6 +79,8 @@ export const userSongTable = sqliteTable("user_songs", {
     songId: text("song_id").notNull().references(() => songTable.songId),
     lastPlayed: integer("last_played", { "mode": "timestamp_ms" }).notNull(),
     version: integer("version", { "mode": "timestamp_ms" }).notNull(),
+    // LikeStatus (Neutral/Like/Love/Dislike). Dislike = excluded from shuffle. Synced from the SITE.
+    likeStatus: integer("like_status").notNull().default(0),
 }, (table) => {
     return {
         pk: primaryKey({
@@ -111,7 +113,8 @@ export const requestTable = sqliteTable("requests", {
     username: text("username"),
     userHash: text("user_hash"),
     songId: text("song_id"),
-    lastPlayed: integer("last_played", { mode: "timestamp_ms" })
+    lastPlayed: integer("last_played", { mode: "timestamp_ms" }),
+    likeStatus: integer("like_status")
 });
 
 export const downloadQueueTable = sqliteTable("download_queue", {

@@ -199,6 +199,29 @@ export class ApiClient {
         }
     }
 
+    public async userSongSetLikeStatus(songId: string, likeStatus: number) {
+        const endpoint = `/api/v1/user-songs/${songId}/like`;
+        console.log(`[API] Calling endpoint: ${endpoint}`);
+        try {
+            // The endpoint takes the LikeStatus enum as a JSON-encoded int in the body.
+            const response = await this.client.post(endpoint, JSON.stringify(likeStatus), {
+                headers: {
+                    "Content-Type": "application/json"
+                }
+            });
+
+            if (!isSuccessfulStatus(response.status)) {
+                console.log(`[API] Endpoint ${endpoint} failed with status: ${response.status}`);
+                throw new ApiStatusFailureError(endpoint, response);
+            }
+
+            console.log(`[API] Endpoint ${endpoint} succeeded`);
+        } catch (error) {
+            console.log(`[API] Endpoint ${endpoint} failed with error:`, error);
+            throw error;
+        }
+    }
+
     public async songGetList(songIds: string[]) {
         const endpoint = "/api/v1/songs/list";
         console.log(`[API] Calling endpoint: ${endpoint}`);

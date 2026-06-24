@@ -17,5 +17,8 @@ export function getProcessingMethod(requestType: RequestType): ProcessingMethod 
             return ProcessingMethod.None; // because it is always run
         case RequestType.UpdateSongLastPlayed:
             return ProcessingMethod.Batch;
+        case RequestType.SetSongLikeStatus:
+            // One POST per song (the endpoint is per-song); the latest queued value wins server-side.
+            return ProcessingMethod.Individual;
     }
 }
