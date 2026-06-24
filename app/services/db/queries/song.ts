@@ -259,7 +259,6 @@ export async function getSongsByPlaylist(db: GenericDb, playlistId: string): Pro
             syncedLyrics: songTable.syncedLyrics,
             plainLyrics: songTable.plainLyrics,
             lyricsInstrumental: songTable.lyricsInstrumental,
-            lyricsOffsetMs: songTable.lyricsOffsetMs,
             lyricsSource: songTable.lyricsSource,
             bpm: songTable.bpm,
             artist: {
@@ -370,7 +369,6 @@ export async function fetchSongDetails(db: GenericDb, songId: string): Promise<S
             syncedLyrics: songTable.syncedLyrics,
             plainLyrics: songTable.plainLyrics,
             lyricsInstrumental: songTable.lyricsInstrumental,
-            lyricsOffsetMs: songTable.lyricsOffsetMs,
             lyricsSource: songTable.lyricsSource,
             bpm: songTable.bpm,
             artist: {

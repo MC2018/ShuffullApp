@@ -22,6 +22,7 @@ import m0017 from './0017_add_tag_type.sql';
 import m0018 from './0018_soft_reset_tables.sql';
 import m0019 from './0019_readd_tables_with_string_ids.sql';
 import m0020 from './0020_add_song_lyrics_bpm.sql';
+import m0021 from './0021_drop_song_lyrics_offset.sql';
 
   export default {
     journal,
@@ -46,7 +47,8 @@ m0016,
 m0017,
 m0018,
 m0019,
-m0020
+m0020,
+m0021
     }
   }
   

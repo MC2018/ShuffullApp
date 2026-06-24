@@ -42,7 +42,6 @@ export const SongSchema = z.object({
     syncedLyrics: z.string().nullable().default(null),
     plainLyrics: z.string().nullable().default(null),
     lyricsInstrumental: z.boolean().default(false),
-    lyricsOffsetMs: z.number().default(0),
     lyricsSource: z.string().nullable().default(null),
     bpm: z.number().nullable().default(null)
 });
