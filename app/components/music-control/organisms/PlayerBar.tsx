@@ -1,158 +1,108 @@
-import { Image, View, Text, Dimensions, StyleSheet, ImageSourcePropType, Pressable, ImageURISource } from "react-native";
+import { ImageURISource, Pressable, View } from "react-native";
 import React, { useEffect, useState } from "react";
 import { router } from "expo-router";
+import { State, usePlaybackState } from "react-native-track-player";
 import { useActiveSong } from "@/app/services/media-manager/mediaManager";
 import { useDb } from "@/app/services/db/DbProvider";
 import DbQueries from "@/app/services/db/queries";
-import { State, usePlaybackState } from "react-native-track-player";
 import { Song } from "@/app/services/db/models";
 import { Downloader } from "@/app/services/downloader/Downloader";
 import { SongDetails } from "@/app/services/db/types";
 import { MediaManager } from "@/app/services/media-manager";
+import { AlbumArt, IconButton, Text } from "@/app/components/ui";
+import { useTheme } from "@/app/theme";
 
 const defaultArt: ImageURISource = require("@/assets/images/default-album-art.jpg");
-const { width, height } = Dimensions.get("window");
 
-function getPlayButtonImage(state: State | undefined): ImageURISource {
-    switch (state) {
-        case State.Paused:
-        case State.Ready:
-        case State.Buffering:
-        case State.None:
-            return require(`@/assets/images/play.png`);
-        case State.Playing:
-        default:
-            return require(`@/assets/images/pause.png`);
-    }
-}
+type ArtSource = ImageURISource | { uri: string };
 
-type GenericImageSource = ImageURISource | { uri: string };
-
-async function getAlbumArtUri(song?: Song): Promise<GenericImageSource> {
+async function getAlbumArtUri(song?: Song): Promise<ArtSource> {
     if (song == undefined) {
         return defaultArt;
     }
-
-    const albumArtUri = Downloader.generateLocalAlbumArtUri(song)
-    
+    const albumArtUri = Downloader.generateLocalAlbumArtUri(song);
     if (await Downloader.fileExists(albumArtUri)) {
         return { uri: albumArtUri };
     }
-
     return { uri: await Downloader.generateServerAlbumArtUrl(song) };
 }
 
+const playerBarHeight = 56;
+const margin = 8;
+export const totalPlayerBarHeight = playerBarHeight + margin * 2;
+
+// Persistent mini-player pinned above the tab bar. Tapping the song opens the full Now Playing screen.
 export default function PlayerBar() {
+    const theme = useTheme();
     const db = useDb();
     const playbackState = usePlaybackState();
+    const isPlaying = playbackState.state === State.Playing;
     const { songId } = useActiveSong();
-    const [ songInfo, setSongInfo ] = useState<SongDetails | null>(null);
-    const [ albumArt, setAlbumArt ] = useState<GenericImageSource>(defaultArt);
-    
+    const [songInfo, setSongInfo] = useState<SongDetails | null>(null);
+    const [albumArt, setAlbumArt] = useState<ArtSource>(defaultArt);
+
     useEffect(() => {
         (async () => {
             if (songId == undefined) {
                 setSongInfo(null);
                 return;
             }
-    
             try {
-                const songInfo = await DbQueries.fetchSongDetails(db, songId);
-
-                if (songId != songInfo.song.songId) {
+                const fetched = await DbQueries.fetchSongDetails(db, songId);
+                if (songId != fetched.song.songId) {
                     setSongInfo(null);
                     return;
                 }
-
-                setSongInfo(songInfo);
-                setAlbumArt(await getAlbumArtUri(songInfo.song));
+                setSongInfo(fetched);
+                setAlbumArt(await getAlbumArtUri(fetched.song));
             } catch {
-                console.log("Error fetching song details");
+                // Song may have changed out from under us; ignore.
             }
         })();
     }, [songId]);
 
     const controlMedia = async () => {
-        if (playbackState.state == State.Playing) {
+        if (playbackState.state === State.Playing) {
             await MediaManager.pause();
         } else {
             await MediaManager.play();
         }
     };
 
-    if (songInfo == undefined) {
-        return <></>;
+    if (songInfo == null) {
+        return null;
     }
 
     return (
-        <View style={styles.container}>
-            <Pressable style={styles.openArea} onPress={() => router.push("/now-playing")}>
-                <View style={styles.imageContainer}>
-                    <Image source={albumArt} style={styles.albumArtImage} defaultSource={defaultArt}></Image>
-                </View>
-                <View style={styles.textContainer}>
-                    <Text numberOfLines={1} ellipsizeMode="tail" style={styles.songName}>{songInfo?.song.name}</Text>
-                    <Text numberOfLines={1} ellipsizeMode="tail" style={styles.artistName}>{songInfo?.artists.map(x => x.name).join(", ")}</Text>
+        <View
+            style={{
+                position: "absolute",
+                left: 0,
+                right: 0,
+                bottom: margin,
+                height: playerBarHeight,
+                borderRadius: theme.radius.lg,
+                backgroundColor: theme.color.surfaceAlt,
+                borderWidth: 1,
+                borderColor: theme.color.line,
+                flexDirection: "row",
+                alignItems: "center",
+                paddingHorizontal: theme.space.sm,
+                gap: theme.space.sm,
+            }}
+        >
+            <Pressable style={{ flexDirection: "row", alignItems: "center", gap: theme.space.sm, flex: 1, minWidth: 0 }} onPress={() => router.push("/now-playing")}>
+                <AlbumArt source={albumArt} size={40} radius={theme.radius.sm} />
+                <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text variant="label" numberOfLines={1}>
+                        {songInfo.song.name}
+                    </Text>
+                    <Text variant="caption" color="textMuted" numberOfLines={1}>
+                        {songInfo.artists.map((x) => x.name).join(", ")}
+                    </Text>
                 </View>
             </Pressable>
-            <Pressable style={styles.imageContainer} onPress={() => controlMedia()}>
-                <Image source={getPlayButtonImage(playbackState.state)} style={styles.playButtonImage}></Image>
-            </Pressable>
+            <IconButton name={isPlaying ? "pause" : "play"} size={22} color={theme.color.textPrimary} onPress={controlMedia} accessibilityLabel={isPlaying ? "Pause" : "Play"} />
         </View>
     );
 }
-
-const imageDimensions = {
-    width: 40,
-    height: 40
-};
-const playerBarHeight = 50;
-const margin = 5;
-export const totalPlayerBarHeight = playerBarHeight + margin * 2;
-
-const styles = StyleSheet.create({
-    container: {
-        width: width - margin * 2,
-        height: playerBarHeight,
-        backgroundColor: "#ccc",
-        position: "absolute",
-        bottom: 0,
-        borderRadius: 10,
-        margin: margin,
-        paddingHorizontal: 5,
-        paddingVertical: 2,
-        flexDirection: "row",
-        alignItems: "center",
-    },
-    openArea: {
-        flexDirection: "row",
-        alignItems: "center",
-        flex: 1,
-    },
-    textContainer: {
-        flexDirection: "column",
-        justifyContent: "center",
-        flex: 1,
-        paddingHorizontal: 5,
-    },
-    songName: {
-        fontSize: 16,
-        fontWeight: "500"
-    },
-    artistName: {
-        fontSize: 14,
-        fontWeight: "300"
-    },
-    playButtonImage: {
-        ...imageDimensions,
-    },
-    albumArtImage: {
-        ...imageDimensions,
-        borderRadius: 10
-    },
-    imageContainer: {
-        justifyContent: "center",
-        alignItems: "center",
-        ...imageDimensions
-    },
-});
