@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Pressable, ScrollView, View } from "react-native";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import Slider from "@react-native-community/slider";
 import DbQueries from "@/app/services/db/queries";
@@ -39,13 +39,15 @@ function emptyWhitelist(): WhitelistSetting {
     return { artistIds: [], playlistIds: [], genreIds: [], timePeriodIds: [], languageIds: [], moodIds: [] };
 }
 
-// The reworked Genre Jam builder. An empty jam already means "whole library, minus dislikes, leaning to loved".
-// Filters narrow it: Mood (chips), Energy (min, BPM-independent AI score), and per-category Include/Exclude.
-// Jams are nameable + savable.
+// The reworked Genre Jam builder/editor. An empty jam already means "whole library, minus dislikes, leaning to
+// loved". Filters narrow it: Mood (chips), Energy (min, BPM-independent AI score), and per-category
+// Include/Exclude. Jams are nameable + savable. Passing ?id loads an existing jam for editing instead.
 export default function GenreJamEditor() {
     const theme = useTheme();
     const db = useDb();
     const userId = useCurrentUser();
+    const params = useLocalSearchParams<{ id?: string }>();
+    const editingId = typeof params.id === "string" && params.id.length > 0 ? params.id : null;
 
     const [items, setItems] = useState<Record<Category, FilterItem[]>>({
         genres: [],
@@ -72,20 +74,47 @@ export default function GenreJamEditor() {
             const playlists = await DbQueries.getPlaylists(db, userId);
             const artists = await DbQueries.getArtists(db);
             const tags = await DbQueries.getTags(db);
-            const toItems = (arr: { id: string; name: string }[]): FilterItem[] =>
-                arr.map((x) => ({ id: x.id, name: x.name, status: "none" as FilterStatus }));
             const tagItems = (type: TagType) =>
                 tags.filter((t) => t.type === type).map((t) => ({ id: t.tagId, name: t.name }));
+
+            // When editing, overlay the saved jam's include/exclude (and mood) selections onto the catalogs so
+            // every chip reflects how the jam was last saved.
+            const editing = editingId ? await DbQueries.getGenreJam(db, editingId) : undefined;
+            const toItems = (arr: { id: string; name: string }[], jamKey: keyof WhitelistSetting): FilterItem[] => {
+                const inc = new Set(editing?.whitelists?.[jamKey] ?? []);
+                const exc = new Set(editing?.blacklists?.[jamKey] ?? []);
+                return arr.map((x) => ({
+                    id: x.id,
+                    name: x.name,
+                    status: inc.has(x.id) ? "include" : exc.has(x.id) ? "exclude" : "none",
+                }));
+            };
+
             setItems({
-                genres: toItems(tagItems(TagType.Genre)),
-                artists: toItems(artists.map((a) => ({ id: a.artistId, name: a.name }))),
-                timePeriods: toItems(tagItems(TagType.TimePeriod)),
-                languages: toItems(tagItems(TagType.Language)),
-                playlists: toItems(playlists.map((p) => ({ id: p.playlistId, name: p.name }))),
+                genres: toItems(tagItems(TagType.Genre), "genreIds"),
+                artists: toItems(artists.map((a) => ({ id: a.artistId, name: a.name })), "artistIds"),
+                timePeriods: toItems(tagItems(TagType.TimePeriod), "timePeriodIds"),
+                languages: toItems(tagItems(TagType.Language), "languageIds"),
+                playlists: toItems(playlists.map((p) => ({ id: p.playlistId, name: p.name })), "playlistIds"),
             });
-            setMoods(toItems(tagItems(TagType.Mood)));
+
+            const moodIncludes = new Set(editing?.whitelists?.moodIds ?? []);
+            setMoods(
+                tagItems(TagType.Mood).map((m) => ({
+                    ...m,
+                    status: moodIncludes.has(m.id) ? "include" : ("none" as FilterStatus),
+                })),
+            );
+
+            if (editing) {
+                setJamName(editing.name);
+                if (editing.energyMin != null) {
+                    setEnergyEnabled(true);
+                    setEnergyStart(editing.energyMin);
+                }
+            }
         })();
-    }, [userId]);
+    }, [userId, editingId]);
 
     const cycleItem = (cat: Category, id: string) => {
         setItems((prev) => ({
@@ -112,7 +141,7 @@ export default function GenreJamEditor() {
         }
         whitelists.moodIds = moods.filter((m) => m.status === "include").map((m) => m.id);
         return {
-            genreJamId: generateId(),
+            genreJamId: editingId ?? generateId(),
             name,
             whitelists,
             blacklists,
@@ -128,6 +157,11 @@ export default function GenreJamEditor() {
     const handleSave = async () => {
         const name = jamName.trim();
         if (!name) {
+            return;
+        }
+        if (editingId) {
+            await DbQueries.updateGenreJam(db, buildJam(name));
+            router.back();
             return;
         }
         await DbQueries.addGenreJam(db, buildJam(name));
@@ -146,7 +180,7 @@ export default function GenreJamEditor() {
                     <View style={{ width: 28 }} />
                 </View>
                 <Text variant="screenTitle" style={{ marginTop: theme.space.sm }}>
-                    New Jam
+                    {editingId ? "Edit Jam" : "New Jam"}
                 </Text>
 
                 <Card tint style={{ borderColor: theme.color.accentDeep, marginTop: theme.space.md }}>
@@ -246,10 +280,10 @@ export default function GenreJamEditor() {
                     );
                 })}
 
-                <SectionHeader title="Save this jam" />
+                <SectionHeader title={editingId ? "Update this jam" : "Save this jam"} />
                 <TextField placeholder="Jam name (e.g. Late Night)" value={jamName} onChangeText={setJamName} autoCapitalize="words" />
                 <Button
-                    label={saved ? "Saved ✓" : "Save jam"}
+                    label={saved ? "Saved ✓" : editingId ? "Save changes" : "Save jam"}
                     variant="ghost"
                     full
                     onPress={handleSave}

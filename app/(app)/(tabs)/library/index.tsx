@@ -76,10 +76,10 @@ export default function LibraryScreen() {
                     />
 
                     <Divider style={{ marginVertical: theme.space.sm }} />
-                    <SectionHeader title="Jams" />
+                    <SectionHeader title="Jams" actionLabel="New" onAction={() => router.push("/genre-jam")} />
                     {jams.length === 0 ? (
                         <Text variant="body" color="textFaint">
-                            No jams yet — create one from Home.
+                            No jams yet — tap New to make one.
                         </Text>
                     ) : (
                         jams.map((jam) => (
@@ -88,7 +88,18 @@ export default function LibraryScreen() {
                                 title={jam.name}
                                 subtitle={jamSummary(jam)}
                                 left={jamSwatch}
-                                right={<IconButton name="trash-outline" size={20} color={theme.color.textFaint} onPress={() => confirmDelete(jam)} accessibilityLabel="Delete jam" />}
+                                right={
+                                    <View style={{ flexDirection: "row", alignItems: "center", gap: theme.space.xs }}>
+                                        <IconButton
+                                            name="create-outline"
+                                            size={20}
+                                            color={theme.color.textFaint}
+                                            onPress={() => router.push({ pathname: "/genre-jam", params: { id: jam.genreJamId } })}
+                                            accessibilityLabel="Edit jam"
+                                        />
+                                        <IconButton name="trash-outline" size={20} color={theme.color.textFaint} onPress={() => confirmDelete(jam)} accessibilityLabel="Delete jam" />
+                                    </View>
+                                }
                                 onPress={() => launchJam(jam)}
                             />
                         ))

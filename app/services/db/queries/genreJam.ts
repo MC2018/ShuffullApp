@@ -21,6 +21,19 @@ export async function getGenreJams(db: GenericDb): Promise<GenreJam[]> {
     return await db.select().from(genreJamTable).orderBy(asc(genreJamTable.name));
 }
 
+export async function updateGenreJam(db: GenericDb, genreJam: GenreJam): Promise<void> {
+    await db
+        .update(genreJamTable)
+        .set({
+            name: genreJam.name,
+            whitelists: genreJam.whitelists,
+            blacklists: genreJam.blacklists,
+            energyMin: genreJam.energyMin,
+            energyMax: genreJam.energyMax,
+        })
+        .where(eq(genreJamTable.genreJamId, genreJam.genreJamId));
+}
+
 export async function deleteGenreJam(db: GenericDb, genreJamId: string): Promise<void> {
     await db.delete(genreJamTable).where(eq(genreJamTable.genreJamId, genreJamId));
 }

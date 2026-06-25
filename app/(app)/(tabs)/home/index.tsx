@@ -113,7 +113,7 @@ export default function HomeScreen() {
                 )}
 
                 <SectionHeader title="Start something" />
-                <Pressable onPress={() => router.push("/home/genre-jam")}>
+                <Pressable onPress={() => router.push("/genre-jam")}>
                     <Card tint style={{ borderColor: theme.color.accentDeep }}>
                         <Text variant="micro" color="accentTint">
                             Genre Jam
