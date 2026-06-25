@@ -222,7 +222,9 @@ export class SyncManager {
                 : [];
 
             // User songs changed since our last known user version (incremental, paginated).
-            let afterDate: Date = oldUser != undefined ? oldUser.version : new Date("0000-01-01T00:00:00Z");
+            // Year 0001, not 0000: the API binds afterDate to a .NET DateTime whose minimum is 0001-01-01,
+            // so a year-0000 sentinel fails model binding (400) on a first/cleared sync.
+            let afterDate: Date = oldUser != undefined ? oldUser.version : new Date("0001-01-01T00:00:00Z");
             let endOfList = false;
             const updatedUserSongs: ApiModels.UserSong[] = [];
             while (!endOfList) {
