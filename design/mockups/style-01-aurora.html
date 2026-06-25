@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Shuffull — Style 01 · Aurora</title>
+<style>
+  :root{
+    --bg:#07070c; --ink:#f5f5fa; --muted:#9b9bb0; --faint:#6a6a80;
+    --surface:rgba(255,255,255,.045); --surface-2:rgba(255,255,255,.08);
+    --line:rgba(255,255,255,.08);
+    --teal:#5eead4; --violet:#a78bfa; --rose:#fb7faf;
+    --accent:#7fe3d0;
+    --radius:22px;
+    --font:'Inter',ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:var(--font);background:
+      radial-gradient(1200px 700px at 15% -10%, rgba(94,234,212,.10), transparent 60%),
+      radial-gradient(1000px 800px at 100% 10%, rgba(167,139,250,.12), transparent 55%),
+      var(--bg);
+    color:var(--ink);min-height:100vh;padding:48px 32px 80px;-webkit-font-smoothing:antialiased}
+  .page-head{max-width:1200px;margin:0 auto 38px}
+  .eyebrow{font-size:12px;letter-spacing:.32em;text-transform:uppercase;color:var(--accent);font-weight:600}
+  .page-head h1{font-size:42px;font-weight:800;letter-spacing:-.02em;margin:10px 0 6px;
+    background:linear-gradient(90deg,#fff,#bfeee4 40%,#cbb8ff);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+  .page-head p{color:var(--muted);max-width:760px;line-height:1.6;font-size:15px}
+  .philo{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}
+  .philo span{font-size:12.5px;color:var(--ink);background:var(--surface);border:1px solid var(--line);
+    padding:7px 13px;border-radius:999px}
+  .nav{position:fixed;top:20px;right:26px;display:flex;gap:8px;z-index:50;font-size:12.5px}
+  .nav a{color:var(--muted);text-decoration:none;padding:7px 12px;border-radius:999px;border:1px solid var(--line);background:rgba(0,0,0,.4);backdrop-filter:blur(8px)}
+  .nav a.cur{color:#07070c;background:var(--accent);border-color:transparent;font-weight:700}
+
+  .deck{display:flex;gap:34px;flex-wrap:wrap;justify-content:center;max-width:1500px;margin:0 auto}
+  .device{display:flex;flex-direction:column;align-items:center;gap:14px}
+  .cap{font-size:13px;color:var(--muted);letter-spacing:.02em}
+  .cap b{color:var(--ink);font-weight:600}
+
+  .phone{width:340px;height:724px;border-radius:42px;position:relative;overflow:hidden;
+    border:1px solid rgba(255,255,255,.09);
+    box-shadow:0 40px 80px -30px rgba(0,0,0,.9), inset 0 0 0 6px #000;
+    background:#0a0a11}
+  .screen{position:absolute;inset:0;display:flex;flex-direction:column}
+  /* art-bleed glow layer */
+  .bleed{position:absolute;inset:0;z-index:0;opacity:.9;
+    background:radial-gradient(120% 60% at 50% 0%, rgba(94,234,212,.22), transparent 60%),
+      radial-gradient(120% 70% at 80% 30%, rgba(167,139,250,.20), transparent 55%);
+    filter:saturate(1.2)}
+  .scr-body{position:relative;z-index:1;flex:1;display:flex;flex-direction:column;min-height:0}
+
+  .statusbar{height:34px;display:flex;align-items:center;justify-content:space-between;
+    padding:0 22px;font-size:12px;color:#dcdce6;font-weight:600;z-index:2}
+  .dots{display:flex;gap:4px;align-items:center}
+  .dots i{width:5px;height:5px;border-radius:50%;background:#cfcfe0;display:block}
+
+  .content{flex:1;overflow:hidden;padding:6px 20px 0}
+  .greet{margin:8px 0 4px}
+  .greet .hi{font-size:13px;color:var(--muted)}
+  .greet h2{font-size:26px;font-weight:800;letter-spacing:-.02em;margin-top:2px}
+
+  .art{border-radius:18px;position:relative;overflow:hidden;flex-shrink:0}
+  .art.teal{background:linear-gradient(135deg,#0f766e,#5eead4 55%,#a78bfa)}
+  .art.violet{background:linear-gradient(135deg,#6d28d9,#a78bfa 50%,#fb7faf)}
+  .art.amber{background:linear-gradient(135deg,#b45309,#f59e0b 55%,#fde68a)}
+  .art.indigo{background:linear-gradient(160deg,#1e3a8a,#3b82f6 50%,#22d3ee)}
+  .art .sheen{position:absolute;inset:0;background:radial-gradient(80% 50% at 20% 10%,rgba(255,255,255,.35),transparent 50%)}
+
+  /* HOME */
+  .hero-now{margin-top:14px;border-radius:var(--radius);padding:14px;display:flex;gap:14px;align-items:center;
+    background:linear-gradient(120deg,rgba(94,234,212,.14),rgba(167,139,250,.12));
+    border:1px solid var(--line)}
+  .hero-now .art{width:64px;height:64px}
+  .hero-now .meta{flex:1;min-width:0}
+  .hero-now .lbl{font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--accent);font-weight:700}
+  .hero-now .t{font-size:15px;font-weight:700;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .hero-now .a{font-size:12.5px;color:var(--muted);margin-top:1px}
+  .iconbtn{width:42px;height:42px;border-radius:50%;display:grid;place-items:center;flex-shrink:0;
+    background:var(--accent);color:#06241f;box-shadow:0 8px 20px -6px rgba(94,234,212,.7)}
+  .iconbtn svg{width:18px;height:18px}
+
+  .sec-h{display:flex;align-items:center;justify-content:space-between;margin:20px 2px 12px}
+  .sec-h h3{font-size:15px;font-weight:700;letter-spacing:-.01em}
+  .sec-h a{font-size:12px;color:var(--muted);text-decoration:none}
+
+  .jam-cta{border-radius:var(--radius);padding:18px;position:relative;overflow:hidden;
+    background:linear-gradient(135deg,rgba(167,139,250,.28),rgba(94,234,212,.18));
+    border:1px solid rgba(255,255,255,.12)}
+  .jam-cta .k{font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:#e9deff;font-weight:700}
+  .jam-cta h4{font-size:20px;font-weight:800;margin:8px 0 6px;letter-spacing:-.02em}
+  .jam-cta p{font-size:12.5px;color:#d7d2ec;line-height:1.5;max-width:230px}
+  .jam-cta .go{margin-top:14px;display:inline-flex;align-items:center;gap:8px;background:#fff;color:#1b1430;
+    font-weight:700;font-size:13px;padding:10px 16px;border-radius:999px}
+  .jam-cta .go svg{width:14px;height:14px}
+
+  .chips{display:flex;gap:10px;overflow:hidden}
+  .jchip{flex-shrink:0;width:118px;border-radius:16px;padding:12px;background:var(--surface);border:1px solid var(--line)}
+  .jchip .sw{height:54px;border-radius:11px;margin-bottom:10px}
+  .jchip .n{font-size:13px;font-weight:700}
+  .jchip .c{font-size:11px;color:var(--faint);margin-top:2px}
+
+  /* mini player + tabbar */
+  .mini{margin:0 12px;border-radius:16px;padding:9px 12px;display:flex;align-items:center;gap:11px;
+    background:rgba(20,20,30,.82);backdrop-filter:blur(14px);border:1px solid var(--line)}
+  .mini .art{width:38px;height:38px;border-radius:9px}
+  .mini .m{flex:1;min-width:0}
+  .mini .m .t{font-size:12.5px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .mini .m .a{font-size:11px;color:var(--muted)}
+  .mini .pp{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;background:var(--accent);color:#06241f}
+  .mini .pp svg{width:15px;height:15px}
+  .mini .bar{position:absolute;left:0;right:0;bottom:0;height:2px;background:rgba(255,255,255,.1)}
+  .mini .bar i{display:block;height:100%;width:46%;background:var(--accent)}
+
+  .tabbar{height:62px;display:flex;align-items:center;justify-content:space-around;
+    border-top:1px solid var(--line);background:rgba(8,8,14,.7);backdrop-filter:blur(14px);padding-bottom:6px}
+  .tab{display:flex;flex-direction:column;align-items:center;gap:4px;font-size:10.5px;color:var(--faint)}
+  .tab svg{width:21px;height:21px}
+  .tab.on{color:var(--accent)}
+
+  /* NOW PLAYING */
+  .np .topbar{display:flex;align-items:center;justify-content:space-between;padding:6px 4px 2px}
+  .np .topbar .lbl{font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:var(--muted)}
+  .np .chev{color:var(--muted)}
+  .np-art{width:248px;height:248px;align-self:center;margin:18px auto 0;border-radius:24px;box-shadow:0 30px 60px -20px rgba(94,234,212,.4)}
+  .np-title{font-size:21px;font-weight:800;text-align:center;margin-top:22px;letter-spacing:-.02em}
+  .np-artist{font-size:14px;color:var(--muted);text-align:center;margin-top:4px}
+  .scrub{margin:18px 4px 0}
+  .scrub .track{height:4px;border-radius:3px;background:rgba(255,255,255,.12);position:relative}
+  .scrub .track i{position:absolute;left:0;top:0;height:100%;width:38%;border-radius:3px;background:linear-gradient(90deg,var(--teal),var(--violet))}
+  .scrub .track i::after{content:"";position:absolute;right:-5px;top:50%;transform:translateY(-50%);width:11px;height:11px;border-radius:50%;background:#fff}
+  .scrub .times{display:flex;justify-content:space-between;font-size:11px;color:var(--faint);margin-top:7px}
+  .transport{display:flex;align-items:center;justify-content:center;gap:26px;margin-top:14px}
+  .transport svg{width:26px;height:26px;color:var(--ink)}
+  .transport .play{width:62px;height:62px;border-radius:50%;display:grid;place-items:center;
+    background:linear-gradient(135deg,var(--teal),var(--violet));color:#06241f;box-shadow:0 14px 30px -8px rgba(127,227,208,.6)}
+  .transport .play svg{width:26px;height:26px}
+  .likes{display:flex;justify-content:center;gap:9px;margin-top:18px}
+  .like{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:var(--muted);
+    padding:8px 13px;border-radius:999px;background:var(--surface);border:1px solid var(--line)}
+  .like svg{width:13px;height:13px}
+  .like.on-love{background:rgba(251,127,175,.18);color:#ffc6dc;border-color:rgba(251,127,175,.4)}
+  .lyrics{margin-top:18px;text-align:center;display:flex;flex-direction:column;gap:11px;padding-bottom:8px}
+  .lyrics .ln{font-size:14px;color:var(--faint);line-height:1.35}
+  .lyrics .ln.past{color:var(--muted)}
+  .lyrics .ln.cur{font-size:18px;font-weight:800;color:var(--ink);
+    background:linear-gradient(90deg,var(--teal),var(--violet));-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+  .tagrow{display:flex;gap:7px;justify-content:center;margin-top:16px;flex-wrap:wrap}
+  .tag{font-size:11px;color:var(--muted);padding:5px 11px;border-radius:999px;background:var(--surface);border:1px solid var(--line)}
+
+  /* GENRE JAM */
+  .jam-hero{margin-top:8px;border-radius:24px;padding:20px;position:relative;overflow:hidden;
+    background:linear-gradient(135deg,rgba(94,234,212,.22),rgba(167,139,250,.24));border:1px solid rgba(255,255,255,.13)}
+  .jam-hero .k{font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:#d7f5ee;font-weight:700}
+  .jam-hero h2{font-size:24px;font-weight:800;margin:10px 0 7px;letter-spacing:-.02em}
+  .jam-hero p{font-size:12.5px;color:#e4e0f4;line-height:1.5}
+  .jam-hero .pool{margin-top:14px;font-size:12px;color:#bff3e8;display:flex;align-items:center;gap:7px}
+  .start{margin-top:16px;width:100%;display:flex;align-items:center;justify-content:center;gap:9px;
+    background:#fff;color:#15122b;font-weight:800;font-size:15px;padding:14px;border-radius:16px}
+  .start svg{width:17px;height:17px}
+  .field-h{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);font-weight:700;margin:22px 2px 11px}
+  .moods{display:flex;flex-wrap:wrap;gap:9px}
+  .mood{font-size:13px;font-weight:600;padding:9px 14px;border-radius:999px;background:var(--surface);border:1px solid var(--line);color:var(--muted)}
+  .mood.on{background:linear-gradient(120deg,var(--teal),var(--violet));color:#06241f;border-color:transparent}
+  .energy{margin-top:18px}
+  .energy .lab{display:flex;justify-content:space-between;font-size:11.5px;color:var(--faint);margin-bottom:9px}
+  .energy .track{height:6px;border-radius:4px;background:rgba(255,255,255,.1);position:relative}
+  .energy .track i{position:absolute;left:0;height:100%;width:64%;border-radius:4px;background:linear-gradient(90deg,#5eea c4,var(--violet));background:linear-gradient(90deg,var(--teal),var(--violet))}
+  .energy .track i::after{content:"";position:absolute;right:-7px;top:50%;transform:translateY(-50%);width:15px;height:15px;border-radius:50%;background:#fff;box-shadow:0 2px 8px rgba(0,0,0,.5)}
+  .incl{margin-top:8px;display:flex;flex-direction:column;gap:9px}
+  .inc-row{display:flex;align-items:center;justify-content:space-between;padding:13px 14px;border-radius:14px;background:var(--surface);border:1px solid var(--line)}
+  .inc-row .l{font-size:13.5px;font-weight:600}
+  .inc-row .l small{display:block;color:var(--faint);font-size:11px;font-weight:500;margin-top:2px}
+  .pillset{display:flex;gap:6px}
+  .mini-pill{font-size:11px;padding:4px 9px;border-radius:999px;font-weight:600}
+  .mini-pill.inc{background:rgba(94,234,212,.16);color:#9af2e0;border:1px solid rgba(94,234,212,.4)}
+  .mini-pill.exc{background:rgba(251,127,175,.14);color:#ffb9d2;border:1px solid rgba(251,127,175,.35)}
+  .mini-pill.add{background:transparent;color:var(--muted);border:1px dashed var(--line)}
+  .savedjams{margin-top:8px;display:flex;flex-direction:column;gap:8px}
+  .saved{display:flex;align-items:center;gap:12px;padding:10px;border-radius:14px;background:var(--surface);border:1px solid var(--line)}
+  .saved .sw{width:42px;height:42px;border-radius:10px;flex-shrink:0}
+  .saved .n{font-size:13.5px;font-weight:700}
+  .saved .d{font-size:11px;color:var(--faint);margin-top:2px}
+
+  /* LIBRARY */
+  .seg{display:flex;gap:6px;background:var(--surface);border:1px solid var(--line);border-radius:13px;padding:4px;margin-top:14px}
+  .seg div{flex:1;text-align:center;font-size:12.5px;font-weight:600;color:var(--muted);padding:8px;border-radius:9px}
+  .seg div.on{background:var(--surface-2);color:var(--ink)}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:13px;margin-top:16px}
+  .card .sw{aspect-ratio:1;border-radius:14px;position:relative;overflow:hidden}
+  .card .n{font-size:13px;font-weight:700;margin-top:8px}
+  .card .c{font-size:11px;color:var(--faint);margin-top:1px}
+  .lib-list{margin-top:16px;display:flex;flex-direction:column;gap:11px}
+  .lib-row{display:flex;align-items:center;gap:12px}
+  .lib-row .sw{width:50px;height:50px;border-radius:11px;flex-shrink:0}
+  .lib-row .n{font-size:13.5px;font-weight:600}
+  .lib-row .d{font-size:11px;color:var(--faint);margin-top:2px}
+
+  .scroll-hint{font-size:11px;color:var(--faint);text-align:center;margin-top:14px}
+</style>
+</head>
+<body>
+  <div class="nav">
+    <a class="cur" href="style-01-aurora.html">Aurora</a>
+    <a href="style-02-nocturne.html">Nocturne</a>
+    <a href="style-03-pulse.html">Pulse</a>
+    <a href="style-04-slate.html">Slate</a>
+    <a href="style-05-velvet.html">Velvet</a>
+  </div>
+
+  <div class="page-head">
+    <div class="eyebrow">Style 01</div>
+    <h1>Aurora</h1>
+    <p>The artwork <em>is</em> the interface. Every screen pulls a soft, blurred color glow from the current album art, so the app quietly shifts hue as the music changes. Near-black canvas, generous whitespace, oversized art, and a teal→violet accent that feels alive rather than fixed.</p>
+    <div class="philo">
+      <span>Album-art-forward</span><span>Ambient color-bleed</span><span>Airy &amp; calm</span><span>Dynamic accent</span>
+    </div>
+  </div>
+
+  <div class="deck">
+
+    <!-- ============ HOME ============ -->
+    <div class="device">
+      <div class="phone"><div class="screen">
+        <div class="bleed"></div>
+        <div class="scr-body">
+          <div class="statusbar"><span>9:41</span><span class="dots"><i></i><i></i><i></i></span></div>
+          <div class="content">
+            <div class="greet"><div class="hi">Tuesday evening</div><h2>Hey, Max</h2></div>
+
+            <div class="hero-now">
+              <div class="art violet"><div class="sheen"></div></div>
+              <div class="meta">
+                <div class="lbl">Resume</div>
+                <div class="t">Midnight City</div>
+                <div class="a">M83</div>
+              </div>
+              <div class="iconbtn"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></div>
+            </div>
+
+            <div class="sec-h"><h3>Start something</h3></div>
+            <div class="jam-cta">
+              <div class="k">Genre Jam</div>
+              <h4>Start a Jam</h4>
+              <p>Shuffle your whole library — minus dislikes, leaning into what you love. No playlist required.</p>
+              <div class="go">Start <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></div>
+            </div>
+
+            <div class="sec-h"><h3>Your Jams</h3><a>See all</a></div>
+            <div class="chips">
+              <div class="jchip"><div class="sw art teal"></div><div class="n">Late Night</div><div class="c">~640 songs</div></div>
+              <div class="jchip"><div class="sw art amber"></div><div class="n">Focus</div><div class="c">~1.2k songs</div></div>
+              <div class="jchip"><div class="sw art indigo"></div><div class="n">Workout</div><div class="c">~430 songs</div></div>
+            </div>
+          </div>
+
+          <div class="mini" style="position:relative">
+            <div class="art violet"></div>
+            <div class="m"><div class="t">Midnight City</div><div class="a">M83</div></div>
+            <div class="pp"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg></div>
+            <div class="bar"><i></i></div>
+          </div>
+          <div class="tabbar">
+            <div class="tab on"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3l9 8h-3v9h-4v-6h-4v6H6v-9H3z"/></svg>Home</div>
+            <div class="tab"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 6h16v2H4zm0 5h16v2H4zm0 5h10v2H4z"/></svg>Library</div>
+            <div class="tab"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3v10.55A4 4 0 1014 17V7h4V3z"/></svg>Songs</div>
+          </div>
+        </div>
+      </div></div>
+      <div class="cap"><b>Home</b> · resume, jam CTA, saved jams</div>
+    </div>
+
+    <!-- ============ NOW PLAYING ============ -->
+    <div class="device">
+      <div class="phone"><div class="screen">
+        <div class="bleed" style="background:radial-gradient(120% 65% at 50% 5%,rgba(167,139,250,.3),transparent 60%),radial-gradient(120% 70% at 70% 40%,rgba(251,127,175,.18),transparent 55%)"></div>
+        <div class="scr-body">
+          <div class="statusbar"><span>9:41</span><span class="dots"><i></i><i></i><i></i></span></div>
+          <div class="content np">
+            <div class="topbar">
+              <span class="chev"><svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M7 10l5 5 5-5z"/></svg></span>
+              <span class="lbl">Genre Jam · Late Night</span>
+              <span class="chev"><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M12 8a2 2 0 100-4 2 2 0 000 4zm0 6a2 2 0 100-4 2 2 0 000 4zm0 6a2 2 0 100-4 2 2 0 000 4z"/></svg></span>
+            </div>
+            <div class="np-art art violet"><div class="sheen"></div></div>
+            <div class="np-title">Midnight City</div>
+            <div class="np-artist">M83 · Hurry Up, We're Dreaming</div>
+            <div class="scrub">
+              <div class="track"><i></i></div>
+              <div class="times"><span>1:42</span><span>4:03</span></div>
+            </div>
+            <div class="transport">
+              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zM9 12l9 6V6z"/></svg>
+              <div class="play"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg></div>
+              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 6h2v12h-2zM15 12L6 6v12z"/></svg>
+            </div>
+            <div class="likes">
+              <div class="like"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21s-7-4.5-9.5-8A5 5 0 0112 6a5 5 0 019.5 7c-2.5 3.5-9.5 8-9.5 8z"/></svg>Like</div>
+              <div class="like on-love"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21s-7-4.5-9.5-8A5 5 0 0112 6a5 5 0 019.5 7c-2.5 3.5-9.5 8-9.5 8z"/></svg>Love</div>
+              <div class="like"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg>Dislike</div>
+            </div>
+            <div class="lyrics">
+              <div class="ln past">Waiting in a car</div>
+              <div class="ln past">Waiting for a ride in the dark</div>
+              <div class="ln cur">The city is my church</div>
+              <div class="ln">It wraps me in its blinding twilight</div>
+              <div class="ln" style="opacity:.55">I am waiting in a car</div>
+            </div>
+            <div class="tagrow">
+              <span class="tag">Synthpop</span><span class="tag">2010s</span><span class="tag">English</span><span class="tag">Dreamy</span>
+            </div>
+          </div>
+        </div>
+      </div></div>
+      <div class="cap"><b>Now Playing</b> · art-bleed, synced lyrics, likes</div>
+    </div>
+
+    <!-- ============ GENRE JAM ============ -->
+    <div class="device">
+      <div class="phone"><div class="screen">
+        <div class="bleed"></div>
+        <div class="scr-body">
+          <div class="statusbar"><span>9:41</span><span class="dots"><i></i><i></i><i></i></span></div>
+          <div class="content">
+            <div class="greet"><h2 style="font-size:24px;margin-top:8px">New Jam</h2></div>
+            <div class="jam-hero">
+              <div class="k">Live mix</div>
+              <h2>Everything you love</h2>
+              <p>Pulls from your whole library, drops your dislikes, and leans gently toward Loved tracks.</p>
+              <div class="pool"><svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><circle cx="12" cy="12" r="9"/></svg> ≈ 2,140 songs in this jam</div>
+              <div class="start"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg> Start Jam</div>
+            </div>
+
+            <div class="field-h">Mood</div>
+            <div class="moods">
+              <span class="mood on">Chill</span><span class="mood">Energetic</span><span class="mood on">Dreamy</span>
+              <span class="mood">Focus</span><span class="mood">Melancholy</span><span class="mood">Upbeat</span>
+            </div>
+
+            <div class="energy">
+              <div class="field-h" style="margin-bottom:0">Energy</div>
+              <div class="lab"><span>Mellow</span><span>Driving</span></div>
+              <div class="track"><i></i></div>
+            </div>
+
+            <div class="field-h">Include &amp; exclude</div>
+            <div class="incl">
+              <div class="inc-row"><div class="l">Genres <small>Synthwave, Indie · excl. Country</small></div>
+                <div class="pillset"><span class="mini-pill inc">+2</span><span class="mini-pill exc">−1</span></div></div>
+              <div class="inc-row"><div class="l">Artists <small>None selected</small></div>
+                <div class="pillset"><span class="mini-pill add">+ Add</span></div></div>
+              <div class="inc-row"><div class="l">Decades <small>2010s</small></div>
+                <div class="pillset"><span class="mini-pill inc">+1</span></div></div>
+              <div class="inc-row"><div class="l">Languages <small>English, Japanese</small></div>
+                <div class="pillset"><span class="mini-pill inc">+2</span></div></div>
+            </div>
+
+            <div class="field-h">Save this Jam</div>
+            <div class="savedjams">
+              <div class="saved"><div class="sw art teal"></div><div><div class="n">Late Night</div><div class="d">Dreamy · Mellow · ~640 songs</div></div></div>
+              <div class="saved"><div class="sw art amber"></div><div><div class="n">Focus</div><div class="d">Focus · ~1.2k songs</div></div></div>
+            </div>
+            <div class="scroll-hint">— tap a saved jam to relaunch —</div>
+          </div>
+          <div class="tabbar">
+            <div class="tab on"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3l9 8h-3v9h-4v-6h-4v6H6v-9H3z"/></svg>Home</div>
+            <div class="tab"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 6h16v2H4zm0 5h16v2H4zm0 5h10v2H4z"/></svg>Library</div>
+            <div class="tab"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3v10.55A4 4 0 1014 17V7h4V3z"/></svg>Songs</div>
+          </div>
+        </div>
+      </div></div>
+      <div class="cap"><b>Genre Jam</b> · mood, energy, include/exclude, save</div>
+    </div>
+
+    <!-- ============ LIBRARY ============ -->
+    <div class="device">
+      <div class="phone"><div class="screen">
+        <div class="bleed"></div>
+        <div class="scr-body">
+          <div class="statusbar"><span>9:41</span><span class="dots"><i></i><i></i><i></i></span></div>
+          <div class="content">
+            <div class="greet"><h2 style="font-size:26px;margin-top:8px">Library</h2></div>
+            <div class="seg"><div class="on">Playlists</div><div>Jams</div><div>Downloads</div></div>
+            <div class="grid">
+              <div class="card"><div class="sw art teal"><div class="sheen"></div></div><div class="n">Liked Songs</div><div class="c">312 songs</div></div>
+              <div class="card"><div class="sw art violet"><div class="sheen"></div></div><div class="n">Night Drive</div><div class="c">88 songs</div></div>
+              <div class="card"><div class="sw art amber"><div class="sheen"></div></div><div class="n">Coffee Shop</div><div class="c">54 songs</div></div>
+              <div class="card"><div class="sw art indigo"><div class="sheen"></div></div><div class="n">Deep Cuts</div><div class="c">127 songs</div></div>
+            </div>
+            <div class="field-h">Downloaded</div>
+            <div class="lib-list">
+              <div class="lib-row"><div class="sw art violet"></div><div><div class="n">Midnight City</div><div class="d">M83 · downloaded</div></div></div>
+              <div class="lib-row"><div class="sw art teal"></div><div><div class="n">Nightcall</div><div class="d">Kavinsky · downloaded</div></div></div>
+            </div>
+          </div>
+          <div class="mini" style="position:relative">
+            <div class="art violet"></div>
+            <div class="m"><div class="t">Midnight City</div><div class="a">M83</div></div>
+            <div class="pp"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg></div>
+            <div class="bar"><i></i></div>
+          </div>
+          <div class="tabbar">
+            <div class="tab"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3l9 8h-3v9h-4v-6h-4v6H6v-9H3z"/></svg>Home</div>
+            <div class="tab on"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 6h16v2H4zm0 5h16v2H4zm0 5h10v2H4z"/></svg>Library</div>
+            <div class="tab"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3v10.55A4 4 0 1014 17V7h4V3z"/></svg>Songs</div>
+          </div>
+        </div>
+      </div></div>
+      <div class="cap"><b>Library</b> · playlists, jams, downloads</div>
+    </div>
+
+  </div>
+</body>
+</html>

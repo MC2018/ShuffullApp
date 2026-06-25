@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Shuffull — Style 02 · Nocturne</title>
+<style>
+  :root{
+    --bg:#14110d; --panel:#1b1712; --ink:#f3 ece0; --ink:#f4ede1; --muted:#a89c88; --faint:#7a6f5d;
+    --line:rgba(214,196,160,.13);
+    --gold:#e0b15e; --gold-2:#caa14e; --wine:#b0573f;
+    --serif:'Cormorant Garamond','Hoefler Text',Georgia,'Times New Roman',serif;
+    --sans:ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:var(--sans);background:
+      radial-gradient(900px 600px at 80% -5%, rgba(224,177,94,.07), transparent 60%),
+      var(--bg);color:var(--ink);min-height:100vh;padding:48px 32px 80px;-webkit-font-smoothing:antialiased}
+  .page-head{max-width:1200px;margin:0 auto 40px}
+  .eyebrow{font-size:12px;letter-spacing:.34em;text-transform:uppercase;color:var(--gold);font-weight:600}
+  .page-head h1{font-family:var(--serif);font-size:62px;font-weight:600;font-style:italic;letter-spacing:.01em;margin:6px 0 8px;color:#f6efe2}
+  .page-head p{color:var(--muted);max-width:760px;line-height:1.7;font-size:15px}
+  .philo{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px}
+  .philo span{font-size:12.5px;color:var(--ink);background:transparent;border:1px solid var(--line);padding:7px 13px;border-radius:4px}
+  .nav{position:fixed;top:20px;right:26px;display:flex;gap:8px;z-index:50;font-size:12.5px}
+  .nav a{color:var(--muted);text-decoration:none;padding:7px 12px;border-radius:4px;border:1px solid var(--line);background:rgba(0,0,0,.4);backdrop-filter:blur(8px)}
+  .nav a.cur{color:#19140d;background:var(--gold);border-color:transparent;font-weight:700}
+
+  .deck{display:flex;gap:34px;flex-wrap:wrap;justify-content:center;max-width:1500px;margin:0 auto}
+  .device{display:flex;flex-direction:column;align-items:center;gap:14px}
+  .cap{font-size:13px;color:var(--muted)}
+  .cap b{color:var(--ink);font-weight:600}
+
+  .phone{width:340px;height:724px;border-radius:40px;position:relative;overflow:hidden;
+    border:1px solid rgba(224,177,94,.16);
+    box-shadow:0 40px 80px -30px rgba(0,0,0,.9), inset 0 0 0 6px #0d0b07;background:var(--bg)}
+  .screen{position:absolute;inset:0;display:flex;flex-direction:column}
+  .statusbar{height:34px;display:flex;align-items:center;justify-content:space-between;padding:0 22px;font-size:12px;color:#d9cfbb;font-weight:600}
+  .dots{display:flex;gap:4px}.dots i{width:5px;height:5px;border-radius:50%;background:#c8bca5;display:block}
+  .content{flex:1;overflow:hidden;padding:6px 22px 0}
+
+  .kicker{font-size:11px;letter-spacing:.26em;text-transform:uppercase;color:var(--gold);font-weight:700}
+  .rule{height:1px;background:var(--line);margin:14px 0}
+  .rule.gold{background:linear-gradient(90deg,var(--gold),transparent)}
+
+  .art{border-radius:3px;position:relative;overflow:hidden;flex-shrink:0;border:1px solid rgba(224,177,94,.18)}
+  .art.a1{background:linear-gradient(150deg,#3a2a16,#7a5a2c 55%,#caa14e)}
+  .art.a2{background:linear-gradient(150deg,#2a1d2e,#6e3b52 55%,#b0573f)}
+  .art.a3{background:linear-gradient(150deg,#1d2620,#3f5a47 55%,#9bbf8f)}
+  .art.a4{background:linear-gradient(150deg,#241a12,#5a3a22 50%,#e0b15e)}
+  .art .grain{position:absolute;inset:0;background:radial-gradient(70% 50% at 25% 15%,rgba(255,245,225,.25),transparent 55%)}
+
+  /* HOME */
+  .masthead{display:flex;align-items:baseline;justify-content:space-between;margin-top:10px}
+  .masthead .date{font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:var(--faint)}
+  .masthead h2{font-family:var(--serif);font-size:34px;font-weight:600;font-style:italic;line-height:1}
+  .now-strip{display:flex;gap:14px;align-items:center;margin-top:6px}
+  .now-strip .art{width:72px;height:72px}
+  .now-strip .m{flex:1;min-width:0}
+  .now-strip .lbl{font-size:10.5px;letter-spacing:.22em;text-transform:uppercase;color:var(--gold);font-weight:700}
+  .now-strip .t{font-family:var(--serif);font-size:21px;font-weight:600;margin-top:3px;line-height:1.1}
+  .now-strip .a{font-size:12px;color:var(--muted);margin-top:3px}
+  .play-o{width:44px;height:44px;border-radius:50%;border:1px solid var(--gold);color:var(--gold);display:grid;place-items:center;flex-shrink:0}
+  .play-o svg{width:16px;height:16px}
+
+  .feature{margin-top:6px}
+  .feature .no{font-family:var(--serif);font-size:13px;font-style:italic;color:var(--gold)}
+  .feature h3{font-family:var(--serif);font-size:27px;font-weight:600;line-height:1.05;margin:5px 0 8px}
+  .feature p{font-size:13px;color:var(--muted);line-height:1.6;max-width:250px}
+  .feature .cta{margin-top:14px;display:inline-flex;align-items:center;gap:9px;border:1px solid var(--gold);color:var(--gold);
+    font-size:12px;letter-spacing:.16em;text-transform:uppercase;font-weight:700;padding:11px 18px;border-radius:3px}
+  .feature .cta svg{width:13px;height:13px}
+
+  .index-h{font-size:11px;letter-spacing:.24em;text-transform:uppercase;color:var(--faint);font-weight:700;margin:8px 0 4px}
+  .jam-line{display:flex;align-items:center;gap:13px;padding:11px 0;border-bottom:1px solid var(--line)}
+  .jam-line .sw{width:42px;height:42px;flex-shrink:0}
+  .jam-line .n{font-family:var(--serif);font-size:18px;font-weight:600}
+  .jam-line .d{font-size:11px;color:var(--faint);margin-top:1px;letter-spacing:.04em}
+  .jam-line .ar{margin-left:auto;color:var(--faint)}
+
+  .mini{margin:0 14px;border-radius:6px;padding:10px 12px;display:flex;align-items:center;gap:11px;background:var(--panel);border:1px solid var(--line);position:relative}
+  .mini .art{width:38px;height:38px}
+  .mini .m{flex:1;min-width:0}.mini .m .t{font-family:var(--serif);font-size:15px;font-weight:600}.mini .m .a{font-size:11px;color:var(--muted)}
+  .mini .pp{color:var(--gold)}.mini .pp svg{width:22px;height:22px}
+  .mini .bar{position:absolute;left:0;right:0;bottom:0;height:2px;background:rgba(224,177,94,.12)}.mini .bar i{display:block;height:100%;width:46%;background:var(--gold)}
+  .tabbar{height:62px;display:flex;align-items:center;justify-content:space-around;border-top:1px solid var(--line);background:rgba(13,11,7,.7);backdrop-filter:blur(12px);padding-bottom:6px}
+  .tab{display:flex;flex-direction:column;align-items:center;gap:4px;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint)}
+  .tab svg{width:20px;height:20px}.tab.on{color:var(--gold)}
+
+  /* NOW PLAYING */
+  .np .topbar{display:flex;align-items:center;justify-content:space-between;padding:6px 2px 0;color:var(--muted)}
+  .np .topbar .lbl{font-size:10.5px;letter-spacing:.24em;text-transform:uppercase;color:var(--gold)}
+  .np-art{width:250px;height:250px;align-self:center;margin:18px auto 0;border-radius:4px;box-shadow:0 26px 50px -22px rgba(0,0,0,.9)}
+  .np-title{font-family:var(--serif);font-size:30px;font-weight:600;text-align:center;margin-top:22px;line-height:1.05}
+  .np-artist{font-size:12.5px;color:var(--muted);text-align:center;margin-top:6px;letter-spacing:.08em}
+  .scrub{margin:20px 6px 0}
+  .scrub .track{height:2px;background:rgba(224,177,94,.18);position:relative}
+  .scrub .track i{position:absolute;left:0;top:0;height:100%;width:38%;background:var(--gold)}
+  .scrub .track i::after{content:"";position:absolute;right:-4px;top:50%;transform:translateY(-50%);width:9px;height:9px;border-radius:50%;background:var(--gold)}
+  .scrub .times{display:flex;justify-content:space-between;font-size:10.5px;color:var(--faint);margin-top:8px;letter-spacing:.05em}
+  .transport{display:flex;align-items:center;justify-content:center;gap:30px;margin-top:16px}
+  .transport svg{width:24px;height:24px;color:var(--ink)}
+  .transport .play{width:60px;height:60px;border-radius:50%;border:1px solid var(--gold);color:var(--gold);display:grid;place-items:center}
+  .transport .play svg{width:24px;height:24px;color:var(--gold)}
+  .likes{display:flex;justify-content:center;gap:26px;margin-top:20px}
+  .like{display:flex;flex-direction:column;align-items:center;gap:5px;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+  .like svg{width:18px;height:18px}
+  .like.on{color:var(--gold)}
+  .rule-c{display:flex;align-items:center;gap:12px;margin:22px 0 4px;color:var(--faint)}
+  .rule-c::before,.rule-c::after{content:"";height:1px;flex:1;background:var(--line)}
+  .rule-c span{font-size:10px;letter-spacing:.24em;text-transform:uppercase}
+  .lyrics{text-align:center;display:flex;flex-direction:column;gap:13px;margin-top:8px}
+  .lyrics .ln{font-family:var(--serif);font-size:17px;color:var(--faint);line-height:1.25}
+  .lyrics .ln.cur{font-size:23px;font-style:italic;color:var(--gold);font-weight:600}
+  .tagrow{display:flex;gap:8px;justify-content:center;margin-top:18px;flex-wrap:wrap}
+  .tag{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);padding:5px 11px;border:1px solid var(--line);border-radius:3px}
+
+  /* GENRE JAM */
+  .jam-title{font-family:var(--serif);font-size:34px;font-weight:600;font-style:italic;margin-top:10px;line-height:1}
+  .jam-sub{font-size:13px;color:var(--muted);line-height:1.6;margin-top:8px;max-width:260px}
+  .pool{margin-top:14px;font-size:11px;letter-spacing:.06em;color:var(--gold);display:flex;gap:8px;align-items:center}
+  .start{margin-top:16px;width:100%;display:flex;align-items:center;justify-content:center;gap:11px;background:var(--gold);color:#1a140a;font-weight:700;font-size:12.5px;letter-spacing:.18em;text-transform:uppercase;padding:15px;border-radius:4px}
+  .start svg{width:15px;height:15px}
+  .field-h{font-size:11px;letter-spacing:.24em;text-transform:uppercase;color:var(--faint);font-weight:700;margin:24px 0 12px}
+  .moods{display:flex;flex-wrap:wrap;gap:9px}
+  .mood{font-family:var(--serif);font-size:16px;font-weight:600;padding:7px 15px;border:1px solid var(--line);border-radius:3px;color:var(--muted)}
+  .mood.on{background:var(--gold);color:#1a140a;border-color:transparent}
+  .energy{margin-top:6px}
+  .energy .lab{display:flex;justify-content:space-between;font-size:10.5px;letter-spacing:.08em;color:var(--faint);margin-bottom:10px}
+  .energy .track{height:2px;background:rgba(224,177,94,.18);position:relative}
+  .energy .track i{position:absolute;left:0;height:100%;width:60%;background:var(--gold)}
+  .energy .track i::after{content:"";position:absolute;right:-7px;top:50%;transform:translateY(-50%);width:14px;height:14px;border-radius:50%;background:var(--gold)}
+  .inc-row{display:flex;align-items:center;justify-content:space-between;padding:13px 0;border-bottom:1px solid var(--line)}
+  .inc-row .l{font-family:var(--serif);font-size:18px;font-weight:600}
+  .inc-row .l small{display:block;font-family:var(--sans);color:var(--faint);font-size:11px;font-weight:400;margin-top:3px;letter-spacing:.03em}
+  .mini-pill{font-size:10px;padding:4px 9px;border-radius:3px;font-weight:700;letter-spacing:.08em;text-transform:uppercase}
+  .mini-pill.inc{background:rgba(224,177,94,.16);color:var(--gold);border:1px solid rgba(224,177,94,.4)}
+  .mini-pill.exc{background:rgba(176,87,63,.16);color:#e7a78f;border:1px solid rgba(176,87,63,.4)}
+  .mini-pill.add{color:var(--muted);border:1px dashed var(--line)}
+  .pillset{display:flex;gap:6px}
+
+  /* LIBRARY */
+  .seg{display:flex;gap:22px;margin-top:16px;border-bottom:1px solid var(--line)}
+  .seg div{font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--faint);padding:0 0 11px;font-weight:600}
+  .seg div.on{color:var(--gold);border-bottom:2px solid var(--gold)}
+  .lib-list{margin-top:6px}
+  .lib-row{display:flex;align-items:center;gap:14px;padding:13px 0;border-bottom:1px solid var(--line)}
+  .lib-row .sw{width:54px;height:54px;flex-shrink:0}
+  .lib-row .n{font-family:var(--serif);font-size:20px;font-weight:600;line-height:1.1}
+  .lib-row .d{font-size:11px;color:var(--faint);margin-top:3px;letter-spacing:.05em}
+  .lib-row .ar{margin-left:auto;color:var(--faint)}
+</style>
+</head>
+<body>
+  <div class="nav">
+    <a href="style-01-aurora.html">Aurora</a>
+    <a class="cur" href="style-02-nocturne.html">Nocturne</a>
+    <a href="style-03-pulse.html">Pulse</a>
+    <a href="style-04-slate.html">Slate</a>
+    <a href="style-05-velvet.html">Velvet</a>
+  </div>
+
+  <div class="page-head">
+    <div class="eyebrow">Style 02</div>
+    <h1>Nocturne</h1>
+    <p>A tasteful late-night listening journal. Warm charcoal and cream, a single restrained gold, and an italic serif display face give the app an editorial, almost print-magazine calm. Thin gold rules instead of boxes; type does the heavy lifting. For the listener who treats music as a ritual, not a feed.</p>
+    <div class="philo"><span>Editorial / warm dark</span><span>Serif display</span><span>Single gold accent</span><span>Quiet &amp; intentional</span></div>
+  </div>
+
+  <div class="deck">
+
+    <!-- HOME -->
+    <div class="device">
+      <div class="phone"><div class="screen">
+        <div class="statusbar"><span>9:41</span><span class="dots"><i></i><i></i><i></i></span></div>
+        <div class="content">
+          <div class="masthead"><div><div class="date">Tue · 25 Jun</div><h2>Evening</h2></div><div class="kicker">Shuffull</div></div>
+          <div class="rule gold"></div>
+          <div class="now-strip">
+            <div class="art a2"><div class="grain"></div></div>
+            <div class="m"><div class="lbl">Resume</div><div class="t">Midnight City</div><div class="a">M83</div></div>
+            <div class="play-o"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></div>
+          </div>
+          <div class="rule"></div>
+          <div class="feature">
+            <div class="no">No. 01 — Tonight</div>
+            <h3>Start a Genre Jam</h3>
+            <p>Your whole library, minus what you've passed on, with a gentle pull toward the songs you love. No playlist to build.</p>
+            <div class="cta">Begin <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></div>
+          </div>
+          <div class="index-h" style="margin-top:22px">Saved Jams</div>
+          <div class="jam-line"><div class="sw art a1"></div><div><div class="n">Late Night</div><div class="d">DREAMY · MELLOW · ~640</div></div><span class="ar"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M9 6l6 6-6 6z"/></svg></span></div>
+          <div class="jam-line"><div class="sw art a3"></div><div><div class="n">Focus</div><div class="d">FOCUS · ~1,200</div></div><span class="ar"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M9 6l6 6-6 6z"/></svg></span></div>
+        </div>
+        <div class="mini">
+          <div class="art a2"></div><div class="m"><div class="t">Midnight City</div><div class="a">M83</div></div>
+          <div class="pp"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg></div><div class="bar"><i></i></div>
+        </div>
+        <div class="tabbar">
+          <div class="tab on"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3l9 8h-3v9h-4v-6h-4v6H6v-9H3z"/></svg>Home</div>
+          <div class="tab"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 6h16v2H4zm0 5h16v2H4zm0 5h10v2H4z"/></svg>Library</div>
+          <div class="tab"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3v10.55A4 4 0 1014 17V7h4V3z"/></svg>Songs</div>
+        </div>
+      </div></div>
+      <div class="cap"><b>Home</b> · masthead, feature, jam index</div>
+    </div>
+
+    <!-- NOW PLAYING -->
+    <div class="device">
+      <div class="phone"><div class="screen">
+        <div class="statusbar"><span>9:41</span><span class="dots"><i></i><i></i><i></i></span></div>
+        <div class="content np">
+          <div class="topbar"><svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M7 10l5 5 5-5z"/></svg><span class="lbl">Late Night</span><svg viewBox="0 0 24 24" width="19" height="19" fill="currentColor"><path d="M12 8a2 2 0 100-4 2 2 0 000 4zm0 6a2 2 0 100-4 2 2 0 000 4zm0 6a2 2 0 100-4 2 2 0 000 4z"/></svg></div>
+          <div class="np-art art a2"><div class="grain"></div></div>
+          <div class="np-title">Midnight City</div>
+          <div class="np-artist">M83 — HURRY UP, WE'RE DREAMING</div>
+          <div class="scrub"><div class="track"><i></i></div><div class="times"><span>1:42</span><span>4:03</span></div></div>
+          <div class="transport">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zM9 12l9 6V6z"/></svg>
+            <div class="play"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg></div>
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 6h2v12h-2zM15 12L6 6v12z"/></svg>
+          </div>
+          <div class="likes">
+            <div class="like"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 21s-7-4.5-9.5-8A5 5 0 0112 6a5 5 0 019.5 7c-2.5 3.5-9.5 8-9.5 8z"/></svg>Like</div>
+            <div class="like on"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21s-7-4.5-9.5-8A5 5 0 0112 6a5 5 0 019.5 7c-2.5 3.5-9.5 8-9.5 8z"/></svg>Love</div>
+            <div class="like"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 6l12 12M18 6L6 18"/></svg>Dislike</div>
+          </div>
+          <div class="rule-c"><span>Lyrics</span></div>
+          <div class="lyrics">
+            <div class="ln">Waiting for a ride in the dark</div>
+            <div class="ln cur">The city is my church</div>
+            <div class="ln">It wraps me in its blinding twilight</div>
+          </div>
+          <div class="tagrow"><span class="tag">Synthpop</span><span class="tag">2010s</span><span class="tag">English</span></div>
+        </div>
+      </div></div>
+      <div class="cap"><b>Now Playing</b> · serif lyrics, gold accent</div>
+    </div>
+
+    <!-- GENRE JAM -->
+    <div class="device">
+      <div class="phone"><div class="screen">
+        <div class="statusbar"><span>9:41</span><span class="dots"><i></i><i></i><i></i></span></div>
+        <div class="content">
+          <div class="kicker" style="margin-top:8px">Genre Jam</div>
+          <div class="jam-title">A live mix</div>
+          <div class="jam-sub">Pulls from your whole library, sets aside your dislikes, and leans toward what you've loved.</div>
+          <div class="pool"><svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor"><circle cx="12" cy="12" r="9"/></svg>≈ 2,140 SONGS IN THIS JAM</div>
+          <div class="start"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>Start Jam</div>
+
+          <div class="field-h">Mood</div>
+          <div class="moods"><span class="mood on">Chill</span><span class="mood">Driving</span><span class="mood on">Dreamy</span><span class="mood">Wistful</span><span class="mood">Bright</span></div>
+
+          <div class="field-h">Energy</div>
+          <div class="energy"><div class="lab"><span>MELLOW</span><span>DRIVING</span></div><div class="track"><i></i></div></div>
+
+          <div class="field-h">Include &amp; Exclude</div>
+          <div class="inc-row"><div class="l">Genres<small>Synthwave, Indie · excluding Country</small></div><div class="pillset"><span class="mini-pill inc">2 in</span><span class="mini-pill exc">1 out</span></div></div>
+          <div class="inc-row"><div class="l">Artists<small>None selected</small></div><div class="pillset"><span class="mini-pill add">Add</span></div></div>
+          <div class="inc-row"><div class="l">Decades<small>2010s</small></div><div class="pillset"><span class="mini-pill inc">1 in</span></div></div>
+          <div class="inc-row" style="border-bottom:none"><div class="l">Languages<small>English, Japanese</small></div><div class="pillset"><span class="mini-pill inc">2 in</span></div></div>
+        </div>
+        <div class="tabbar">
+          <div class="tab on"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3l9 8h-3v9h-4v-6h-4v6H6v-9H3z"/></svg>Home</div>
+          <div class="tab"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 6h16v2H4zm0 5h16v2H4zm0 5h10v2H4z"/></svg>Library</div>
+          <div class="tab"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3v10.55A4 4 0 1014 17V7h4V3z"/></svg>Songs</div>
+        </div>
+      </div></div>
+      <div class="cap"><b>Genre Jam</b> · ritual layout, rules not boxes</div>
+    </div>
+
+    <!-- LIBRARY -->
+    <div class="device">
+      <div class="phone"><div class="screen">
+        <div class="statusbar"><span>9:41</span><span class="dots"><i></i><i></i><i></i></span></div>
+        <div class="content">
+          <div class="masthead" style="margin-top:8px"><h2>Library</h2><div class="kicker">312 songs</div></div>
+          <div class="seg"><div class="on">Playlists</div><div>Jams</div><div>Downloads</div></div>
+          <div class="lib-list">
+            <div class="lib-row"><div class="sw art a1"></div><div><div class="n">Liked Songs</div><div class="d">312 SONGS</div></div><span class="ar"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M9 6l6 6-6 6z"/></svg></span></div>
+            <div class="lib-row"><div class="sw art a2"></div><div><div class="n">Night Drive</div><div class="d">88 SONGS</div></div><span class="ar"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M9 6l6 6-6 6z"/></svg></span></div>
+            <div class="lib-row"><div class="sw art a3"></div><div><div class="n">Coffee Shop</div><div class="d">54 SONGS</div></div><span class="ar"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M9 6l6 6-6 6z"/></svg></span></div>
+            <div class="lib-row"><div class="sw art a4"></div><div><div class="n">Deep Cuts</div><div class="d">127 SONGS</div></div><span class="ar"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M9 6l6 6-6 6z"/></svg></span></div>
+          </div>
+        </div>
+        <div class="mini">
+          <div class="art a2"></div><div class="m"><div class="t">Midnight City</div><div class="a">M83</div></div>
+          <div class="pp"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg></div><div class="bar"><i></i></div>
+        </div>
+        <div class="tabbar">
+          <div class="tab"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3l9 8h-3v9h-4v-6h-4v6H6v-9H3z"/></svg>Home</div>
+          <div class="tab on"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 6h16v2H4zm0 5h16v2H4zm0 5h10v2H4z"/></svg>Library</div>
+          <div class="tab"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3v10.55A4 4 0 1014 17V7h4V3z"/></svg>Songs</div>
+        </div>
+      </div></div>
+      <div class="cap"><b>Library</b> · editorial index list</div>
+    </div>
+
+  </div>
+</body>
+</html>
