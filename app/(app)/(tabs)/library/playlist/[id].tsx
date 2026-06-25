@@ -1,5 +1,5 @@
-import { Button, Text, View, TextInput } from "react-native";
 import React, { useEffect, useState } from "react";
+import { View } from "react-native";
 import { useLocalSearchParams } from "expo-router";
 import { Playlist } from "@/app/services/db/models";
 import DbQueries from "@/app/services/db/queries";
@@ -10,8 +10,11 @@ import { SongFilterType } from "@/app/types/SongFilters";
 import { DownloadPriority, SongDetails } from "@/app/services/db/types";
 import { useDownloader } from "@/app/services/downloader/DownloaderProvider";
 import { MediaManager } from "@/app/services/media-manager";
+import { Button, Screen, Text, TextField } from "@/app/components/ui";
+import { useTheme } from "@/app/theme";
 
 export default function PlaylistScreen() {
+    const theme = useTheme();
     const { id: playlistId } = useLocalSearchParams<{ id: string }>();
     const [songs, setSongs] = useState<SongDetails[]>([]);
     const [playlist, setPlaylist] = useState<Playlist | null>(null);
@@ -23,31 +26,30 @@ export default function PlaylistScreen() {
         if (playlistId == undefined) {
             return;
         }
-
         (async () => {
             const dbPlaylist = await DbQueries.getPlaylist(db, playlistId);
-
             if (dbPlaylist == undefined) {
                 // TODO: fetch playlist info from server
                 throw new Error("Playlist not in DB");
             }
-
             setPlaylist(dbPlaylist);
-
-            const songs = await DbQueries.getSongDetailsByPlaylist(db, playlistId);
-            setSongs(songs);
-            setFilteredSongs(songs);
+            const dbSongs = await DbQueries.getSongDetailsByPlaylist(db, playlistId);
+            setSongs(dbSongs);
+            setFilteredSongs(dbSongs);
         })();
     }, [playlistId]);
 
-    const filterSongs = async (search: string) => {
-        if (search == "") {
+    const filterSongs = (search: string) => {
+        if (search === "") {
             setFilteredSongs(songs);
             return;
         }
-
-        const filtered = songs.filter(x => x.song.name.toLowerCase().includes(search.toLowerCase()) || x.artists.map(y => y.name).join(", ").toLowerCase().includes(search.toLowerCase()));
-        setFilteredSongs(filtered);
+        const q = search.toLowerCase();
+        setFilteredSongs(
+            songs.filter(
+                (x) => x.song.name.toLowerCase().includes(q) || x.artists.map((y) => y.name).join(", ").toLowerCase().includes(q),
+            ),
+        );
     };
 
     const handleSelectSong = async (songDetails: SongDetails) => {
@@ -55,7 +57,7 @@ export default function PlaylistScreen() {
     };
 
     if (playlist == undefined) {
-        return <></>;
+        return <Screen><View style={{ flex: 1 }} /></Screen>;
     }
 
     const downloadPlaylist = async () => {
@@ -64,27 +66,34 @@ export default function PlaylistScreen() {
 
     const playPlaylist = async () => {
         const songFilters = await MediaManager.getSongFilters();
-        const newPlaylistIds = [playlist.playlistId];
-
         // TODO: check if filters and list are same: if they are, return early
-        songFilters.setSoleFilter(SongFilterType.Playlist, newPlaylistIds);
+        songFilters.setSoleFilter(SongFilterType.Playlist, [playlist.playlistId]);
         await MediaManager.setSongFilters(songFilters, true);
     };
 
     return (
-        <>
-            <View
-                style={{
-                    flex: 1,
-                    paddingBottom: totalPlayerBarHeight
-                }}>
-                <Text style={{ fontSize: 24, marginBottom: 20 }}>{playlist.name}</Text>
-                <TextInput placeholder="Search" onChangeText={filterSongs}></TextInput>
-                <Button title="Download" onPress={downloadPlaylist}></Button>
-                <Button title="Play" onPress={playPlaylist}></Button>
+        <Screen>
+            <View style={{ flex: 1, paddingBottom: totalPlayerBarHeight }}>
+                <Text variant="screenTitle" numberOfLines={1} style={{ marginTop: theme.space.md }}>
+                    {playlist.name}
+                </Text>
+                <Text variant="caption" color="textFaint" style={{ marginTop: 2, marginBottom: theme.space.md }}>
+                    {songs.length} songs
+                </Text>
+                <View style={{ flexDirection: "row", gap: theme.space.sm, marginBottom: theme.space.md }}>
+                    <Button label="Play" icon="play" onPress={playPlaylist} style={{ flex: 1 }} />
+                    <Button label="Download" icon="download-outline" variant="ghost" onPress={downloadPlaylist} style={{ flex: 1 }} />
+                </View>
+                <TextField
+                    placeholder="Search in playlist"
+                    onChangeText={filterSongs}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    style={{ marginBottom: theme.space.md }}
+                />
                 <SongList songs={filteredSongs} onSelectSong={handleSelectSong} />
             </View>
-            <PlayerBar></PlayerBar>
-        </>
+            <PlayerBar />
+        </Screen>
     );
 }

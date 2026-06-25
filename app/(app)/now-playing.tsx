@@ -12,6 +12,7 @@ import Skimmer from "@/app/components/music-control/atoms/Skimmer";
 import Transport from "@/app/components/music-control/molecules/Transport";
 import LyricsView from "@/app/components/lyrics/organisms/LyricsView";
 import LikeControl from "@/app/components/likes/atoms/LikeControl";
+import SongDownloadControl from "@/app/components/downloading/atoms/SongDownloadControl";
 import { AlbumArt, IconButton, Screen, Text } from "@/app/components/ui";
 import { useTheme } from "@/app/theme";
 
@@ -121,7 +122,7 @@ export default function NowPlayingScreen() {
                 <Text variant="micro" color="textMuted">
                     Now Playing
                 </Text>
-                <IconButton name="ellipsis-horizontal" size={20} color={theme.color.textMuted} accessibilityLabel="More" />
+                {details ? <SongDownloadControl song={details.song} /> : <View style={{ width: 28 }} />}
             </View>
 
             {details == null ? (
