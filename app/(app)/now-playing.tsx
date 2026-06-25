@@ -122,7 +122,10 @@ export default function NowPlayingScreen() {
                 <Text variant="micro" color="textMuted">
                     Now Playing
                 </Text>
-                {details ? <SongDownloadControl song={details.song} /> : <View style={{ width: 28 }} />}
+                <View style={{ flexDirection: "row", alignItems: "center", gap: theme.space.sm }}>
+                    {details ? <SongDownloadControl song={details.song} /> : null}
+                    <IconButton name="ellipsis-horizontal" size={20} color={theme.color.textMuted} accessibilityLabel="More" />
+                </View>
             </View>
 
             {details == null ? (
