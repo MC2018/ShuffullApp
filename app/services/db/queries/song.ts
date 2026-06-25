@@ -21,6 +21,8 @@ export async function getFilteredSong(db: GenericDb, songFilters: SongFilters) {
     const blacklistGenres = JSON.stringify(songFilters.blacklists.genreIds);
     const blacklistLanguages = JSON.stringify(songFilters.blacklists.languageIds);
     const blacklistTimePeriods = JSON.stringify(songFilters.blacklists.timePeriodIds);
+    const whitelistMoods = JSON.stringify(songFilters.whitelists.moodIds ?? []);
+    const blacklistMoods = JSON.stringify(songFilters.blacklists.moodIds ?? []);
     const whitelistsEmpty = !songFilters.hasAnyWhitelistFilter();
     const blacklistsEmpty = !songFilters.hasAnyBlacklistFilter();
 
@@ -83,6 +85,14 @@ export async function getFilteredSong(db: GenericDb, songFilters: SongFilters) {
                             SELECT value FROM json_each(${whitelistLanguages})
                         )
                     ))
+                    AND (${whitelistMoods} = '[]' OR EXISTS (
+                        SELECT 1
+                        FROM song_tags st
+                        WHERE st.song_id = s.song_id
+                        AND st.tag_id IN (
+                            SELECT value FROM json_each(${whitelistMoods})
+                        )
+                    ))
                 )
             )
             AND (
@@ -127,6 +137,21 @@ export async function getFilteredSong(db: GenericDb, songFilters: SongFilters) {
                             SELECT value FROM json_each(${blacklistTimePeriods})
                         )
                     )
+                    OR EXISTS (
+                        SELECT 1
+                        FROM song_tags st
+                        WHERE st.song_id = s.song_id
+                        AND st.tag_id IN (
+                            SELECT value FROM json_each(${blacklistMoods})
+                        )
+                    )
+                )
+            )
+            AND (
+                s.energy IS NULL
+                OR (
+                    (${songFilters.energyMin == null ? 1 : 0} = 1 OR s.energy >= ${songFilters.energyMin ?? 0})
+                    AND (${songFilters.energyMax == null ? 1 : 0} = 1 OR s.energy <= ${songFilters.energyMax ?? 10})
                 )
             )
             ORDER BY us.last_played ASC
@@ -264,6 +289,7 @@ export async function getSongsByPlaylist(db: GenericDb, playlistId: string): Pro
             lyricsInstrumental: songTable.lyricsInstrumental,
             lyricsSource: songTable.lyricsSource,
             bpm: songTable.bpm,
+            energy: songTable.energy,
             artist: {
                 artistId: artistTable.artistId,
                 name: artistTable.name
@@ -374,6 +400,7 @@ export async function fetchSongDetails(db: GenericDb, songId: string): Promise<S
             lyricsInstrumental: songTable.lyricsInstrumental,
             lyricsSource: songTable.lyricsSource,
             bpm: songTable.bpm,
+            energy: songTable.energy,
             artist: {
                 artistId: artistTable.artistId,
                 name: artistTable.name

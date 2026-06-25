@@ -43,7 +43,8 @@ export const SongSchema = z.object({
     plainLyrics: z.string().nullable().default(null),
     lyricsInstrumental: z.boolean().default(false),
     lyricsSource: z.string().nullable().default(null),
-    bpm: z.number().nullable().default(null)
+    bpm: z.number().nullable().default(null),
+    energy: z.number().nullable().default(null)
 });
 export const SongListSchema = SongSchema.array();
 export type Song = z.infer<typeof SongSchema>;

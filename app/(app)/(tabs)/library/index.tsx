@@ -1,17 +1,19 @@
-import React, { useEffect } from "react";
-import { ScrollView, View } from "react-native";
-import { router } from "expo-router";
+import React, { useCallback, useEffect } from "react";
+import { Alert, ScrollView, View } from "react-native";
+import { router, useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { Playlist } from "@/app/services/db/models";
+import { GenreJam, Playlist } from "@/app/services/db/models";
 import DbQueries from "@/app/services/db/queries";
 import PlayerBar, { totalPlayerBarHeight } from "@/app/components/music-control/organisms/PlayerBar";
 import { useDb } from "@/app/services/db/DbProvider";
 import { useCurrentUser } from "@/app/services/auth/CurrentUserProvider";
-import { AlbumArt, Divider, ListRow, Screen, SectionHeader, Text } from "@/app/components/ui";
+import { jamSummary, launchJam } from "@/app/services/genre-jam";
+import { AlbumArt, Divider, IconButton, ListRow, Screen, SectionHeader, Text } from "@/app/components/ui";
 import { useTheme } from "@/app/theme";
 
 export default function LibraryScreen() {
     const [playlists, setPlaylists] = React.useState<Playlist[]>([]);
+    const [jams, setJams] = React.useState<GenreJam[]>([]);
     const userId = useCurrentUser();
     const db = useDb();
     const theme = useTheme();
@@ -22,7 +24,37 @@ export default function LibraryScreen() {
         })();
     }, [userId]);
 
+    const loadJams = useCallback(async () => {
+        setJams(await DbQueries.getGenreJams(db));
+    }, [db]);
+
+    // Reload jams on focus so a newly-saved or deleted jam shows up immediately.
+    useFocusEffect(
+        useCallback(() => {
+            loadJams();
+        }, [loadJams]),
+    );
+
+    const confirmDelete = (jam: GenreJam) => {
+        Alert.alert("Delete jam", `Delete "${jam.name}"?`, [
+            { text: "Cancel", style: "cancel" },
+            {
+                text: "Delete",
+                style: "destructive",
+                onPress: async () => {
+                    await DbQueries.deleteGenreJam(db, jam.genreJamId);
+                    loadJams();
+                },
+            },
+        ]);
+    };
+
     const chevron = <Ionicons name="chevron-forward" size={18} color={theme.color.textFaint} />;
+    const jamSwatch = (
+        <View style={{ width: 48, height: 48, borderRadius: theme.radius.md, backgroundColor: theme.color.accentWash, alignItems: "center", justifyContent: "center" }}>
+            <Ionicons name="play" size={20} color={theme.color.accent} />
+        </View>
+    );
 
     return (
         <Screen>
@@ -42,6 +74,26 @@ export default function LibraryScreen() {
                         }
                         right={chevron}
                     />
+
+                    <Divider style={{ marginVertical: theme.space.sm }} />
+                    <SectionHeader title="Jams" />
+                    {jams.length === 0 ? (
+                        <Text variant="body" color="textFaint">
+                            No jams yet — create one from Home.
+                        </Text>
+                    ) : (
+                        jams.map((jam) => (
+                            <ListRow
+                                key={jam.genreJamId}
+                                title={jam.name}
+                                subtitle={jamSummary(jam)}
+                                left={jamSwatch}
+                                right={<IconButton name="trash-outline" size={20} color={theme.color.textFaint} onPress={() => confirmDelete(jam)} accessibilityLabel="Delete jam" />}
+                                onPress={() => launchJam(jam)}
+                            />
+                        ))
+                    )}
+
                     <Divider style={{ marginVertical: theme.space.sm }} />
                     <SectionHeader title="Playlists" />
                     {playlists.length === 0 ? (

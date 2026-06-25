@@ -162,6 +162,20 @@
       "when": 1782272093657,
       "tag": "0022_add_like_status",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "6",
+      "when": 1782372537213,
+      "tag": "0023_add_energy_mood",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "6",
+      "when": 1782373272940,
+      "tag": "0024_add_energy_max",
+      "breakpoints": true
     }
   ]
 }

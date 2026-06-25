@@ -24,6 +24,8 @@ import m0019 from './0019_readd_tables_with_string_ids.sql';
 import m0020 from './0020_add_song_lyrics_bpm.sql';
 import m0021 from './0021_drop_song_lyrics_offset.sql';
 import m0022 from './0022_add_like_status.sql';
+import m0023 from './0023_add_energy_mood.sql';
+import m0024 from './0024_add_energy_max.sql';
 
   export default {
     journal,
@@ -50,7 +52,9 @@ m0018,
 m0019,
 m0020,
 m0021,
-m0022
+m0022,
+m0023,
+m0024
     }
   }
   

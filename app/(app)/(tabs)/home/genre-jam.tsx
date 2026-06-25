@@ -1,164 +1,263 @@
-import { Button, ScrollView, Text, View, StyleSheet, TextInput, TouchableOpacity, Modal } from "react-native";
-import React, { ReactNode, useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
+import { Pressable, ScrollView, View } from "react-native";
+import { router } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
+import Slider from "@react-native-community/slider";
 import DbQueries from "@/app/services/db/queries";
 import { useDb } from "@/app/services/db/DbProvider";
-import { generateId } from "@/app/tools";
-import PlayerBar, { totalPlayerBarHeight } from "@/app/components/music-control/organisms/PlayerBar";
-import { FilterPillInfo, WhitelistingMode, WhitelistingStatus } from "@/app/components/whitelist-filter/atoms/FilterSelectionPill";
-import { GenreJam } from "@/app/services/db/models";
-import { SongFilters } from "@/app/types/SongFilters";
-import FilterSelectionType from "@/app/components/whitelist-filter/molecules/FilterSelectionType";
-import { TagType } from "@/app/services/db/schema";
-import FilterPillSelector from "@/app/components/whitelist-filter/molecules/FilterPillSelector";
-import ModalPopupTemplate from "@/app/components/common/templates/ModalPopupTemplate";
-import { MediaManager } from "@/app/services/media-manager";
 import { useCurrentUser } from "@/app/services/auth/CurrentUserProvider";
+import { generateId } from "@/app/tools";
+import { TagType } from "@/app/services/db/schema";
+import { GenreJam } from "@/app/services/db/models";
+import { WhitelistSetting } from "@/app/services/db/types";
+import { launchJam } from "@/app/services/genre-jam";
+import PlayerBar, { totalPlayerBarHeight } from "@/app/components/music-control/organisms/PlayerBar";
+import { Button, Card, Chip, Divider, IconButton, Screen, SectionHeader, Text, TextField } from "@/app/components/ui";
+import { useTheme } from "@/app/theme";
 
+type FilterStatus = "none" | "include" | "exclude";
+type Category = "genres" | "artists" | "timePeriods" | "languages" | "playlists";
+interface FilterItem {
+    id: string;
+    name: string;
+    status: FilterStatus;
+}
+
+const CATEGORIES: { key: Category; label: string; jamKey: keyof WhitelistSetting }[] = [
+    { key: "genres", label: "Genres", jamKey: "genreIds" },
+    { key: "artists", label: "Artists", jamKey: "artistIds" },
+    { key: "timePeriods", label: "Decades", jamKey: "timePeriodIds" },
+    { key: "languages", label: "Languages", jamKey: "languageIds" },
+    { key: "playlists", label: "Playlists", jamKey: "playlistIds" },
+];
+
+function nextStatus(s: FilterStatus): FilterStatus {
+    return s === "none" ? "include" : s === "include" ? "exclude" : "none";
+}
+
+function emptyWhitelist(): WhitelistSetting {
+    return { artistIds: [], playlistIds: [], genreIds: [], timePeriodIds: [], languageIds: [], moodIds: [] };
+}
+
+// The reworked Genre Jam builder. An empty jam already means "whole library, minus dislikes, leaning to loved".
+// Filters narrow it: Mood (chips), Energy (min, BPM-independent AI score), and per-category Include/Exclude.
+// Jams are nameable + savable.
 export default function GenreJamEditor() {
+    const theme = useTheme();
     const db = useDb();
-    const [ modalVisible, setModalVisible ] = useState(false);
     const userId = useCurrentUser();
-    const [ filterType, setFilterType ] = useState<FilterType>();
-    const [ modalContents, setModalContents ] = useState<ReactNode>();
-    const [filters, setFilters] = useState({
-        playlists: [] as FilterPillInfo<string>[],
-        artists: [] as FilterPillInfo<string>[],
-        genres: [] as FilterPillInfo<string>[],
-        timePeriods: [] as FilterPillInfo<string>[],
-        languages: [] as FilterPillInfo<string>[],
+
+    const [items, setItems] = useState<Record<Category, FilterItem[]>>({
+        genres: [],
+        artists: [],
+        timePeriods: [],
+        languages: [],
+        playlists: [],
     });
-    type FilterType = keyof typeof filters;
-    const handleUpdatedSelection = (filterType: FilterType, pillInfo: FilterPillInfo<string>, newStatus: WhitelistingStatus) => {
-        setFilters(prevFilters => {
-            const newFilter = prevFilters[filterType].map(x =>
-                x.id === pillInfo.id ? { ...x, whitelistingStatus: newStatus } : x
-            );
-            const newFilters = { ...prevFilters, [filterType]: newFilter };
-
-
-            return newFilters;
-        });
-    };
-
-    const handleEditRequest = (filterType: FilterType) => {
-        configureSelectedFilter(filterType);
-    };
+    const [moods, setMoods] = useState<FilterItem[]>([]);
+    const [expanded, setExpanded] = useState<Record<Category, boolean>>({
+        genres: false,
+        artists: false,
+        timePeriods: false,
+        languages: false,
+        playlists: false,
+    });
+    const [energyEnabled, setEnergyEnabled] = useState(false);
+    const [energyStart, setEnergyStart] = useState(4); // band start; band = [energyStart, energyStart + 2]
+    const [jamName, setJamName] = useState("");
+    const [saved, setSaved] = useState(false);
 
     useEffect(() => {
         (async () => {
             const playlists = await DbQueries.getPlaylists(db, userId);
             const artists = await DbQueries.getArtists(db);
             const tags = await DbQueries.getTags(db);
-            const genres = tags.filter(x => x.type == TagType.Genre);
-            const timePeriods = tags.filter(x => x.type == TagType.TimePeriod);
-            const languages = tags.filter(x => x.type == TagType.Language);
-            const newFilters = {
-                playlists: playlists.map(playlist => ({ id: playlist.playlistId, displayName: playlist.name, selected: false, whitelistingStatus: WhitelistingStatus.None })),
-                artists: artists.map(artist => ({ id: artist.artistId, displayName: artist.name, selected: false, whitelistingStatus: WhitelistingStatus.None })),
-                genres: genres.map(tag => ({ id: tag.tagId, displayName: tag.name, selected: false, whitelistingStatus: WhitelistingStatus.None })),
-                timePeriods: timePeriods.map(tag => ({ id: tag.tagId, displayName: tag.name, selected: false, whitelistingStatus: WhitelistingStatus.None })),
-                languages: languages.map(tag => ({ id: tag.tagId, displayName: tag.name, selected: false, whitelistingStatus: WhitelistingStatus.None })),
-            };
-            setFilters(newFilters);
+            const toItems = (arr: { id: string; name: string }[]): FilterItem[] =>
+                arr.map((x) => ({ id: x.id, name: x.name, status: "none" as FilterStatus }));
+            const tagItems = (type: TagType) =>
+                tags.filter((t) => t.type === type).map((t) => ({ id: t.tagId, name: t.name }));
+            setItems({
+                genres: toItems(tagItems(TagType.Genre)),
+                artists: toItems(artists.map((a) => ({ id: a.artistId, name: a.name }))),
+                timePeriods: toItems(tagItems(TagType.TimePeriod)),
+                languages: toItems(tagItems(TagType.Language)),
+                playlists: toItems(playlists.map((p) => ({ id: p.playlistId, name: p.name }))),
+            });
+            setMoods(toItems(tagItems(TagType.Mood)));
         })();
-    }, []);
+    }, [userId]);
 
-    const configureSelectedFilter = async (newFilterType: FilterType) => {
-        setFilterType(newFilterType);
-        setModalVisible(true);
-    }
+    const cycleItem = (cat: Category, id: string) => {
+        setItems((prev) => ({
+            ...prev,
+            [cat]: prev[cat].map((it) => (it.id === id ? { ...it, status: nextStatus(it.status) } : it)),
+        }));
+    };
+    const toggleMood = (id: string) => {
+        setMoods((prev) => prev.map((m) => (m.id === id ? { ...m, status: m.status === "include" ? "none" : "include" } : m)));
+    };
+    const toggleExpanded = (cat: Category) => setExpanded((prev) => ({ ...prev, [cat]: !prev[cat] }));
 
-    useEffect(() => {
-        let newModalContents;
-        let pillsInfo;
-
-        if (filterType == undefined) {
-            newModalContents = <></>;
-        } else {
-            pillsInfo = filters[filterType];
-            newModalContents = <FilterPillSelector pillsInfo={pillsInfo} onUpdateSelection={(pillInfo, newStatus) => handleUpdatedSelection(filterType, pillInfo, newStatus)}></FilterPillSelector>;
+    const buildJam = (name: string): GenreJam => {
+        const whitelists = emptyWhitelist();
+        const blacklists = emptyWhitelist();
+        for (const cat of CATEGORIES) {
+            for (const it of items[cat.key]) {
+                if (it.status === "include") {
+                    whitelists[cat.jamKey].push(it.id);
+                } else if (it.status === "exclude") {
+                    blacklists[cat.jamKey].push(it.id);
+                }
+            }
         }
-
-        setModalContents(newModalContents);
-    }, [filters, filterType]);
-
-    const generateGenreJam = (name: string) => {
-        const genreJam: GenreJam = {
+        whitelists.moodIds = moods.filter((m) => m.status === "include").map((m) => m.id);
+        return {
             genreJamId: generateId(),
-            name: name,
-            whitelists: {
-                artistIds: filters.artists.filter(x => x.whitelistingStatus == WhitelistingStatus.Whitelisted).map(x => x.id),
-                playlistIds: filters.playlists.filter(x => x.whitelistingStatus == WhitelistingStatus.Whitelisted).map(x => x.id),
-                genreIds: filters.genres.filter(x => x.whitelistingStatus == WhitelistingStatus.Whitelisted).map(x => x.id),
-                timePeriodIds: filters.timePeriods.filter(x => x.whitelistingStatus == WhitelistingStatus.Whitelisted).map(x => x.id),
-                languageIds: filters.languages.filter(x => x.whitelistingStatus == WhitelistingStatus.Whitelisted).map(x => x.id),
-            },
-            blacklists: {
-                artistIds: filters.artists.filter(x => x.whitelistingStatus == WhitelistingStatus.Blacklisted).map(x => x.id),
-                playlistIds: filters.playlists.filter(x => x.whitelistingStatus == WhitelistingStatus.Blacklisted).map(x => x.id),
-                genreIds: filters.genres.filter(x => x.whitelistingStatus == WhitelistingStatus.Blacklisted).map(x => x.id),
-                timePeriodIds: filters.timePeriods.filter(x => x.whitelistingStatus == WhitelistingStatus.Blacklisted).map(x => x.id),
-                languageIds: filters.languages.filter(x => x.whitelistingStatus == WhitelistingStatus.Blacklisted).map(x => x.id),
-            },
+            name,
+            whitelists,
+            blacklists,
+            energyMin: energyEnabled ? energyStart : null,
+            energyMax: energyEnabled ? energyStart + 2 : null,
         };
-        return genreJam;
     };
 
-    const handleSetAndStart = async () => {
-        const genreJam = generateGenreJam("TODO");
-        const songFilters = SongFilters.fromGenreJam(genreJam, false);
-        MediaManager.setSongFilters(songFilters, true);
+    const handleStart = async () => {
+        await launchJam(buildJam(jamName.trim() || "Quick Jam"));
+    };
+
+    const handleSave = async () => {
+        const name = jamName.trim();
+        if (!name) {
+            return;
+        }
+        await DbQueries.addGenreJam(db, buildJam(name));
+        setSaved(true);
+        setTimeout(() => setSaved(false), 1800);
     };
 
     return (
-        <>
-        <View
-            style={{
-                flex: 1,
-                paddingBottom: totalPlayerBarHeight
-            }}>
-            <Text style={{fontSize: 24, marginBottom: 20}}>Genre Jam Editor</Text>
-            <Button title="Set and Start" onPress={handleSetAndStart} />
+        <Screen>
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: totalPlayerBarHeight + theme.space.xl }}>
+                <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: theme.space.md }}>
+                    <IconButton name="chevron-back" size={24} color={theme.color.textMuted} onPress={() => router.back()} accessibilityLabel="Back" />
+                    <Text variant="micro" color="textMuted">
+                        Genre Jam
+                    </Text>
+                    <View style={{ width: 28 }} />
+                </View>
+                <Text variant="screenTitle" style={{ marginTop: theme.space.sm }}>
+                    New Jam
+                </Text>
 
-            <Text style={{fontSize: 24}}>Primary Filters</Text>
-            <FilterSelectionType title="Playlists" pillsInfo={filters.playlists} onEditRequest={() => handleEditRequest("playlists")}></FilterSelectionType>
-            <FilterSelectionType title="Artists" pillsInfo={filters.artists} onEditRequest={() => handleEditRequest("artists")}></FilterSelectionType>
+                <Card tint style={{ borderColor: theme.color.accentDeep, marginTop: theme.space.md }}>
+                    <Text variant="body" color="textMuted">
+                        Plays your whole library — minus songs you've disliked, leaning toward what you love. Add filters below, or just start.
+                    </Text>
+                    <Button label="Start Jam" icon="play" full onPress={handleStart} style={{ marginTop: theme.space.md }} />
+                </Card>
 
-            <Text style={{fontSize: 24, marginTop: 20}}>Secondary Filters</Text>
-            <FilterSelectionType title="Genres" pillsInfo={filters.genres} onEditRequest={() => handleEditRequest("genres")}></FilterSelectionType>
-            <FilterSelectionType title="Time Periods" pillsInfo={filters.timePeriods} onEditRequest={() => handleEditRequest("timePeriods")}></FilterSelectionType>
-            <FilterSelectionType title="Languages" pillsInfo={filters.languages} onEditRequest={() => handleEditRequest("languages")}></FilterSelectionType>
+                <SectionHeader title="Mood" />
+                {moods.length === 0 ? (
+                    <Text variant="caption" color="textFaint">
+                        No moods yet — they appear once songs are tagged.
+                    </Text>
+                ) : (
+                    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: theme.space.sm }}>
+                        {moods.map((m) => (
+                            <Chip key={m.id} label={m.name} state={m.status === "include" ? "selected" : "idle"} onPress={() => toggleMood(m.id)} />
+                        ))}
+                    </View>
+                )}
 
-            {/* Modal */}
-            <ModalPopupTemplate visible={modalVisible} onRequestClose={() => setModalVisible(false)}>
-                {modalContents}
-            </ModalPopupTemplate>
-        </View>
-        <PlayerBar></PlayerBar>
-        </>
+                <SectionHeader title="Energy" actionLabel={energyEnabled ? "On" : "Off"} onAction={() => setEnergyEnabled((v) => !v)} />
+                {energyEnabled ? (
+                    <>
+                        <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: theme.space.xs }}>
+                            <Text variant="caption" color="textFaint">
+                                Mellow
+                            </Text>
+                            <Text variant="caption" color="accent">
+                                Energy {energyStart}–{energyStart + 2}
+                            </Text>
+                            <Text variant="caption" color="textFaint">
+                                Driving
+                            </Text>
+                        </View>
+                        <Slider
+                            minimumValue={1}
+                            maximumValue={8}
+                            step={1}
+                            value={energyStart}
+                            onValueChange={setEnergyStart}
+                            minimumTrackTintColor={theme.color.accent}
+                            maximumTrackTintColor={theme.color.line}
+                            thumbTintColor={theme.color.accent}
+                        />
+                    </>
+                ) : (
+                    <Text variant="caption" color="textFaint">
+                        Any energy.
+                    </Text>
+                )}
+
+                <SectionHeader title="Include &amp; exclude" />
+                <Text variant="caption" color="textFaint" style={{ marginBottom: theme.space.sm }}>
+                    Tap once to include, twice to exclude.
+                </Text>
+                {CATEGORIES.map((cat) => {
+                    const list = items[cat.key];
+                    const inc = list.filter((i) => i.status === "include").length;
+                    const exc = list.filter((i) => i.status === "exclude").length;
+                    const summary = inc || exc ? `${inc} in${exc ? ` · ${exc} out` : ""}` : "Any";
+                    return (
+                        <View key={cat.key}>
+                            <Pressable
+                                onPress={() => toggleExpanded(cat.key)}
+                                style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: theme.space.md }}
+                            >
+                                <View>
+                                    <Text variant="bodyStrong">{cat.label}</Text>
+                                    <Text variant="caption" color="textFaint" style={{ marginTop: 2 }}>
+                                        {summary}
+                                    </Text>
+                                </View>
+                                <Ionicons name={expanded[cat.key] ? "chevron-up" : "chevron-down"} size={18} color={theme.color.textFaint} />
+                            </Pressable>
+                            {expanded[cat.key] ? (
+                                list.length === 0 ? (
+                                    <Text variant="caption" color="textFaint" style={{ paddingBottom: theme.space.sm }}>
+                                        None available.
+                                    </Text>
+                                ) : (
+                                    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: theme.space.sm, paddingBottom: theme.space.md }}>
+                                        {list.map((it) => (
+                                            <Chip
+                                                key={it.id}
+                                                label={it.name}
+                                                state={it.status === "include" ? "selected" : it.status === "exclude" ? "excluded" : "idle"}
+                                                onPress={() => cycleItem(cat.key, it.id)}
+                                            />
+                                        ))}
+                                    </View>
+                                )
+                            ) : null}
+                            <Divider />
+                        </View>
+                    );
+                })}
+
+                <SectionHeader title="Save this jam" />
+                <TextField placeholder="Jam name (e.g. Late Night)" value={jamName} onChangeText={setJamName} autoCapitalize="words" />
+                <Button
+                    label={saved ? "Saved ✓" : "Save jam"}
+                    variant="ghost"
+                    full
+                    onPress={handleSave}
+                    disabled={!jamName.trim()}
+                    style={{ marginTop: theme.space.sm }}
+                />
+            </ScrollView>
+            <PlayerBar />
+        </Screen>
     );
 }
-
-const styles = StyleSheet.create({
-    whitelistText: {
-        fontSize: 20,
-    },
-    blacklistText: {
-        fontSize: 20,
-        paddingTop: 10,
-    },
-    clickModalText: {
-        fontSize: 16
-    },
-    modalGrayView: {
-        backgroundColor: "#00000055",
-        width: "100%",
-        height: "100%"
-    },
-    modalView: {
-        backgroundColor: "white",
-        height: "85%",
-        width: "80%",
-        margin: "auto"
-    },
-});

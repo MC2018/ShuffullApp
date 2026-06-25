@@ -1,16 +1,17 @@
-import { useEffect, useState } from "react";
-import { ImageURISource, Pressable, View } from "react-native";
-import { router } from "expo-router";
+import { useCallback, useEffect, useState } from "react";
+import { ImageURISource, Pressable, ScrollView, View } from "react-native";
+import { router, useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { State, usePlaybackState } from "react-native-track-player";
 import { useDb } from "@/app/services/db/DbProvider";
 import DbQueries from "@/app/services/db/queries";
 import { SongDetails } from "@/app/services/db/types";
-import { Song } from "@/app/services/db/models";
+import { GenreJam, Song } from "@/app/services/db/models";
 import { Downloader } from "@/app/services/downloader/Downloader";
 import { useActiveSong } from "@/app/services/media-manager/mediaManager";
 import { MediaManager } from "@/app/services/media-manager";
 import { logout } from "@/app/services/auth/auth";
+import { jamSummary, launchJam } from "@/app/services/genre-jam";
 import PlayerBar, { totalPlayerBarHeight } from "@/app/components/music-control/organisms/PlayerBar";
 import { AlbumArt, Card, IconButton, Screen, SectionHeader, Text } from "@/app/components/ui";
 import { useTheme } from "@/app/theme";
@@ -26,6 +27,7 @@ export default function HomeScreen() {
     const isPlaying = playback.state === State.Playing;
     const [details, setDetails] = useState<SongDetails | null>(null);
     const [art, setArt] = useState<ArtSource>(defaultArt);
+    const [jams, setJams] = useState<GenreJam[]>([]);
 
     useEffect(() => {
         let cancelled = false;
@@ -50,6 +52,22 @@ export default function HomeScreen() {
         };
     }, [songId]);
 
+    // Reload saved jams whenever Home regains focus (e.g. after saving one in the builder).
+    useFocusEffect(
+        useCallback(() => {
+            let cancelled = false;
+            (async () => {
+                const all = await DbQueries.getGenreJams(db);
+                if (!cancelled) {
+                    setJams(all);
+                }
+            })();
+            return () => {
+                cancelled = true;
+            };
+        }, [db]),
+    );
+
     const togglePlay = async () => {
         if (await MediaManager.isPlaying()) {
             await MediaManager.pause();
@@ -62,7 +80,7 @@ export default function HomeScreen() {
 
     return (
         <Screen>
-            <View style={{ flex: 1, paddingBottom: totalPlayerBarHeight }}>
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: totalPlayerBarHeight + theme.space.xl }}>
                 <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: theme.space.md, marginBottom: theme.space.sm }}>
                     <Text variant="screenTitle">Home</Text>
                     <IconButton name="log-out-outline" size={22} color={theme.color.textMuted} onPress={logout} accessibilityLabel="Log out" />
@@ -114,7 +132,30 @@ export default function HomeScreen() {
                         </View>
                     </Card>
                 </Pressable>
-            </View>
+
+                {jams.length > 0 ? (
+                    <>
+                        <SectionHeader title="Your Jams" />
+                        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: theme.space.md, paddingRight: theme.space.md }}>
+                            {jams.map((jam) => (
+                                <Pressable key={jam.genreJamId} onPress={() => launchJam(jam)}>
+                                    <Card style={{ width: 150 }}>
+                                        <View style={{ height: 54, borderRadius: theme.radius.md, backgroundColor: theme.color.accentWash, alignItems: "center", justifyContent: "center", marginBottom: theme.space.sm }}>
+                                            <Ionicons name="play" size={20} color={theme.color.accent} />
+                                        </View>
+                                        <Text variant="bodyStrong" numberOfLines={1}>
+                                            {jam.name}
+                                        </Text>
+                                        <Text variant="caption" color="textFaint" numberOfLines={1}>
+                                            {jamSummary(jam)}
+                                        </Text>
+                                    </Card>
+                                </Pressable>
+                            ))}
+                        </ScrollView>
+                    </>
+                ) : null}
+            </ScrollView>
             <PlayerBar />
         </Screen>
     );

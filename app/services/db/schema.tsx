@@ -28,6 +28,8 @@ export const songTable = sqliteTable("songs", {
     lyricsInstrumental: integer("lyrics_instrumental", { mode: "boolean" }).notNull().default(false),
     lyricsSource: text("lyrics_source"),
     bpm: integer("bpm"),
+    // Best-effort 1-10 perceived intensity/drive score from the producer's AI (null when unknown).
+    energy: integer("energy"),
 }, (table) => {
     return {
         nameIndex: index("idx_songs_name").on(table.name),
@@ -59,7 +61,8 @@ export const songArtistTable = sqliteTable("song_artists", {
 export enum TagType {
     Genre = 0,
     TimePeriod = 1,
-    Language = 2
+    Language = 2,
+    Mood = 3
 };
 
 export const tagTable = sqliteTable("tags", {
@@ -128,4 +131,8 @@ export const genreJamTable = sqliteTable("genre_jam", {
     name: text("name").notNull(),
     whitelists: text("whitelists", { mode: "json" }).$type<WhitelistSetting>().notNull(),
     blacklists: text("blacklists", { mode: "json" }).$type<WhitelistSetting>().notNull(),
+    // Energy band [energyMin, energyMax] (1-10); null = any. Songs with unknown energy are still included.
+    // Stored as explicit min/max so moving to a fully custom range later is a trivial change.
+    energyMin: integer("energy_min"),
+    energyMax: integer("energy_max"),
 });

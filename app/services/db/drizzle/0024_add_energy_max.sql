@@ -1,0 +1,1 @@
+ALTER TABLE `genre_jam` ADD `energy_max` integer;

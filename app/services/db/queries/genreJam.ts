@@ -16,3 +16,11 @@ export async function getGenreJam(db: GenericDb, genreJamId: string): Promise<Ge
 
     return genreJam[0];
 }
+
+export async function getGenreJams(db: GenericDb): Promise<GenreJam[]> {
+    return await db.select().from(genreJamTable).orderBy(asc(genreJamTable.name));
+}
+
+export async function deleteGenreJam(db: GenericDb, genreJamId: string): Promise<void> {
+    await db.delete(genreJamTable).where(eq(genreJamTable.genreJamId, genreJamId));
+}
