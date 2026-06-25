@@ -96,3 +96,8 @@ export type Playlist = z.infer<typeof PlaylistSchema>;
 export const PlaylistListResponseSchema = z.object({
     playlists: PlaylistListSchema
 });
+
+// PUT /api/v1/playlists?name=... -> { playlist: {...} }
+export const CreatePlaylistResponseSchema = z.object({
+    playlist: PlaylistSchema
+});

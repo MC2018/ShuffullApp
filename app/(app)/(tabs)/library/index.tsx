@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect } from "react";
+import React, { useCallback } from "react";
 import { Alert, ScrollView, View } from "react-native";
 import { router, useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -18,21 +18,20 @@ export default function LibraryScreen() {
     const db = useDb();
     const theme = useTheme();
 
-    useEffect(() => {
-        (async () => {
-            setPlaylists(await DbQueries.getPlaylists(db, userId));
-        })();
-    }, [userId]);
+    const loadPlaylists = useCallback(async () => {
+        setPlaylists(await DbQueries.getPlaylists(db, userId));
+    }, [db, userId]);
 
     const loadJams = useCallback(async () => {
         setJams(await DbQueries.getGenreJams(db));
     }, [db]);
 
-    // Reload jams on focus so a newly-saved or deleted jam shows up immediately.
+    // Reload playlists + jams on focus so a newly created/deleted one shows up immediately.
     useFocusEffect(
         useCallback(() => {
+            loadPlaylists();
             loadJams();
-        }, [loadJams]),
+        }, [loadPlaylists, loadJams]),
     );
 
     const confirmDelete = (jam: GenreJam) => {

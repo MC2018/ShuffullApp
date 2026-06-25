@@ -1,5 +1,5 @@
 import axios, { AxiosInstance } from "axios";
-import { AuthenticateResponse, AuthenticateResponseSchema, Playlist, PlaylistListResponseSchema, SongListResponseSchema, Tag, TagListResponseSchema, UserResponseSchema, UserSongPageSchema } from "./models";
+import { AuthenticateResponse, AuthenticateResponseSchema, CreatePlaylistResponseSchema, Playlist, PlaylistListResponseSchema, SongListResponseSchema, Tag, TagListResponseSchema, UserResponseSchema, UserSongPageSchema } from "./models";
 import { ApiStatusFailureError } from "./errors";
 import { UpdateSongLastPlayedRequest } from "../db/models";
 
@@ -122,6 +122,56 @@ export class ApiClient {
             return PlaylistListResponseSchema.parse(response.data).playlists;
         } catch (error) {
             console.log(`[API] Endpoint ${endpoint} failed with error:`, error);
+            throw error;
+        }
+    }
+
+    public async playlistCreate(name: string): Promise<Playlist> {
+        const endpoint = "/api/v1/playlists";
+        console.log(`[API] Calling endpoint: ${endpoint} (create)`);
+        try {
+            const response = await this.client.put(endpoint, null, { params: { name } });
+
+            if (!isSuccessfulStatus(response.status)) {
+                console.log(`[API] Endpoint ${endpoint} failed with status: ${response.status}`);
+                throw new ApiStatusFailureError(endpoint, response);
+            }
+
+            return CreatePlaylistResponseSchema.parse(response.data).playlist;
+        } catch (error) {
+            console.log(`[API] Endpoint ${endpoint} (create) failed with error:`, error);
+            throw error;
+        }
+    }
+
+    public async playlistAddSong(playlistId: string, songId: string): Promise<void> {
+        const endpoint = `/api/v1/playlists/${playlistId}/songs`;
+        console.log(`[API] Calling endpoint: ${endpoint} (add)`);
+        try {
+            const response = await this.client.post(endpoint, null, { params: { songId } });
+
+            if (!isSuccessfulStatus(response.status)) {
+                console.log(`[API] Endpoint ${endpoint} failed with status: ${response.status}`);
+                throw new ApiStatusFailureError(endpoint, response);
+            }
+        } catch (error) {
+            console.log(`[API] Endpoint ${endpoint} (add) failed with error:`, error);
+            throw error;
+        }
+    }
+
+    public async playlistRemoveSong(playlistId: string, songId: string): Promise<void> {
+        const endpoint = `/api/v1/playlists/${playlistId}/songs/${songId}`;
+        console.log(`[API] Calling endpoint: ${endpoint} (remove)`);
+        try {
+            const response = await this.client.delete(endpoint);
+
+            if (!isSuccessfulStatus(response.status)) {
+                console.log(`[API] Endpoint ${endpoint} failed with status: ${response.status}`);
+                throw new ApiStatusFailureError(endpoint, response);
+            }
+        } catch (error) {
+            console.log(`[API] Endpoint ${endpoint} (remove) failed with error:`, error);
             throw error;
         }
     }

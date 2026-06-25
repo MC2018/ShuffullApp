@@ -11,6 +11,7 @@ import { MediaManager } from "@/app/services/media-manager";
 import PlayerBar, { totalPlayerBarHeight } from "@/app/components/music-control/organisms/PlayerBar";
 import RatingControl from "@/app/components/likes/atoms/RatingControl";
 import SongDownloadControl from "@/app/components/downloading/atoms/SongDownloadControl";
+import AddToPlaylistSheet from "@/app/components/playlists/AddToPlaylistSheet";
 import { AlbumArt, Chip, IconButton, Screen, SectionHeader, Text } from "@/app/components/ui";
 import { useTheme } from "@/app/theme";
 
@@ -25,6 +26,7 @@ export default function SongScreen() {
     const [details, setDetails] = useState<SongDetails | null>(null);
     const [tags, setTags] = useState<Tag[]>([]);
     const [art, setArt] = useState<ArtSource>(defaultArt);
+    const [showPlaylistSheet, setShowPlaylistSheet] = useState(false);
 
     useEffect(() => {
         if (songId == undefined) {
@@ -129,6 +131,13 @@ export default function SongScreen() {
                         <View style={{ flexDirection: "row", alignItems: "center", gap: theme.space.lg }}>
                             <RatingControl songId={details.song.songId} />
                             <SongDownloadControl song={details.song} />
+                            <IconButton
+                                name="add-circle-outline"
+                                size={24}
+                                color={theme.color.textMuted}
+                                onPress={() => setShowPlaylistSheet(true)}
+                                accessibilityLabel="Add to playlist"
+                            />
                         </View>
                         <IconButton
                             name="play"
@@ -170,6 +179,7 @@ export default function SongScreen() {
                 </ScrollView>
             </View>
             <PlayerBar />
+            <AddToPlaylistSheet songId={details.song.songId} visible={showPlaylistSheet} onClose={() => setShowPlaylistSheet(false)} />
         </Screen>
     );
 }
