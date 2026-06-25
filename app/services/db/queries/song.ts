@@ -23,6 +23,8 @@ export async function getFilteredSong(db: GenericDb, songFilters: SongFilters) {
     const blacklistTimePeriods = JSON.stringify(songFilters.blacklists.timePeriodIds);
     const whitelistMoods = JSON.stringify(songFilters.whitelists.moodIds ?? []);
     const blacklistMoods = JSON.stringify(songFilters.blacklists.moodIds ?? []);
+    const whitelistThemes = JSON.stringify(songFilters.whitelists.themeIds ?? []);
+    const blacklistThemes = JSON.stringify(songFilters.blacklists.themeIds ?? []);
     const whitelistsEmpty = !songFilters.hasAnyWhitelistFilter();
     const blacklistsEmpty = !songFilters.hasAnyBlacklistFilter();
 
@@ -93,6 +95,14 @@ export async function getFilteredSong(db: GenericDb, songFilters: SongFilters) {
                             SELECT value FROM json_each(${whitelistMoods})
                         )
                     ))
+                    AND (${whitelistThemes} = '[]' OR EXISTS (
+                        SELECT 1
+                        FROM song_tags st
+                        WHERE st.song_id = s.song_id
+                        AND st.tag_id IN (
+                            SELECT value FROM json_each(${whitelistThemes})
+                        )
+                    ))
                 )
             )
             AND (
@@ -143,6 +153,14 @@ export async function getFilteredSong(db: GenericDb, songFilters: SongFilters) {
                         WHERE st.song_id = s.song_id
                         AND st.tag_id IN (
                             SELECT value FROM json_each(${blacklistMoods})
+                        )
+                    )
+                    OR EXISTS (
+                        SELECT 1
+                        FROM song_tags st
+                        WHERE st.song_id = s.song_id
+                        AND st.tag_id IN (
+                            SELECT value FROM json_each(${blacklistThemes})
                         )
                     )
                 )

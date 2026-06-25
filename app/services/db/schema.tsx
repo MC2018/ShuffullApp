@@ -62,7 +62,8 @@ export enum TagType {
     Genre = 0,
     TimePeriod = 1,
     Language = 2,
-    Mood = 3
+    Mood = 3,
+    Theme = 4
 };
 
 export const tagTable = sqliteTable("tags", {

@@ -36,7 +36,7 @@ function nextStatus(s: FilterStatus): FilterStatus {
 }
 
 function emptyWhitelist(): WhitelistSetting {
-    return { artistIds: [], playlistIds: [], genreIds: [], timePeriodIds: [], languageIds: [], moodIds: [] };
+    return { artistIds: [], playlistIds: [], genreIds: [], timePeriodIds: [], languageIds: [], moodIds: [], themeIds: [] };
 }
 
 // The reworked Genre Jam builder/editor. An empty jam already means "whole library, minus dislikes, leaning to
@@ -57,6 +57,7 @@ export default function GenreJamEditor() {
         playlists: [],
     });
     const [moods, setMoods] = useState<FilterItem[]>([]);
+    const [themes, setThemes] = useState<FilterItem[]>([]);
     const [expanded, setExpanded] = useState<Record<Category, boolean>>({
         genres: false,
         artists: false,
@@ -106,6 +107,15 @@ export default function GenreJamEditor() {
                 })),
             );
 
+            const themeIncludes = new Set(editing?.whitelists?.themeIds ?? []);
+            const themeExcludes = new Set(editing?.blacklists?.themeIds ?? []);
+            setThemes(
+                tagItems(TagType.Theme).map((t) => ({
+                    ...t,
+                    status: themeIncludes.has(t.id) ? "include" : themeExcludes.has(t.id) ? "exclude" : ("none" as FilterStatus),
+                })),
+            );
+
             if (editing) {
                 setJamName(editing.name);
                 if (editing.energyMin != null) {
@@ -125,6 +135,10 @@ export default function GenreJamEditor() {
     const toggleMood = (id: string) => {
         setMoods((prev) => prev.map((m) => (m.id === id ? { ...m, status: m.status === "include" ? "none" : "include" } : m)));
     };
+    // Themes cycle include -> exclude -> none so a theme can be required OR buried (e.g. exclude Christmas).
+    const cycleTheme = (id: string) => {
+        setThemes((prev) => prev.map((t) => (t.id === id ? { ...t, status: nextStatus(t.status) } : t)));
+    };
     const toggleExpanded = (cat: Category) => setExpanded((prev) => ({ ...prev, [cat]: !prev[cat] }));
 
     const buildJam = (name: string): GenreJam => {
@@ -140,6 +154,8 @@ export default function GenreJamEditor() {
             }
         }
         whitelists.moodIds = moods.filter((m) => m.status === "include").map((m) => m.id);
+        whitelists.themeIds = themes.filter((t) => t.status === "include").map((t) => t.id);
+        blacklists.themeIds = themes.filter((t) => t.status === "exclude").map((t) => t.id);
         return {
             genreJamId: editingId ?? generateId(),
             name,
@@ -201,6 +217,29 @@ export default function GenreJamEditor() {
                             <Chip key={m.id} label={m.name} state={m.status === "include" ? "selected" : "idle"} onPress={() => toggleMood(m.id)} />
                         ))}
                     </View>
+                )}
+
+                <SectionHeader title="Themes" />
+                {themes.length === 0 ? (
+                    <Text variant="caption" color="textFaint">
+                        No themes yet — they appear once songs are tagged.
+                    </Text>
+                ) : (
+                    <>
+                        <Text variant="caption" color="textFaint" style={{ marginBottom: theme.space.sm }}>
+                            Tap once to include, twice to exclude (e.g. bury Christmas).
+                        </Text>
+                        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: theme.space.sm }}>
+                            {themes.map((t) => (
+                                <Chip
+                                    key={t.id}
+                                    label={t.name}
+                                    state={t.status === "include" ? "selected" : t.status === "exclude" ? "excluded" : "idle"}
+                                    onPress={() => cycleTheme(t.id)}
+                                />
+                            ))}
+                        </View>
+                    </>
                 )}
 
                 <SectionHeader title="Energy" actionLabel={energyEnabled ? "On" : "Off"} onAction={() => setEnergyEnabled((v) => !v)} />

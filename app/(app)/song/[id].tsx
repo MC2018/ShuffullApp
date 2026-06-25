@@ -55,6 +55,7 @@ export default function SongScreen() {
     const tagNames = (type: TagType) => tags.filter((t) => t.type === type).map((t) => t.name);
     const genres = tagNames(TagType.Genre);
     const moods = tagNames(TagType.Mood);
+    const themes = tagNames(TagType.Theme);
     const eras = tagNames(TagType.TimePeriod);
     const languages = tagNames(TagType.Language);
 
@@ -160,6 +161,13 @@ export default function SongScreen() {
                         <>
                             <SectionHeader title="Mood" />
                             <ChipRow items={moods} />
+                        </>
+                    ) : null}
+
+                    {themes.length > 0 ? (
+                        <>
+                            <SectionHeader title="Themes" />
+                            <ChipRow items={themes} />
                         </>
                     ) : null}
 

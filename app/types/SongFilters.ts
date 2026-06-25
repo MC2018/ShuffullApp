@@ -2,11 +2,11 @@ import { GenreJam } from "../services/db/models";
 import { WhitelistSetting } from "../services/db/types";
 
 function emptyWhitelist(): WhitelistSetting {
-    return { artistIds: [], playlistIds: [], genreIds: [], timePeriodIds: [], languageIds: [], moodIds: [] };
+    return { artistIds: [], playlistIds: [], genreIds: [], timePeriodIds: [], languageIds: [], moodIds: [], themeIds: [] };
 }
 
-// Normalizes a possibly-partial WhitelistSetting (e.g. a jam saved before moodIds existed) so every id
-// array is present.
+// Normalizes a possibly-partial WhitelistSetting (e.g. a jam saved before moodIds/themeIds existed) so every
+// id array is present.
 function normalizeWhitelist(w: WhitelistSetting): WhitelistSetting {
     return {
         artistIds: w.artistIds ?? [],
@@ -15,6 +15,7 @@ function normalizeWhitelist(w: WhitelistSetting): WhitelistSetting {
         timePeriodIds: w.timePeriodIds ?? [],
         languageIds: w.languageIds ?? [],
         moodIds: w.moodIds ?? [],
+        themeIds: w.themeIds ?? [],
     };
 }
 
@@ -24,7 +25,8 @@ function anySet(w: WhitelistSetting): boolean {
         || w.genreIds.length > 0
         || w.timePeriodIds.length > 0
         || w.languageIds.length > 0
-        || (w.moodIds?.length ?? 0) > 0;
+        || (w.moodIds?.length ?? 0) > 0
+        || (w.themeIds?.length ?? 0) > 0;
 }
 
 export class SongFilters {
@@ -70,6 +72,9 @@ export class SongFilters {
             case SongFilterType.Mood:
                 this.whitelists.moodIds = ids;
                 break;
+            case SongFilterType.Theme:
+                this.whitelists.themeIds = ids;
+                break;
         }
     }
 
@@ -92,5 +97,6 @@ export enum SongFilterType {
     Genre,
     TimePeriod,
     Language,
-    Mood
+    Mood,
+    Theme
 };
