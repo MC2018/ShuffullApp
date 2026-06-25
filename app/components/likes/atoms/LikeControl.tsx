@@ -1,27 +1,32 @@
 import { useEffect, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, View } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { useDb } from "@/app/services/db/DbProvider";
 import { useCurrentUser } from "@/app/services/auth/CurrentUserProvider";
 import DbQueries from "@/app/services/db/queries";
 import { generateId } from "@/app/tools";
 import { LikeStatus, RequestType } from "@/app/enums";
+import { useTheme } from "@/app/theme";
+import Text from "@/app/components/ui/Text";
 
 interface LikeControlProps {
     songId: string;
 }
 
-const OPTIONS: { status: LikeStatus; label: string }[] = [
-    { status: LikeStatus.Like, label: "♥ Like" },
-    { status: LikeStatus.Love, label: "♥♥ Love" },
-    { status: LikeStatus.Dislike, label: "✕ Dislike" },
+const OPTIONS: { status: LikeStatus; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
+    { status: LikeStatus.Like, label: "Like", icon: "heart-outline" },
+    { status: LikeStatus.Love, label: "Love", icon: "heart" },
+    { status: LikeStatus.Dislike, label: "Not for me", icon: "close" },
 ];
 
 // Like / Love / Dislike for the current song. Optimistic: it updates the local UserSong immediately and
 // queues a SetSongLikeStatus request for the sync loop to POST. Tapping the active choice clears it back to
-// Neutral. Dislike = never play again (enforced in the shuffle query).
+// Neutral. Dislike = never play again (enforced in the shuffle query); shown as a neutral fill rather than
+// red, since the accent itself reads as "liked".
 export default function LikeControl({ songId }: LikeControlProps) {
     const db = useDb();
     const userId = useCurrentUser();
+    const theme = useTheme();
     const [status, setStatus] = useState<LikeStatus>(LikeStatus.Neutral);
 
     useEffect(() => {
@@ -32,7 +37,9 @@ export default function LikeControl({ songId }: LikeControlProps) {
                 setStatus((userSong?.likeStatus as LikeStatus) ?? LikeStatus.Neutral);
             }
         })();
-        return () => { cancelled = true; };
+        return () => {
+            cancelled = true;
+        };
     }, [db, userId, songId]);
 
     const choose = async (choice: LikeStatus) => {
@@ -40,60 +47,48 @@ export default function LikeControl({ songId }: LikeControlProps) {
         setStatus(next);
         // Optimistic local update, then queue the sync push (matching mediaManager's request pattern).
         await DbQueries.setUserSongLikeStatus(db, userId, songId, next);
-        await DbQueries.addRequests(db, [{
-            requestId: generateId(),
-            timeRequested: new Date(),
-            requestType: RequestType.SetSongLikeStatus,
-            userId,
-            songId,
-            likeStatus: next,
-        }]);
+        await DbQueries.addRequests(db, [
+            {
+                requestId: generateId(),
+                timeRequested: new Date(),
+                requestType: RequestType.SetSongLikeStatus,
+                userId,
+                songId,
+                likeStatus: next,
+            },
+        ]);
     };
 
     return (
-        <View style={styles.row}>
-            {OPTIONS.map(opt => {
+        <View style={{ flexDirection: "row", justifyContent: "center", gap: theme.space.sm }}>
+            {OPTIONS.map((opt) => {
                 const active = status === opt.status;
-                const activeStyle = opt.status === LikeStatus.Dislike ? styles.activeDislike : styles.active;
+                const isDislike = opt.status === LikeStatus.Dislike;
+                const bg = active ? (isDislike ? theme.color.neutralFill : theme.color.accent) : theme.color.surface;
+                const fg = active ? (isDislike ? theme.color.textFaint : theme.color.onAccent) : theme.color.textMuted;
                 return (
                     <Pressable
                         key={opt.status}
                         onPress={() => choose(opt.status)}
-                        style={[styles.btn, active && activeStyle]}
+                        style={{
+                            flexDirection: "row",
+                            alignItems: "center",
+                            gap: 6,
+                            paddingVertical: theme.space.sm,
+                            paddingHorizontal: theme.space.md,
+                            borderRadius: theme.radius.pill,
+                            backgroundColor: bg,
+                            borderWidth: 1,
+                            borderColor: active ? "transparent" : theme.color.line,
+                        }}
                     >
-                        <Text style={[styles.label, active && styles.activeLabel]}>{opt.label}</Text>
+                        <Ionicons name={opt.icon} size={14} color={fg} />
+                        <Text variant="label" style={{ color: fg }}>
+                            {opt.label}
+                        </Text>
                     </Pressable>
                 );
             })}
         </View>
     );
 }
-
-const styles = StyleSheet.create({
-    row: {
-        flexDirection: "row",
-        justifyContent: "center",
-        gap: 8,
-        marginTop: 8,
-    },
-    btn: {
-        paddingVertical: 6,
-        paddingHorizontal: 12,
-        borderRadius: 16,
-        backgroundColor: "#eee",
-    },
-    active: {
-        backgroundColor: "#1d6ad1",
-    },
-    activeDislike: {
-        backgroundColor: "#c0392b",
-    },
-    label: {
-        fontSize: 13,
-        color: "#444",
-        fontWeight: "600",
-    },
-    activeLabel: {
-        color: "#fff",
-    },
-});

@@ -1,28 +1,48 @@
-import { useEffect, useState } from "react";
-import { Image, ImageURISource, Pressable, StyleSheet, Text, View } from "react-native";
+import { useEffect, useRef, useState } from "react";
+import { Animated, Easing, ImageURISource, LayoutChangeEvent, Pressable, useWindowDimensions, View } from "react-native";
 import { router } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
 import { useActiveSong } from "@/app/services/media-manager/mediaManager";
 import { useDb } from "@/app/services/db/DbProvider";
 import DbQueries from "@/app/services/db/queries";
 import { SongDetails } from "@/app/services/db/types";
 import { Song } from "@/app/services/db/models";
 import { Downloader } from "@/app/services/downloader/Downloader";
-import PlayPauseButton from "@/app/components/music-control/atoms/PlayPauseButton";
 import Skimmer from "@/app/components/music-control/atoms/Skimmer";
+import Transport from "@/app/components/music-control/molecules/Transport";
 import LyricsView from "@/app/components/lyrics/organisms/LyricsView";
 import LikeControl from "@/app/components/likes/atoms/LikeControl";
+import { AlbumArt, IconButton, Screen, Text } from "@/app/components/ui";
+import { useTheme } from "@/app/theme";
 
 const defaultArt: ImageURISource = require("@/assets/images/default-album-art.jpg");
 
 type ArtSource = ImageURISource | { uri: string };
 
-// Full-screen "now playing": album art + transport on top, lyrics filling the rest. Reached by tapping
-// the PlayerBar. Tracks the active song so it follows skips/auto-advance.
+const COMPACT_ART = 56; // thumbnail size when lyrics are open
+const OPEN_MS = 250;
+const CLOSE_MS = 190;
+// Snappy decelerate on open (fast out, soft settle); quick accelerate on close.
+const OPEN_EASING = Easing.bezier(0.22, 1, 0.36, 1);
+const CLOSE_EASING = Easing.bezier(0.4, 0, 1, 1);
+
+// Full-screen "now playing". Lyrics are hidden by default (YT-Music style): the art sits large and the
+// transport/likes are below. Tapping "Lyrics" animates the art shrinking into the top-left, the title
+// sliding up beside it, and the lyrics fading in — the bottom controls stay pinned. The toggle persists
+// across songs.
 export default function NowPlayingScreen() {
+    const theme = useTheme();
     const db = useDb();
+    const { width } = useWindowDimensions();
+    const artSize = Math.min(width - 96, 300);
     const { songId } = useActiveSong();
     const [details, setDetails] = useState<SongDetails | null>(null);
     const [art, setArt] = useState<ArtSource>(defaultArt);
+
+    const [showLyrics, setShowLyrics] = useState(false);
+    const [lyricsMounted, setLyricsMounted] = useState(false);
+    const [box, setBox] = useState({ w: 0, h: 0 });
+    const progress = useRef(new Animated.Value(0)).current;
 
     useEffect(() => {
         let cancelled = false;
@@ -42,37 +62,168 @@ export default function NowPlayingScreen() {
                 // Song may have just changed out from under us; ignore.
             }
         })();
-        return () => { cancelled = true; };
+        return () => {
+            cancelled = true;
+        };
     }, [songId]);
 
+    const toggleLyrics = () => {
+        if (!showLyrics) {
+            setShowLyrics(true);
+            setLyricsMounted(true);
+            Animated.timing(progress, { toValue: 1, duration: OPEN_MS, easing: OPEN_EASING, useNativeDriver: true }).start();
+        } else {
+            setShowLyrics(false);
+            Animated.timing(progress, { toValue: 0, duration: CLOSE_MS, easing: CLOSE_EASING, useNativeDriver: true }).start(({ finished }) => {
+                if (finished) {
+                    setLyricsMounted(false);
+                }
+            });
+        }
+    };
+
+    const onUpperLayout = (e: LayoutChangeEvent) => {
+        const { width: w, height: h } = e.nativeEvent.layout;
+        setBox((prev) => (prev.w === w && prev.h === h ? prev : { w, h }));
+    };
+
+    const song = details?.song;
+    const artistText = details && details.artists.length > 0 ? details.artists.map((a) => a.name).join(", ") : "Unknown Artist";
+    const hasLyrics = !!(song && (song.syncedLyrics || song.plainLyrics || song.lyricsInstrumental));
+    const showToggle = hasLyrics || showLyrics;
+
+    // Geometry: art animates from big+centered (progress 0) to COMPACT_ART top-left (progress 1).
+    const tx0 = (box.w - artSize) / 2;
+    const ty0 = Math.max(8, (box.h - artSize) / 2 - 24);
+    const s1 = COMPACT_ART / (artSize || 1);
+    const tx1 = (COMPACT_ART - artSize) / 2;
+    const ty1 = 8 + (COMPACT_ART - artSize) / 2;
+    const bigMetaTop = ty0 + artSize + theme.space.lg;
+
+    const artTransform = {
+        transform: [
+            { translateX: progress.interpolate({ inputRange: [0, 1], outputRange: [tx0, tx1] }) },
+            { translateY: progress.interpolate({ inputRange: [0, 1], outputRange: [ty0, ty1] }) },
+            { scale: progress.interpolate({ inputRange: [0, 1], outputRange: [1, s1] }) },
+        ],
+    };
+    // Crisp sequencing: big title clears early, then the compact title and lyrics arrive as the art settles.
+    const bigMetaOpacity = progress.interpolate({ inputRange: [0, 0.25], outputRange: [1, 0], extrapolate: "clamp" });
+    const compactMetaOpacity = progress.interpolate({ inputRange: [0.45, 0.8], outputRange: [0, 1], extrapolate: "clamp" });
+    // Lyrics get a visible fade-in window plus a small upward drift so they ease in rather than blink on.
+    const lyricsOpacity = progress.interpolate({ inputRange: [0.45, 0.92], outputRange: [0, 1], extrapolate: "clamp" });
+    const lyricsTranslateY = progress.interpolate({ inputRange: [0.45, 1], outputRange: [14, 0], extrapolate: "clamp" });
+
     return (
-        <View style={styles.container}>
-            <Pressable style={styles.closeBtn} onPress={() => router.back()} hitSlop={10}>
-                <Text style={styles.closeText}>✕</Text>
-            </Pressable>
+        <Screen>
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: theme.space.sm }}>
+                <IconButton name="chevron-down" size={26} color={theme.color.textMuted} onPress={() => router.back()} accessibilityLabel="Close" />
+                <Text variant="micro" color="textMuted">
+                    Now Playing
+                </Text>
+                <IconButton name="ellipsis-horizontal" size={20} color={theme.color.textMuted} accessibilityLabel="More" />
+            </View>
 
             {details == null ? (
-                <View style={styles.empty}>
-                    <Text style={styles.emptyText}>Nothing playing</Text>
+                <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
+                    <Text variant="body" color="textFaint">
+                        Nothing playing
+                    </Text>
                 </View>
             ) : (
                 <>
-                    <Image source={art} defaultSource={defaultArt} style={styles.art} />
-                    <Text numberOfLines={1} style={styles.title}>{details.song.name}</Text>
-                    <Text numberOfLines={1} style={styles.artist}>
-                        {details.artists.length > 0 ? details.artists.map(a => a.name).join(", ") : "Unknown Artist"}
-                    </Text>
-                    <Skimmer />
-                    <View style={styles.controls}>
-                        <PlayPauseButton />
+                    {/* Upper area: animated art + meta + lyrics, all absolutely positioned so the art can morph. */}
+                    <View style={{ flex: 1, marginTop: theme.space.sm }} onLayout={onUpperLayout}>
+                        {box.w > 0 && box.h > 0 ? (
+                            <>
+                                {lyricsMounted ? (
+                                    <Animated.View
+                                        pointerEvents={showLyrics ? "auto" : "none"}
+                                        style={{
+                                            position: "absolute",
+                                            left: 0,
+                                            right: 0,
+                                            top: COMPACT_ART + 24,
+                                            bottom: 0,
+                                            opacity: lyricsOpacity,
+                                            transform: [{ translateY: lyricsTranslateY }],
+                                        }}
+                                    >
+                                        <LyricsView song={details.song} />
+                                    </Animated.View>
+                                ) : null}
+
+                                <Animated.View pointerEvents="none" style={{ position: "absolute", left: 0, right: 0, top: bigMetaTop, alignItems: "center", opacity: bigMetaOpacity }}>
+                                    <Text variant="title" numberOfLines={1} style={{ textAlign: "center" }}>
+                                        {details.song.name}
+                                    </Text>
+                                    <Text variant="body" color="textMuted" numberOfLines={1} style={{ textAlign: "center", marginTop: theme.space.xs }}>
+                                        {artistText}
+                                    </Text>
+                                </Animated.View>
+
+                                <Animated.View
+                                    pointerEvents="none"
+                                    style={{ position: "absolute", left: COMPACT_ART + theme.space.md, right: 0, top: 8, height: COMPACT_ART, justifyContent: "center", opacity: compactMetaOpacity }}
+                                >
+                                    <Text variant="bodyStrong" numberOfLines={1}>
+                                        {details.song.name}
+                                    </Text>
+                                    <Text variant="caption" color="textMuted" numberOfLines={1}>
+                                        {artistText}
+                                    </Text>
+                                </Animated.View>
+
+                                <Animated.View pointerEvents="none" style={[{ position: "absolute", left: 0, top: 0, width: artSize, height: artSize }, artTransform]}>
+                                    <AlbumArt source={art} size={artSize} elevated />
+                                </Animated.View>
+                            </>
+                        ) : (
+                            <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+                                <AlbumArt source={art} size={artSize} elevated />
+                            </View>
+                        )}
                     </View>
-                    <LikeControl songId={details.song.songId} />
-                    <View style={styles.lyrics}>
-                        <LyricsView song={details.song} />
+
+                    {/* Bottom controls: always pinned. */}
+                    <View style={{ marginTop: theme.space.md }}>
+                        <Skimmer showTimes />
+                        <View style={{ marginTop: theme.space.md }}>
+                            <Transport />
+                        </View>
+                        <View style={{ marginTop: theme.space.lg }}>
+                            <LikeControl songId={details.song.songId} />
+                        </View>
+                        {showToggle ? (
+                            <View style={{ alignItems: "center", marginTop: theme.space.lg, marginBottom: theme.space.sm }}>
+                                <Pressable
+                                    onPress={toggleLyrics}
+                                    accessibilityRole="button"
+                                    accessibilityLabel={showLyrics ? "Hide lyrics" : "Show lyrics"}
+                                    style={({ pressed }) => ({
+                                        flexDirection: "row",
+                                        alignItems: "center",
+                                        gap: 6,
+                                        paddingVertical: theme.space.sm,
+                                        paddingHorizontal: theme.space.lg,
+                                        borderRadius: theme.radius.pill,
+                                        backgroundColor: theme.color.surface,
+                                        borderWidth: 1,
+                                        borderColor: theme.color.line,
+                                        opacity: pressed ? 0.8 : 1,
+                                    })}
+                                >
+                                    <Ionicons name={showLyrics ? "chevron-down" : "chevron-up"} size={14} color={theme.color.textMuted} />
+                                    <Text variant="label" color="textMuted">
+                                        {showLyrics ? "Hide lyrics" : "Lyrics"}
+                                    </Text>
+                                </Pressable>
+                            </View>
+                        ) : null}
                     </View>
                 </>
             )}
-        </View>
+        </Screen>
     );
 }
 
@@ -83,57 +234,3 @@ async function resolveArt(song: Song): Promise<ArtSource> {
     }
     return { uri: await Downloader.generateServerAlbumArtUrl(song) };
 }
-
-const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        backgroundColor: "#fff",
-        paddingHorizontal: 16,
-    },
-    closeBtn: {
-        alignSelf: "flex-end",
-        padding: 8,
-    },
-    closeText: {
-        fontSize: 20,
-        color: "#444",
-    },
-    empty: {
-        flex: 1,
-        justifyContent: "center",
-        alignItems: "center",
-    },
-    emptyText: {
-        fontSize: 16,
-        color: "#888",
-    },
-    art: {
-        alignSelf: "center",
-        width: 200,
-        height: 200,
-        borderRadius: 12,
-        backgroundColor: "#eee",
-        marginTop: 4,
-    },
-    title: {
-        fontSize: 20,
-        fontWeight: "700",
-        textAlign: "center",
-        marginTop: 16,
-    },
-    artist: {
-        fontSize: 15,
-        color: "#666",
-        textAlign: "center",
-        marginTop: 4,
-    },
-    controls: {
-        flexDirection: "row",
-        justifyContent: "center",
-        alignItems: "center",
-    },
-    lyrics: {
-        flex: 1,
-        marginTop: 8,
-    },
-});

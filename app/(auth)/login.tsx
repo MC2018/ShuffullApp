@@ -1,15 +1,18 @@
-import { Button, Text, TextInput } from "react-native";
 import { useEffect, useState } from "react";
+import { View } from "react-native";
 import { Redirect } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { STORAGE_KEYS } from "@/app/constants/storageKeys";
 import { useAuthStore } from "@/app/services/auth/authStore";
 import { login, register } from "@/app/services/auth/auth";
+import { Button, Screen, Text, TextField } from "@/app/components/ui";
+import { useTheme } from "@/app/theme";
 
 // Login / registration screen. Talks to the auth service directly; on success the service flips the
 // auth store to "authenticated" and this screen redirects into the app. The (app) guard and index
 // redirect cover the inverse direction, so there is no manual navigation here.
 export default function LoginScreen() {
+    const theme = useTheme();
     const status = useAuthStore((state) => state.status);
     const [username, setUsername] = useState("");
     const [password, setPassword] = useState("");
@@ -48,13 +51,23 @@ export default function LoginScreen() {
     };
 
     return (
-        <>
-            <TextInput value={username} onChangeText={setUsername} placeholder="Username" />
-            <TextInput value={password} onChangeText={setPassword} placeholder="Password" secureTextEntry />
-            <TextInput value={hostAddress} onChangeText={setHostAddress} placeholder="Host Address" />
-            <Button title="Login" onPress={attemptLogin}></Button>
-            <Button title="Create account" onPress={attemptRegister}></Button>
-            {error != null && <Text style={{ color: "red" }}>{error}</Text>}
-        </>
+        <Screen>
+            <View style={{ flex: 1, justifyContent: "center", gap: theme.space.md }}>
+                <Text variant="screenTitle" style={{ marginBottom: theme.space.sm }}>
+                    Welcome back
+                </Text>
+                <TextField value={username} onChangeText={setUsername} placeholder="Username" autoCapitalize="none" autoCorrect={false} />
+                <TextField value={password} onChangeText={setPassword} placeholder="Password" secureTextEntry />
+                <TextField value={hostAddress} onChangeText={setHostAddress} placeholder="Host Address" autoCapitalize="none" autoCorrect={false} />
+                <View style={{ height: theme.space.sm }} />
+                <Button label="Login" onPress={attemptLogin} full />
+                <Button label="Create account" variant="ghost" onPress={attemptRegister} full />
+                {error != null ? (
+                    <Text variant="caption" style={{ color: theme.color.accent, textAlign: "center" }}>
+                        {error}
+                    </Text>
+                ) : null}
+            </View>
+        </Screen>
     );
 }
