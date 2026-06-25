@@ -11,7 +11,7 @@ import { Downloader } from "@/app/services/downloader/Downloader";
 import Skimmer from "@/app/components/music-control/atoms/Skimmer";
 import Transport from "@/app/components/music-control/molecules/Transport";
 import LyricsView from "@/app/components/lyrics/organisms/LyricsView";
-import LikeControl from "@/app/components/likes/atoms/LikeControl";
+import RatingControl from "@/app/components/likes/atoms/RatingControl";
 import SongDownloadControl from "@/app/components/downloading/atoms/SongDownloadControl";
 import { AlbumArt, IconButton, Screen, Text } from "@/app/components/ui";
 import { useTheme } from "@/app/theme";
@@ -124,7 +124,13 @@ export default function NowPlayingScreen() {
                 </Text>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: theme.space.sm }}>
                     {details ? <SongDownloadControl song={details.song} /> : null}
-                    <IconButton name="ellipsis-horizontal" size={20} color={theme.color.textMuted} accessibilityLabel="More" />
+                    <IconButton
+                        name="information-circle-outline"
+                        size={22}
+                        color={theme.color.textMuted}
+                        onPress={() => details && router.push({ pathname: "/song/[id]", params: { id: details.song.songId } })}
+                        accessibilityLabel="Song info"
+                    />
                 </View>
             </View>
 
@@ -195,8 +201,8 @@ export default function NowPlayingScreen() {
                         <View style={{ marginTop: theme.space.md }}>
                             <Transport />
                         </View>
-                        <View style={{ marginTop: theme.space.lg }}>
-                            <LikeControl songId={details.song.songId} />
+                        <View style={{ marginTop: theme.space.lg, alignItems: "center" }}>
+                            <RatingControl songId={details.song.songId} gap={theme.space.xl} />
                         </View>
                         {showToggle ? (
                             <View style={{ alignItems: "center", marginTop: theme.space.lg, marginBottom: theme.space.sm }}>

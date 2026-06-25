@@ -77,8 +77,8 @@ export default function PlayerBar() {
         <View
             style={{
                 position: "absolute",
-                left: 0,
-                right: 0,
+                left: theme.space.md,
+                right: theme.space.md,
                 bottom: margin,
                 height: playerBarHeight,
                 borderRadius: theme.radius.lg,

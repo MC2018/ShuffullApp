@@ -239,6 +239,57 @@ export async function getSongDetailsByPlaylist(db: GenericDb, playlistId: string
     return result;
 }
 
+export async function getSongDetailsByArtist(db: GenericDb, artistId: string): Promise<SongDetails[]> {
+    // The songs credited to this artist...
+    const songIdRows = await db
+        .selectDistinct({ songId: songArtistTable.songId })
+        .from(songArtistTable)
+        .where(eq(songArtistTable.artistId, artistId));
+    const songIds = songIdRows.map((r) => r.songId);
+
+    if (songIds.length === 0) {
+        return [];
+    }
+
+    // ...re-joined to ALL their artists, so each SongDetails carries its full credit (a song can have several).
+    const rawData = await db
+        .selectDistinct({
+            song: songTable,
+            artist: artistTable
+        })
+        .from(songTable)
+        .where(inArray(songTable.songId, songIds))
+        .leftJoin(songArtistTable, eq(songTable.songId, songArtistTable.songId))
+        .leftJoin(artistTable, eq(songArtistTable.artistId, artistTable.artistId))
+        .orderBy(asc(songTable.songId));
+
+    const result: SongDetails[] = [];
+    let nextSongDetails: SongDetails | undefined = undefined;
+
+    for (let i = 0; i < rawData.length; i++) {
+        if (nextSongDetails == undefined || rawData[i].song.songId != nextSongDetails.song.songId) {
+            nextSongDetails = {
+                song: rawData[i].song,
+                artists: []
+            };
+        }
+
+        const artist = rawData[i].artist;
+
+        if (artist != null) {
+            nextSongDetails.artists.push(artist);
+        }
+
+        if (i + 1 >= rawData.length || rawData[i + 1].song.songId != nextSongDetails.song.songId) {
+            result.push(nextSongDetails);
+        }
+    }
+
+    // Assembly needs songId ordering; present alphabetically.
+    result.sort((a, b) => a.song.name.localeCompare(b.song.name));
+    return result;
+}
+
 // TODO: this is duplicated code from above, try to remove in the future
 export async function getDownloadedSongDetails(db: GenericDb): Promise<SongDetails[]> {
     const result: SongDetails[] = [];

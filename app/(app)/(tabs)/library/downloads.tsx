@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { View } from "react-native";
+import { router } from "expo-router";
 import DbQueries from "@/app/services/db/queries";
 import { useDb } from "@/app/services/db/DbProvider";
 import PlayerBar, { totalPlayerBarHeight } from "@/app/components/music-control/organisms/PlayerBar";
@@ -53,7 +54,11 @@ export default function LocalDownloadsScreen() {
                     autoCorrect={false}
                     style={{ marginBottom: theme.space.md }}
                 />
-                <SongList songs={filteredSongs} onSelectSong={handleSelectSong} />
+                <SongList
+                    songs={filteredSongs}
+                    onSelectSong={handleSelectSong}
+                    onShowInfo={(s) => router.push({ pathname: "/song/[id]", params: { id: s.song.songId } })}
+                />
             </View>
             <PlayerBar />
         </Screen>

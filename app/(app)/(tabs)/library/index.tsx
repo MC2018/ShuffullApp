@@ -74,6 +74,17 @@ export default function LibraryScreen() {
                         }
                         right={chevron}
                     />
+                    <ListRow
+                        title="Artists"
+                        subtitle="Browse by artist"
+                        onPress={() => router.push("/library/artists")}
+                        left={
+                            <View style={{ width: 48, height: 48, borderRadius: theme.radius.md, backgroundColor: theme.color.surfaceAlt, alignItems: "center", justifyContent: "center" }}>
+                                <Ionicons name="people-outline" size={22} color={theme.color.textMuted} />
+                            </View>
+                        }
+                        right={chevron}
+                    />
 
                     <Divider style={{ marginVertical: theme.space.sm }} />
                     <SectionHeader title="Jams" actionLabel="New" onAction={() => router.push("/genre-jam")} />

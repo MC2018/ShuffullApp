@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { View } from "react-native";
-import { useLocalSearchParams } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { Playlist } from "@/app/services/db/models";
 import DbQueries from "@/app/services/db/queries";
 import { useDb } from "@/app/services/db/DbProvider";
@@ -91,7 +91,11 @@ export default function PlaylistScreen() {
                     autoCorrect={false}
                     style={{ marginBottom: theme.space.md }}
                 />
-                <SongList songs={filteredSongs} onSelectSong={handleSelectSong} />
+                <SongList
+                    songs={filteredSongs}
+                    onSelectSong={handleSelectSong}
+                    onShowInfo={(s) => router.push({ pathname: "/song/[id]", params: { id: s.song.songId } })}
+                />
             </View>
             <PlayerBar />
         </Screen>

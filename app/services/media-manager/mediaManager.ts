@@ -1,5 +1,5 @@
 import { ExpoSQLiteDatabase } from "drizzle-orm/expo-sqlite";
-import TrackPlayer, { Capability, Event, PlaybackState, RemoteSeekEvent, State } from "react-native-track-player";
+import TrackPlayer, { Capability, Event, PlaybackState, RatingType, RemoteSeekEvent, State } from "react-native-track-player";
 import { CreateUserSongRequest, RecentlyPlayedSong, Song, UpdateSongLastPlayedRequest } from "../db/models";
 import DbQueries from "../db/queries";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -69,13 +69,17 @@ async function initTrackPlayer() {
         TrackPlayer.registerPlaybackService(() => setupEventListeners);
         await TrackPlayer.setupPlayer(); // TODO: ensure safety for this to be run when app is in foreground
         await TrackPlayer.updateOptions({
+            // ThumbsUpDown surfaces 👍/👎 in the Android notification & lock screen — mapped to Like/Dislike via
+            // the RemoteSetRating handler below. (Love has no notification representation; it stays in-app.)
+            ratingType: RatingType.ThumbsUpDown,
             capabilities: [
                 Capability.Play,
                 Capability.Pause,
                 Capability.SkipToPrevious,
                 Capability.Skip,
                 Capability.SkipToNext,
-                Capability.SeekTo
+                Capability.SeekTo,
+                Capability.SetRating
             ],
             compactCapabilities: [
                 Capability.Play,
@@ -91,7 +95,8 @@ async function initTrackPlayer() {
                 Capability.SkipToPrevious,
                 Capability.Skip,
                 Capability.SkipToNext,
-                Capability.SeekTo
+                Capability.SeekTo,
+                Capability.SetRating
             ],
         });
     }
@@ -105,6 +110,16 @@ async function setupEventListeners() {
     TrackPlayer.addEventListener(Event.RemoteNext, async () => await skip());
     TrackPlayer.addEventListener(Event.RemotePrevious, async () => await previous());
     TrackPlayer.addEventListener(Event.RemoteSeek, async (event: RemoteSeekEvent) => await seekTo(event.position));
+    // Notification thumbs-up/down → Like / Dislike for the active song (Android). The rating value is a boolean
+    // for the ThumbsUpDown type (true = 👍). Love can't be set from here; it's an in-app-only state.
+    TrackPlayer.addEventListener(Event.RemoteSetRating, async (event) => {
+        const activeSongId = useActiveSong.getState().songId;
+        if (activeSongId == undefined) {
+            return;
+        }
+        const thumbsUp = Boolean((event as { rating?: unknown }).rating);
+        await applyLikeStatus(activeSongId, thumbsUp ? LikeStatus.Like : LikeStatus.Dislike);
+    });
     TrackPlayer.addEventListener(Event.PlaybackState, async (state: PlaybackState) => {
         if (state.state != State.Ended) {
             return;
@@ -133,6 +148,15 @@ export async function play() {
 }
 
 export async function playSpecificSong(songId: string) {
+    // Activating the song that's already current must never restart it: resume if paused, otherwise leave it
+    // playing (don't disturb the existing queue/scope). A different song plays fresh from the start.
+    if (useActiveSong.getState().songId === songId) {
+        if ((await getPlaybackState()).state !== State.Playing) {
+            await play();
+        }
+        return;
+    }
+
     await setSongFilters(new SongFilters(), true);
     startNewSong(songId);
 }
@@ -250,6 +274,57 @@ export async function seekTo(seconds: number) {
     await TrackPlayer.seekTo(seconds);
 }
 
+// ThumbsUpDown rating value: 👍 (true) for liked/loved, 👎 (false) for disliked, unset for neutral.
+function likeStatusToRating(likeStatus: LikeStatus): boolean | undefined {
+    if (likeStatus === LikeStatus.Like || likeStatus === LikeStatus.Love) {
+        return true;
+    }
+    if (likeStatus === LikeStatus.Dislike) {
+        return false;
+    }
+    return undefined;
+}
+
+// Reflect a song's like state on the notification, but only while it's the active track.
+async function setSongRating(songId: string, likeStatus: LikeStatus) {
+    if (useActiveSong.getState().songId !== songId) {
+        return;
+    }
+    try {
+        const index = await TrackPlayer.getActiveTrackIndex();
+        if (index == undefined) {
+            return;
+        }
+        // RNTP types `rating` as RatingType, but the runtime value for ThumbsUpDown is a boolean.
+        await TrackPlayer.updateMetadataForTrack(index, { rating: likeStatusToRating(likeStatus) } as never);
+    } catch {
+        // Best-effort: the notification rating is non-critical.
+    }
+}
+
+// Single source of truth for applying a like/dislike/love: persist locally, queue the sync push, and keep the
+// notification rating in sync. Shared by the in-app RatingControl and the notification's RemoteSetRating handler.
+export async function applyLikeStatus(songId: string, likeStatus: LikeStatus) {
+    const localSessionData = await DbQueries.getActiveLocalSessionData(db);
+    if (!localSessionData) {
+        return;
+    }
+
+    const userId = localSessionData.userId;
+    await DbQueries.setUserSongLikeStatus(db, userId, songId, likeStatus);
+    await DbQueries.addRequests(db, [
+        {
+            requestId: generateId(),
+            timeRequested: new Date(),
+            requestType: RequestType.SetSongLikeStatus,
+            userId,
+            songId,
+            likeStatus,
+        },
+    ]);
+    await setSongRating(songId, likeStatus);
+}
+
 async function startNewSong(songId: string, recentlyPlayedSong?: RecentlyPlayedSong) {
     const localSessionData = await DbQueries.getActiveLocalSessionData(db);
     const songWithArtist = await DbQueries.fetchSongDetails(db, songId);
@@ -283,12 +358,16 @@ async function startNewSong(songId: string, recentlyPlayedSong?: RecentlyPlayedS
         songUri = await generateUrl(song, false);
     }
 
+    // Seed the notification's thumbs rating from the song's saved like state.
+    const initialLikeStatus = ((await DbQueries.getUserSong(db, localSessionData.userId, songId))?.likeStatus as LikeStatus) ?? LikeStatus.Neutral;
+
     await clearSong();
     await TrackPlayer.add([{
         id: songId,
         url: songUri,
         title: song.name,
-        artist: songWithArtist.artists.length > 0 ? songWithArtist.artists.map(x => x.name).join(", ") : "Unknown Artist"
+        artist: songWithArtist.artists.length > 0 ? songWithArtist.artists.map(x => x.name).join(", ") : "Unknown Artist",
+        rating: likeStatusToRating(initialLikeStatus) as never
     }]);
     await TrackPlayer.play();
 
