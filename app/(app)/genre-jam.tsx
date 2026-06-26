@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Pressable, ScrollView, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import Slider from "@react-native-community/slider";
 import DbQueries from "@/app/services/db/queries";
@@ -44,6 +45,7 @@ function emptyWhitelist(): WhitelistSetting {
 // Include/Exclude. Jams are nameable + savable. Passing ?id loads an existing jam for editing instead.
 export default function GenreJamEditor() {
     const theme = useTheme();
+    const insets = useSafeAreaInsets();
     const db = useDb();
     const userId = useCurrentUser();
     const params = useLocalSearchParams<{ id?: string }>();
@@ -187,7 +189,7 @@ export default function GenreJamEditor() {
 
     return (
         <Screen>
-            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: totalPlayerBarHeight + theme.space.xl }}>
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: totalPlayerBarHeight + insets.bottom + theme.space.xl }}>
                 <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: theme.space.md }}>
                     <IconButton name="chevron-back" size={24} color={theme.color.textMuted} onPress={() => router.back()} accessibilityLabel="Back" />
                     <Text variant="micro" color="textMuted">
@@ -330,7 +332,7 @@ export default function GenreJamEditor() {
                     style={{ marginTop: theme.space.sm }}
                 />
             </ScrollView>
-            <PlayerBar />
+            <PlayerBar floating />
         </Screen>
     );
 }

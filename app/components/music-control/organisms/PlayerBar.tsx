@@ -1,6 +1,7 @@
 import { ImageURISource, Pressable, View } from "react-native";
 import React, { useEffect, useState } from "react";
 import { router } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { State, usePlaybackState } from "react-native-track-player";
 import { useActiveSong } from "@/app/services/media-manager/mediaManager";
 import { useDb } from "@/app/services/db/DbProvider";
@@ -31,9 +32,13 @@ const playerBarHeight = 56;
 const margin = 8;
 export const totalPlayerBarHeight = playerBarHeight + margin * 2;
 
-// Persistent mini-player pinned above the tab bar. Tapping the song opens the full Now Playing screen.
-export default function PlayerBar() {
+// Persistent mini-player. On tab screens it sits just above the tab bar (which already reserves the nav-bar
+// inset). On screens presented OVER the tabs (song info, artist, genre-jam) there's no tab bar, so pass
+// `floating` to lift it above the Android nav buttons by the bottom safe-area inset (edge-to-edge, SDK 54).
+// Tapping the song opens the full Now Playing screen.
+export default function PlayerBar({ floating = false }: { floating?: boolean }) {
     const theme = useTheme();
+    const insets = useSafeAreaInsets();
     const db = useDb();
     const playbackState = usePlaybackState();
     const isPlaying = playbackState.state === State.Playing;
@@ -79,7 +84,7 @@ export default function PlayerBar() {
                 position: "absolute",
                 left: theme.space.md,
                 right: theme.space.md,
-                bottom: margin,
+                bottom: margin + (floating ? insets.bottom : 0),
                 height: playerBarHeight,
                 borderRadius: theme.radius.lg,
                 backgroundColor: theme.color.surfaceAlt,

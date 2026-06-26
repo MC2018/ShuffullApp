@@ -12,6 +12,8 @@ export const unstable_settings = {
 export default function TabsLayout() {
     return (
         <Tabs
+            // Hardware back returns to the previously-visited tab (instead of the default jump to the first tab).
+            backBehavior="history"
             screenOptions={{
                 headerShown: false,
                 tabBarActiveTintColor: color.accent,

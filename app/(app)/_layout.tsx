@@ -1,4 +1,5 @@
 import { Redirect, Stack } from "expo-router";
+import { color } from "@/app/theme";
 import { useAuthStore } from "@/app/services/auth/authStore";
 import { ApiProvider } from "@/app/services/api/ApiProvider";
 import { CurrentUserProvider } from "@/app/services/auth/CurrentUserProvider";
@@ -31,7 +32,7 @@ export default function AppLayout() {
                 <SongProgressSync />
                 <SessionExpiryWatcher />
 
-                <Stack screenOptions={{ headerShown: false }}>
+                <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: color.bg } }}>
                     <Stack.Screen name="(tabs)" />
                     <Stack.Screen name="now-playing" options={{ presentation: "modal" }} />
                 </Stack>

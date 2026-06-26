@@ -37,10 +37,11 @@ export default function SongDownloadControl({ song }: { song: Song }) {
         await downloader.addSongToDownloadQueue(song.songId, DownloadPriority.Medium);
     };
 
-    // Stay download-iconography throughout: white = not saved, wine = queued, green (filled) = downloaded.
+    // Stay download-iconography throughout: muted = not saved (matches the adjacent like/add buttons),
+    // wine = queued, green (filled) = downloaded.
     const icon = state === "downloaded" ? "download" : "download-outline";
     const color =
-        state === "downloaded" ? theme.color.positive : state === "queued" ? theme.color.accent : theme.color.textPrimary;
+        state === "downloaded" ? theme.color.positive : state === "queued" ? theme.color.accent : theme.color.textMuted;
 
     return <IconButton name={icon} size={22} color={color} onPress={onPress} accessibilityLabel="Download song" />;
 }

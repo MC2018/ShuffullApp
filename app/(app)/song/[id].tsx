@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { ImageURISource, Pressable, ScrollView, useWindowDimensions, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Artist, Song, Tag } from "@/app/services/db/models";
 import { SongDetails } from "@/app/services/db/types";
 import { TagType } from "@/app/services/db/schema";
@@ -20,6 +21,7 @@ type ArtSource = ImageURISource | { uri: string };
 
 export default function SongScreen() {
     const theme = useTheme();
+    const insets = useSafeAreaInsets();
     const { width } = useWindowDimensions();
     const { id: songId } = useLocalSearchParams<{ id: string }>();
     const db = useDb();
@@ -93,7 +95,7 @@ export default function SongScreen() {
 
     return (
         <Screen>
-            <View style={{ flex: 1, paddingBottom: totalPlayerBarHeight }}>
+            <View style={{ flex: 1, paddingBottom: totalPlayerBarHeight + insets.bottom }}>
                 {header}
                 <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: theme.space.xl }}>
                     <View style={{ alignItems: "center", marginTop: theme.space.md }}>
@@ -186,7 +188,7 @@ export default function SongScreen() {
                     </View>
                 </ScrollView>
             </View>
-            <PlayerBar />
+            <PlayerBar floating />
             <AddToPlaylistSheet songId={details.song.songId} visible={showPlaylistSheet} onClose={() => setShowPlaylistSheet(false)} />
         </Screen>
     );

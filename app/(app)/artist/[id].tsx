@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Artist } from "@/app/services/db/models";
 import DbQueries from "@/app/services/db/queries";
 import { useDb } from "@/app/services/db/DbProvider";
@@ -14,6 +15,7 @@ import { useTheme } from "@/app/theme";
 
 export default function ArtistScreen() {
     const theme = useTheme();
+    const insets = useSafeAreaInsets();
     const { id: artistId } = useLocalSearchParams<{ id: string }>();
     const [artist, setArtist] = useState<Artist | null>(null);
     const [songs, setSongs] = useState<SongDetails[]>([]);
@@ -48,7 +50,7 @@ export default function ArtistScreen() {
 
     return (
         <Screen>
-            <View style={{ flex: 1, paddingBottom: totalPlayerBarHeight }}>
+            <View style={{ flex: 1, paddingBottom: totalPlayerBarHeight + insets.bottom }}>
                 <View style={{ flexDirection: "row", alignItems: "center", marginTop: theme.space.md }}>
                     <IconButton name="chevron-back" size={24} color={theme.color.textMuted} onPress={() => router.back()} accessibilityLabel="Back" />
                 </View>
@@ -73,7 +75,7 @@ export default function ArtistScreen() {
                     onShowInfo={(s) => router.push({ pathname: "/song/[id]", params: { id: s.song.songId } })}
                 />
             </View>
-            <PlayerBar />
+            <PlayerBar floating />
         </Screen>
     );
 }
