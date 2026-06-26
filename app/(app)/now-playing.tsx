@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Animated, Easing, ImageURISource, LayoutChangeEvent, Pressable, useWindowDimensions, View } from "react-native";
 import { router } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useActiveSong } from "@/app/services/media-manager/mediaManager";
 import { useDb } from "@/app/services/db/DbProvider";
@@ -33,6 +34,7 @@ const CLOSE_EASING = Easing.bezier(0.4, 0, 1, 1);
 // across songs.
 export default function NowPlayingScreen() {
     const theme = useTheme();
+    const insets = useSafeAreaInsets();
     const db = useDb();
     const { width } = useWindowDimensions();
     const artSize = Math.min(width - 96, 300);
@@ -195,8 +197,8 @@ export default function NowPlayingScreen() {
                         )}
                     </View>
 
-                    {/* Bottom controls: always pinned. */}
-                    <View style={{ marginTop: theme.space.md }}>
+                    {/* Bottom controls: always pinned. paddingBottom clears the nav bar (edge-to-edge, SDK 54). */}
+                    <View style={{ marginTop: theme.space.md, paddingBottom: insets.bottom }}>
                         <Skimmer showTimes />
                         <View style={{ marginTop: theme.space.md }}>
                             <Transport />

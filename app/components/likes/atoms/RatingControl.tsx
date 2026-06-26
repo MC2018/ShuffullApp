@@ -5,11 +5,12 @@ import { useDb } from "@/app/services/db/DbProvider";
 import { useCurrentUser } from "@/app/services/auth/CurrentUserProvider";
 import DbQueries from "@/app/services/db/queries";
 import { MediaManager } from "@/app/services/media-manager";
+import { useLikeStatus } from "@/app/services/media-manager/mediaManager";
 import { LikeStatus } from "@/app/enums";
 import { useTheme } from "@/app/theme";
 import HeartBurst from "./HeartBurst";
 
-// Compact two-icon rating with tactile micro-animations. AntDesign glyphs (like1/dislike1/heart) are solid and
+// Compact two-icon rating with tactile micro-animations. AntDesign glyphs (like/dislike/heart) are solid and
 // minimal. The like button cycles Neutral → Like (👍, pop) → Love (♥, heartbeat + heart-burst) → Neutral; the
 // dislike button toggles Dislike (a small wobble — acknowledged, not celebrated). Writes go through
 // MediaManager.applyLikeStatus so the local DB, the sync push, and the notification rating stay in lockstep.
@@ -17,7 +18,9 @@ export default function RatingControl({ songId, gap, size = 24 }: { songId: stri
     const db = useDb();
     const userId = useCurrentUser();
     const theme = useTheme();
-    const [status, setStatus] = useState<LikeStatus>(LikeStatus.Neutral);
+    // Status is held in a shared store so changes from the notification's 👍/👎 buttons reflect here too.
+    const status = useLikeStatus((s) => s.statuses[songId]) ?? LikeStatus.Neutral;
+    const setLikeStatus = useLikeStatus((s) => s.setLikeStatus);
     const [burstKey, setBurstKey] = useState(0);
 
     const upScale = useRef(new Animated.Value(1)).current;
@@ -28,16 +31,16 @@ export default function RatingControl({ songId, gap, size = 24 }: { songId: stri
         (async () => {
             const userSong = await DbQueries.getUserSong(db, userId, songId);
             if (!cancelled) {
-                setStatus((userSong?.likeStatus as LikeStatus) ?? LikeStatus.Neutral);
+                setLikeStatus(songId, (userSong?.likeStatus as LikeStatus) ?? LikeStatus.Neutral);
             }
         })();
         return () => {
             cancelled = true;
         };
-    }, [db, userId, songId]);
+    }, [db, userId, songId, setLikeStatus]);
 
     const apply = async (next: LikeStatus) => {
-        setStatus(next); // optimistic
+        setLikeStatus(songId, next); // optimistic
         await MediaManager.applyLikeStatus(songId, next);
     };
 
@@ -84,7 +87,7 @@ export default function RatingControl({ songId, gap, size = 24 }: { songId: stri
     };
 
     const liked = status === LikeStatus.Like || status === LikeStatus.Love;
-    const upName: keyof typeof AntDesign.glyphMap = status === LikeStatus.Love ? "heart" : "like1";
+    const upName: keyof typeof AntDesign.glyphMap = status === LikeStatus.Love ? "heart" : "like";
     const upLabel = status === LikeStatus.Love ? "Loved" : status === LikeStatus.Like ? "Liked" : "Like";
     const disliked = status === LikeStatus.Dislike;
     const rotate = downRot.interpolate({ inputRange: [-1, 0, 1], outputRange: ["-12deg", "0deg", "12deg"] });
@@ -101,7 +104,7 @@ export default function RatingControl({ songId, gap, size = 24 }: { songId: stri
             </Pressable>
             <Pressable onPress={toggleDown} hitSlop={8} accessibilityRole="button" accessibilityLabel="Dislike">
                 <Animated.View style={{ transform: [{ rotate }] }}>
-                    <AntDesign name="dislike1" size={size} color={disliked ? theme.color.textPrimary : theme.color.textMuted} />
+                    <AntDesign name="dislike" size={size} color={disliked ? theme.color.textPrimary : theme.color.textMuted} />
                 </Animated.View>
             </Pressable>
         </View>

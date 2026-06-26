@@ -31,7 +31,8 @@
     "plugins": [
       "expo-router",
       "expo-font",
-      "expo-asset"
+      "expo-asset",
+      "./plugins/withNotificationActionIcons"
     ],
     "experiments": {
       "typedRoutes": true
