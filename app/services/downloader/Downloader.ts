@@ -22,7 +22,7 @@ export class Downloader {
     downloading = false;
     paused = true;
     db: ExpoSQLiteDatabase;
-    timerId: NodeJS.Timeout;
+    timerId: ReturnType<typeof setInterval>;
 
     constructor(db: GenericDb) {
         this.db = db;

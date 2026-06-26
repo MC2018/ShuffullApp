@@ -12,7 +12,7 @@ export class SyncManager {
     db: GenericDb;
     api: ApiClient;
     userId: string;
-    timerId: NodeJS.Timeout;
+    timerId: ReturnType<typeof setInterval>;
     syncing = false;
     logout: () => Promise<void>;
     
