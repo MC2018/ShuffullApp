@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { ImageURISource, Pressable, ScrollView, useWindowDimensions, View } from "react-native";
+import { Alert, ImageURISource, Pressable, ScrollView, useWindowDimensions, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Artist, Song, Tag } from "@/app/services/db/models";
@@ -7,6 +7,9 @@ import { SongDetails } from "@/app/services/db/types";
 import { TagType } from "@/app/services/db/schema";
 import DbQueries from "@/app/services/db/queries";
 import { useDb } from "@/app/services/db/DbProvider";
+import { useCurrentUser } from "@/app/services/auth/CurrentUserProvider";
+import { RequestType } from "@/app/enums";
+import { generateId } from "@/app/tools/utils";
 import { Downloader } from "@/app/services/downloader/Downloader";
 import { MediaManager } from "@/app/services/media-manager";
 import PlayerBar, { totalPlayerBarHeight } from "@/app/components/music-control/organisms/PlayerBar";
@@ -25,10 +28,12 @@ export default function SongScreen() {
     const { width } = useWindowDimensions();
     const { id: songId } = useLocalSearchParams<{ id: string }>();
     const db = useDb();
+    const userId = useCurrentUser();
     const [details, setDetails] = useState<SongDetails | null>(null);
     const [tags, setTags] = useState<Tag[]>([]);
     const [art, setArt] = useState<ArtSource>(defaultArt);
     const [showPlaylistSheet, setShowPlaylistSheet] = useState(false);
+    const [flagged, setFlagged] = useState(false);
 
     useEffect(() => {
         if (songId == undefined) {
@@ -53,6 +58,55 @@ export default function SongScreen() {
             cancelled = true;
         };
     }, [songId]);
+
+    // Reflect an already-queued (not yet synced) replacement flag so the icon stays filled across re-entry.
+    useEffect(() => {
+        if (songId == undefined) {
+            return;
+        }
+        let cancelled = false;
+        (async () => {
+            const requests = await DbQueries.getRequests(db);
+            const pending = requests.some(
+                (r) => r.requestType === RequestType.FlagSongForReplacement && r.songId === songId,
+            );
+            if (!cancelled && pending) {
+                setFlagged(true);
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [db, songId]);
+
+    const flagForReplacement = () => {
+        if (flagged) {
+            return;
+        }
+        Alert.alert(
+            "Flag for replacement",
+            "Mark this song as poor quality so a better version can be sourced?",
+            [
+                { text: "Cancel", style: "cancel" },
+                {
+                    text: "Flag",
+                    style: "destructive",
+                    onPress: async () => {
+                        setFlagged(true); // optimistic
+                        await DbQueries.addRequests(db, [
+                            {
+                                requestId: generateId(),
+                                timeRequested: new Date(),
+                                requestType: RequestType.FlagSongForReplacement,
+                                userId,
+                                songId: details!.song.songId,
+                            },
+                        ]);
+                    },
+                },
+            ],
+        );
+    };
 
     const tagNames = (type: TagType) => tags.filter((t) => t.type === type).map((t) => t.name);
     const genres = tagNames(TagType.Genre);
@@ -140,6 +194,13 @@ export default function SongScreen() {
                                 color={theme.color.textMuted}
                                 onPress={() => setShowPlaylistSheet(true)}
                                 accessibilityLabel="Add to playlist"
+                            />
+                            <IconButton
+                                name={flagged ? "flag" : "flag-outline"}
+                                size={24}
+                                color={flagged ? theme.color.accent : theme.color.textMuted}
+                                onPress={flagForReplacement}
+                                accessibilityLabel={flagged ? "Flagged for replacement" : "Flag for replacement"}
                             />
                         </View>
                         <IconButton

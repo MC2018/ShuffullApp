@@ -20,5 +20,8 @@ export function getProcessingMethod(requestType: RequestType): ProcessingMethod 
         case RequestType.SetSongLikeStatus:
             // One POST per song (the endpoint is per-song); the latest queued value wins server-side.
             return ProcessingMethod.Individual;
+        case RequestType.FlagSongForReplacement:
+            // Idempotent per-song flag (server skips if one is already open); batch the posts together.
+            return ProcessingMethod.Batch;
     }
 }

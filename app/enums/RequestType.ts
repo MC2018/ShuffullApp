@@ -3,5 +3,6 @@ export enum RequestType {
     Authenticate = 1,
     OverallSync = 2,
     CreateUserSong = 3,
-    SetSongLikeStatus = 4
+    SetSongLikeStatus = 4,
+    FlagSongForReplacement = 5
 };
