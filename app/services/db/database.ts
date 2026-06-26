@@ -1,4 +1,4 @@
-import * as SQLite from "expo-sqlite/next";
+import * as SQLite from "expo-sqlite";
 import { drizzle, ExpoSQLiteDatabase } from "drizzle-orm/expo-sqlite";
 import { MediaManager } from "../media-manager";
 
