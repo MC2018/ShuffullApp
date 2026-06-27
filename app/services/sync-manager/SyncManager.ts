@@ -10,6 +10,7 @@ import { GenericDb } from "@/app/services/db/GenericDb";
 import { Downloader } from "@/app/services/downloader/Downloader";
 import { STORAGE_KEYS } from "@/app/constants/storageKeys";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { advanceSongCursor, collectNewSongIds, playlistsToFetch } from "@/app/services/sync-manager/syncLogic";
 
 export class SyncManager {
     db: GenericDb;
@@ -233,15 +234,9 @@ export class SyncManager {
 
             // Decide which playlists changed (local read) and fetch just those.
             const localPlaylists = await DbQueries.getPlaylists(this.db, this.userId);
-            const playlistsToFetch: string[] = [];
-            for (const accessiblePlaylist of accessiblePlaylists) {
-                const localPlaylist = localPlaylists.filter(x => x.playlistId == accessiblePlaylist.playlistId);
-                if (!localPlaylist.length || localPlaylist[0].version < accessiblePlaylist.version) {
-                    playlistsToFetch.push(accessiblePlaylist.playlistId);
-                }
-            }
-            const updatedPlaylists: ApiModels.Playlist[] = playlistsToFetch.length
-                ? await this.api.playlistGetList(playlistsToFetch)
+            const playlistIdsToFetch = playlistsToFetch(accessiblePlaylists, localPlaylists);
+            const updatedPlaylists: ApiModels.Playlist[] = playlistIdsToFetch.length
+                ? await this.api.playlistGetList(playlistIdsToFetch)
                 : [];
 
             // User songs changed since our last known user version (incremental, paginated).
@@ -261,12 +256,11 @@ export class SyncManager {
 
             // Songs referenced by the updated playlists/user-songs that we don't have locally yet.
             const localSongIds = await DbQueries.getAllSongIds(this.db);
-            const newSongIds = [
-                ...updatedPlaylists.flatMap(x => x.songIds),
-                ...updatedUserSongs.map(x => x.songId)
-            ]
-            .filter((value, index, self) => self.indexOf(value) === index)
-            .filter(songId => songId && !localSongIds.includes(songId));
+            const newSongIds = collectNewSongIds(
+                updatedPlaylists.map(x => x.songIds),
+                updatedUserSongs.map(x => x.songId),
+                localSongIds
+            );
 
             const songBatches: ApiModels.Song[][] = [];
             for (let i = 0; i * 500 < newSongIds.length; i++) {
@@ -296,7 +290,7 @@ export class SyncManager {
                     if (page.items.length) {
                         // Cursor advances by the newest Version on the page (across ALL changed songs, not just
                         // the local ones), so we never re-page changes we've already accounted for.
-                        songAfterDate = page.items[page.items.length - 1].version;
+                        songAfterDate = advanceSongCursor(page.items, songAfterDate);
                         nextSongCursor = songAfterDate;
                     }
                 }
