@@ -7,6 +7,9 @@ import { HttpStatusCode } from "axios";
 import { RequestType, getProcessingMethod, ProcessingMethod } from "@/app/enums";
 import { ApiStatusFailureError } from "@/app/services/api/errors";
 import { GenericDb } from "@/app/services/db/GenericDb";
+import { Downloader } from "@/app/services/downloader/Downloader";
+import { STORAGE_KEYS } from "@/app/constants/storageKeys";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 export class SyncManager {
     db: GenericDb;
@@ -222,6 +225,7 @@ export class SyncManager {
             // ── Phase 1: read local state + fetch over the network (NO write transaction held) ──
             // Keeping network I/O out of the DB transaction is the point: an exclusive SQLite lock held
             // across slow/flaky round-trips would block playback, the progress writer, and downloads.
+            const syncStartTime = new Date();
             const oldUser = await DbQueries.getUser(this.db, this.userId);
             const user = await this.api.userGet();
             const tags = await this.api.tagGetAll();
@@ -269,6 +273,54 @@ export class SyncManager {
                 songBatches.push(await this.api.songGetList(newSongIds.slice(i * 500, i * 500 + 500)));
             }
 
+            // ── Incremental refresh of songs we ALREADY hold whose server Version changed since last sync
+            // (e.g. a song re-sourced in place with better audio). The very first sync seeds the cursor at
+            // "now" and skips: the fetch above already pulled current data, and paging the whole library back
+            // through the changes feed would be wasteful. ──
+            const songCursorRaw = await AsyncStorage.getItem(STORAGE_KEYS.SONG_SYNC_CURSOR);
+            let nextSongCursor: Date = songCursorRaw != null ? new Date(songCursorRaw) : syncStartTime;
+            const changedLocalSongs: ApiModels.ChangedSong[] = [];
+            if (songCursorRaw != null) {
+                const localSongIdSet = new Set(localSongIds);
+                let songAfterDate = new Date(songCursorRaw);
+                let songEndOfList = false;
+                while (!songEndOfList) {
+                    const page = await this.api.songGetChanged(songAfterDate);
+                    for (const changed of page.items) {
+                        // Only refresh songs we hold locally; brand-new ones are handled by the fetch above.
+                        if (localSongIdSet.has(changed.songId)) {
+                            changedLocalSongs.push(changed);
+                        }
+                    }
+                    songEndOfList = page.endOfList;
+                    if (page.items.length) {
+                        // Cursor advances by the newest Version on the page (across ALL changed songs, not just
+                        // the local ones), so we never re-page changes we've already accounted for.
+                        songAfterDate = page.items[page.items.length - 1].version;
+                        nextSongCursor = songAfterDate;
+                    }
+                }
+            }
+
+            // Of those, find the songs whose audio (fileHash) actually changed: their local files are now
+            // orphaned and any "downloaded" flag is stale. Read the OLD records BEFORE the write below
+            // overwrites them, so the now-orphaned file paths can be computed afterwards.
+            const staleSongs: DbModels.Song[] = [];
+            for (const changed of changedLocalSongs) {
+                const oldSong = await DbQueries.getSong(this.db, changed.songId);
+                if (oldSong != undefined && oldSong.fileHash !== changed.fileHash) {
+                    staleSongs.push(oldSong);
+                }
+            }
+            const changedSongIds = changedLocalSongs.map(x => x.songId);
+            const staleSongIds = staleSongs.map(x => x.songId);
+
+            // Refresh the changed songs through the same upsert path as new songs (updateSongs overwrites the
+            // row; the join rebuild below re-links artists/tags). Their stale joins are cleared in the txn.
+            if (changedLocalSongs.length) {
+                songBatches.push(changedLocalSongs);
+            }
+
             // The API returns songs denormalized (artists/tags are plain name strings); map tag names onto
             // tag IDs from the freshly-fetched tag list. Join-row IDs are content-derived (idempotent re-sync).
             const tagIdByName = new Map(tags.map(tag => [tag.name, tag.tagId]));
@@ -291,6 +343,10 @@ export class SyncManager {
                 }
 
                 await DbQueries.updateUserSongs(tx, updatedUserSongs);
+
+                // Changed songs already have artist/tag joins; clear them so a changed set doesn't leave
+                // stale links behind (the batch loop rebuilds them via insert-or-ignore). New songs have none.
+                await DbQueries.deleteSongArtistsAndTags(tx, changedSongIds);
 
                 for (const newSongs of songBatches) {
                     await DbQueries.updateSongs(tx, newSongs);
@@ -343,9 +399,21 @@ export class SyncManager {
                         await DbQueries.updateSongTags(tx, distinctSongTags);
                     }
                 }
+
+                // Replaced songs' local audio no longer matches the new fileHash: drop the downloaded flag so
+                // the user can re-download the new version (the orphaned files are removed after the txn).
+                await DbQueries.removeDownloadedSongs(tx, staleSongIds);
             }, {
                 behavior: "exclusive"
             });
+
+            // Post-commit, outside the write txn: delete the now-orphaned local files (file I/O) and advance
+            // the song-sync cursor. Both run only after the writes committed — a thrown sync leaves the cursor
+            // untouched, so the same changes are retried next time.
+            for (const staleSong of staleSongs) {
+                await Downloader.deleteLocalSongFiles(staleSong);
+            }
+            await AsyncStorage.setItem(STORAGE_KEYS.SONG_SYNC_CURSOR, nextSongCursor.toISOString());
 
             return HttpStatusCode.Ok;
         } catch (e) {

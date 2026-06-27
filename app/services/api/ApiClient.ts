@@ -1,5 +1,5 @@
 import axios, { AxiosInstance } from "axios";
-import { AuthenticateResponse, AuthenticateResponseSchema, CreatePlaylistResponseSchema, Playlist, PlaylistListResponseSchema, SongListResponseSchema, Tag, TagListResponseSchema, UserResponseSchema, UserSongPageSchema } from "./models";
+import { AuthenticateResponse, AuthenticateResponseSchema, ChangedSongPageSchema, CreatePlaylistResponseSchema, Playlist, PlaylistListResponseSchema, SongListResponseSchema, Tag, TagListResponseSchema, UserResponseSchema, UserSongPageSchema } from "./models";
 import { ApiStatusFailureError } from "./errors";
 import { UpdateSongLastPlayedRequest } from "../db/models";
 
@@ -313,6 +313,32 @@ export class ApiClient {
 
             console.log(`[API] Endpoint ${endpoint} succeeded`);
             return SongListResponseSchema.parse(response.data).songs;
+        } catch (error) {
+            console.log(`[API] Endpoint ${endpoint} failed with error:`, error);
+            throw error;
+        }
+    }
+
+    // Songs whose server-side Version is newer than `afterDate` (exclusive), one page at a time. Used to
+    // refresh already-synced songs in place — e.g. after a song is replaced with better-quality audio.
+    public async songGetChanged(afterDate: Date) {
+        const endpoint = "/api/v1/songs/changed";
+        console.log(`[API] Calling endpoint: ${endpoint}`);
+        try {
+            const response = await this.client.get(endpoint, {
+                params: {
+                    afterDate: afterDate.toISOString()
+                }
+            });
+
+            if (!isSuccessfulStatus(response.status)) {
+                console.log(`[API] Endpoint ${endpoint} failed with status: ${response.status}`);
+                throw new ApiStatusFailureError(endpoint, response);
+            }
+
+            console.log(`[API] Endpoint ${endpoint} succeeded`);
+            const page = ChangedSongPageSchema.parse(response.data);
+            return { items: page.songs, endOfList: page.endOfList };
         } catch (error) {
             console.log(`[API] Endpoint ${endpoint} failed with error:`, error);
             throw error;

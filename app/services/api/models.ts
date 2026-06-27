@@ -54,6 +54,19 @@ export const SongListResponseSchema = z.object({
     songs: SongListSchema
 });
 
+// A song from the incremental-changes feed: the same shape plus its server-side `version`, used as the sync
+// cursor and to detect a changed fileHash (e.g. a song replaced in place with better audio).
+export const ChangedSongSchema = SongSchema.extend({
+    version: z.coerce.date()
+});
+export type ChangedSong = z.infer<typeof ChangedSongSchema>;
+
+// GET /api/v1/songs/changed?afterDate=... -> { songs: [...], endOfList }
+export const ChangedSongPageSchema = z.object({
+    songs: ChangedSongSchema.array(),
+    endOfList: z.boolean()
+});
+
 export const UserSongSchema = z.object({
     userId: z.string(),
     songId: z.string(),

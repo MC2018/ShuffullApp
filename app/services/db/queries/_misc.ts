@@ -19,3 +19,14 @@ export async function updateSongTags(db: GenericDb, songTags: SongTag[]): Promis
 export async function updateSongArtists(db: GenericDb, songArtists: SongArtist[]): Promise<void> {
     await db.insert(songArtistTable).values(songArtists).onConflictDoNothing();
 }
+
+// Clears a song's existing artist/tag joins so they can be rebuilt from fresh data. Needed when re-syncing a
+// song that already exists (updateSongArtists/updateSongTags only insert), so a changed artist/tag set on a
+// replaced song doesn't leave stale joins behind.
+export async function deleteSongArtistsAndTags(db: GenericDb, songIds: string[]): Promise<void> {
+    if (!songIds.length) {
+        return;
+    }
+    await db.delete(songArtistTable).where(inArray(songArtistTable.songId, songIds));
+    await db.delete(songTagTable).where(inArray(songTagTable.songId, songIds));
+}
