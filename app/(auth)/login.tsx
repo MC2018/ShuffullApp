@@ -8,6 +8,10 @@ import { login, register } from "@/app/services/auth/auth";
 import { Button, Screen, Text, TextField } from "@/app/components/ui";
 import { useTheme } from "@/app/theme";
 
+// Canonical Shuffull server; pre-filled on a fresh install so most users never touch the host field.
+// Still editable (self-hosters / local dev can point elsewhere); a saved value always wins.
+const DEFAULT_HOST_ADDRESS = "https://shuffull-api.clausius.app";
+
 // Login / registration screen. Talks to the auth service directly; on success the service flips the
 // auth store to "authenticated" and this screen redirects into the app. The (app) guard and index
 // redirect cover the inverse direction, so there is no manual navigation here.
@@ -22,7 +26,7 @@ export default function LoginScreen() {
     useEffect(() => {
         (async () => {
             const savedHostAddress = await AsyncStorage.getItem(STORAGE_KEYS.HOST_ADDRESS);
-            setHostAddress(savedHostAddress ?? "");
+            setHostAddress(savedHostAddress ?? DEFAULT_HOST_ADDRESS);
         })();
     }, []);
 
