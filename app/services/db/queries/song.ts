@@ -376,18 +376,7 @@ export async function updateSongs(db: GenericDb, songs: Song[]): Promise<void> {
     }
 
     await db.delete(songTable).where(inArray(songTable.songId, songs.map(x => x.songId)));
-
-    // Insert row-by-row instead of one all-or-nothing multi-row insert: a single malformed/constraint-violating
-    // song must NOT abort the whole sync transaction and freeze the entire local library (a SQLITE_CONSTRAINT
-    // failure rolls back only the failing statement, not the surrounding transaction). The skipped row is logged
-    // so the offending song/field is visible instead of silently losing the other songs.
-    for (const song of songs) {
-        try {
-            await db.insert(songTable).values(song);
-        } catch (e) {
-            console.warn(`[sync] updateSongs: skipped song that failed to insert (songId=${song.songId}, name=${song.name}):`, e);
-        }
-    }
+    await db.insert(songTable).values(songs);
 }
 
 export async function getRandomSongId(db: GenericDb): Promise<string | undefined> {
