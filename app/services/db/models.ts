@@ -31,6 +31,12 @@ export type SetSongLikeStatusRequest = Request & {
 export type FlagSongForReplacementRequest = Request & {
     songId: string
 };
+export type UpdateSongMetadataRequest = Request & {
+    songId: string,
+    payload: Schema.UpdateSongMetadataPayload
+};
+export type UpdateSongMetadataPayload = Schema.UpdateSongMetadataPayload;
+export type SongTagEdit = Schema.SongTagEdit;
 export type DownloadQueue = typeof Schema.downloadQueueTable.$inferSelect;
 export type DownloadedSong = typeof Schema.downloadedSongTable.$inferSelect;
 export type GenreJam = typeof Schema.genreJamTable.$inferSelect;

@@ -155,6 +155,9 @@ export class SyncManager {
             case RequestType.FlagSongForReplacement:
                 statusCode = await this.flagSongForReplacement(requests as DbModels.FlagSongForReplacementRequest[]);
                 break;
+            case RequestType.UpdateSongMetadata:
+                statusCode = await this.updateSongMetadata(requests as DbModels.UpdateSongMetadataRequest[]);
+                break;
             default:
                 throw new Error("A request type has no method to call.");
         }
@@ -210,6 +213,22 @@ export class SyncManager {
             // Batched: one idempotent POST per flagged song (server skips songs already queued).
             for (const request of requests) {
                 await this.api.flagSongForReplacement(request.songId);
+            }
+            return HttpStatusCode.Ok;
+        } catch (e) {
+            if (e instanceof ApiStatusFailureError) {
+                return e.status;
+            }
+
+            return HttpStatusCode.InternalServerError;
+        }
+    }
+
+    private async updateSongMetadata(requests: DbModels.UpdateSongMetadataRequest[]): Promise<HttpStatusCode> {
+        try {
+            // Processed individually, so each batch is a single song; loop defensively all the same.
+            for (const request of requests) {
+                await this.api.songUpdate(request.songId, request.payload);
             }
             return HttpStatusCode.Ok;
         } catch (e) {

@@ -4,7 +4,9 @@ import { TagType } from "../db/schema";
 export const UserSchema = z.object({
     userId: z.string(),
     username: z.string(),
-    version: z.coerce.date()
+    version: z.coerce.date(),
+    // Curator role flag. Defaulted so older API responses that omit it still parse.
+    isCurator: z.boolean().default(false)
 });
 export type User = z.infer<typeof UserSchema>;
 

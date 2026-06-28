@@ -6,6 +6,8 @@ export const userTable = sqliteTable("users", {
     userId: text("user_id").primaryKey(),
     username: text("username").notNull(),
     version: integer("version", { mode: "timestamp_ms" }).notNull(),
+    // Curator role (synced from the server). Gates the in-app song-metadata edit UI. Default false.
+    isCurator: integer("is_curator", { mode: "boolean" }).notNull().default(false),
 });
 
 export const playlistTable = sqliteTable("playlists", {
@@ -107,6 +109,20 @@ export const recentlyPlayedSongTable = sqliteTable("recently_played_songs", {
     lastPlayed: integer("last_played", { mode: "timestamp_ms" }).notNull(),
 });
 
+// A curator's song-metadata edit, carried as a structured JSON payload on the outbox row (richer than the
+// flat optional columns below). Mirrors the site's PUT /api/v1/songs/{id} body.
+export interface SongTagEdit {
+    name: string;
+    type: TagType;
+}
+export interface UpdateSongMetadataPayload {
+    name: string;
+    bpm: number | null;
+    energy: number | null;
+    artists: string[];
+    tags: SongTagEdit[];
+}
+
 export const requestTable = sqliteTable("requests", {
     requestId: text("request_id").primaryKey(),
     timeRequested: integer("time_request", { mode: "timestamp_ms" }).notNull(),
@@ -118,7 +134,9 @@ export const requestTable = sqliteTable("requests", {
     userHash: text("user_hash"),
     songId: text("song_id"),
     lastPlayed: integer("last_played", { mode: "timestamp_ms" }),
-    likeStatus: integer("like_status")
+    likeStatus: integer("like_status"),
+    // Structured payload for richer requests (e.g. a curator song edit). Null for the simpler request types.
+    payload: text("payload", { mode: "json" }).$type<UpdateSongMetadataPayload>()
 });
 
 export const downloadQueueTable = sqliteTable("download_queue", {

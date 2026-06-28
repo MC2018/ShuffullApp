@@ -1,7 +1,7 @@
 import axios, { AxiosInstance } from "axios";
 import { AuthenticateResponse, AuthenticateResponseSchema, ChangedSongPageSchema, CreatePlaylistResponseSchema, Playlist, PlaylistListResponseSchema, SongListResponseSchema, Tag, TagListResponseSchema, UserResponseSchema, UserSongPageSchema } from "./models";
 import { ApiStatusFailureError } from "./errors";
-import { UpdateSongLastPlayedRequest } from "../db/models";
+import { UpdateSongLastPlayedRequest, UpdateSongMetadataPayload } from "../db/models";
 
 export class ApiClient {
     private client: AxiosInstance;
@@ -278,6 +278,30 @@ export class ApiClient {
         try {
             // Flags a song's audio as poor quality so it gets queued for re-sourcing (global per song).
             const response = await this.client.post(endpoint, JSON.stringify({ songId }), {
+                headers: {
+                    "Content-Type": "application/json"
+                }
+            });
+
+            if (!isSuccessfulStatus(response.status)) {
+                console.log(`[API] Endpoint ${endpoint} failed with status: ${response.status}`);
+                throw new ApiStatusFailureError(endpoint, response);
+            }
+
+            console.log(`[API] Endpoint ${endpoint} succeeded`);
+        } catch (error) {
+            console.log(`[API] Endpoint ${endpoint} failed with error:`, error);
+            throw error;
+        }
+    }
+
+    // Curator-only metadata edit. The server gates this with the Curator role and bumps the song's version
+    // so every client re-syncs the corrected record. Body matches the site's UpdateSongRequest.
+    public async songUpdate(songId: string, payload: UpdateSongMetadataPayload) {
+        const endpoint = `/api/v1/songs/${songId}`;
+        console.log(`[API] Calling endpoint: ${endpoint}`);
+        try {
+            const response = await this.client.put(endpoint, JSON.stringify(payload), {
                 headers: {
                     "Content-Type": "application/json"
                 }

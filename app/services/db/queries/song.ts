@@ -1,9 +1,12 @@
 import { SongFilters } from "@/app/types/SongFilters";
 import { GenericDb } from "../GenericDb";
-import { Artist, GenreJam, Song } from "../models";
-import { artistTable, downloadedSongTable, genreJamTable, playlistSongTable, playlistTable, songArtistTable, songTable, userSongTable } from "../schema";
+import { Artist, GenreJam, Song, UpdateSongMetadataPayload } from "../models";
+import { artistTable, downloadedSongTable, genreJamTable, playlistSongTable, playlistTable, songArtistTable, songTable, songTagTable, tagTable, userSongTable } from "../schema";
 import { eq, gt, lt, ExtractTablesWithRelations, inArray, sql, isNotNull, and, desc, asc, or } from "drizzle-orm";
 import { SongDetails } from "../types";
+// Import the dependency-free helper directly (not via @/app/tools, which re-exports React-Native-bound utils)
+// so this query module stays importable from the Vitest (node) test harness.
+import { deterministicId } from "@/app/tools/pure";
 
 type FilteredSongs = {
     songId: string,
@@ -518,4 +521,57 @@ export async function getSong(db: GenericDb, songId: string): Promise<Song | und
 
 export async function getAllSongIds(db: GenericDb): Promise<string[]> {
     return (await db.select({ songId: songTable.songId }).from(songTable)).map(x => x.songId);
+}
+
+// Optimistic local apply of a curator's metadata edit, so the UI reflects it immediately (the same edit is
+// also queued to the server via the outbox; the next sync reconciles from the authoritative record).
+// Artist ids are deterministic-by-name (matching the sync), so reusing/creating them here never diverges
+// from what the server-driven sync rebuilds. Tags are only re-linked when we already hold a matching
+// (name, type) tag locally — a brand-new tag is created server-side and pulled in by the next sync, so we
+// avoid fabricating a local id that wouldn't match the server's.
+export async function applySongMetadataEdit(db: GenericDb, songId: string, payload: UpdateSongMetadataPayload): Promise<void> {
+    await db.update(songTable)
+        .set({ name: payload.name, bpm: payload.bpm, energy: payload.energy })
+        .where(eq(songTable.songId, songId));
+
+    await db.delete(songArtistTable).where(eq(songArtistTable.songId, songId));
+    const seenArtist = new Set<string>();
+    for (const rawName of payload.artists) {
+        const name = rawName.trim();
+        if (name.length === 0 || seenArtist.has(name)) {
+            continue;
+        }
+        seenArtist.add(name);
+        const artistId = deterministicId("artist", name);
+        await db.insert(artistTable).values({ artistId, name }).onConflictDoUpdate({
+            target: artistTable.artistId,
+            set: { name: sql`excluded.name` }
+        });
+        await db.insert(songArtistTable).values({
+            songArtistId: deterministicId("song-artist", songId, artistId),
+            songId,
+            artistId
+        }).onConflictDoNothing();
+    }
+
+    await db.delete(songTagTable).where(eq(songTagTable.songId, songId));
+    const localTags = await db.select().from(tagTable);
+    const seenTag = new Set<string>();
+    for (const tag of payload.tags) {
+        const name = tag.name.trim();
+        const key = `${tag.type}:${name}`;
+        if (name.length === 0 || seenTag.has(key)) {
+            continue;
+        }
+        seenTag.add(key);
+        const match = localTags.find(localTag => localTag.name === name && localTag.type === tag.type);
+        if (match == null) {
+            continue;
+        }
+        await db.insert(songTagTable).values({
+            songTagId: deterministicId("song-tag", songId, match.tagId),
+            songId,
+            tagId: match.tagId
+        }).onConflictDoNothing();
+    }
 }

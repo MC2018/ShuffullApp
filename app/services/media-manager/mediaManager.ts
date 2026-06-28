@@ -371,12 +371,24 @@ async function startNewSong(songId: string, recentlyPlayedSong?: RecentlyPlayedS
         songUri = await generateUrl(song, false);
     }
 
+    // Album art for the lock-screen / media-notification. Without an `artwork` on the track, Media3 has
+    // nothing to render, which is why the notification showed no icon. Prefer the already-downloaded local
+    // file (same resolution the Song Info screen uses), fall back to the server URL when it isn't on disk.
+    let artworkUri: string;
+    const localArtUri = Downloader.generateLocalAlbumArtUri(song);
+    if (await Downloader.fileExists(localArtUri)) {
+        artworkUri = localArtUri;
+    } else {
+        artworkUri = await Downloader.generateServerAlbumArtUrl(song);
+    }
+
     await clearSong();
     await TrackPlayer.add([{
         id: songId,
         url: songUri,
         title: song.name,
         artist: songWithArtist.artists.length > 0 ? songWithArtist.artists.map(x => x.name).join(", ") : "Unknown Artist",
+        artwork: artworkUri,
     }]);
     await TrackPlayer.play();
 

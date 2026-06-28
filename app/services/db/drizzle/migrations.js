@@ -26,6 +26,7 @@ import m0021 from './0021_drop_song_lyrics_offset.sql';
 import m0022 from './0022_add_like_status.sql';
 import m0023 from './0023_add_energy_mood.sql';
 import m0024 from './0024_add_energy_max.sql';
+import m0025 from './0025_add_curator_and_request_payload.sql';
 
   export default {
     journal,
@@ -54,7 +55,8 @@ m0020,
 m0021,
 m0022,
 m0023,
-m0024
+m0024,
+m0025
     }
   }
   
