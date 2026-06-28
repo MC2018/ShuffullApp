@@ -2,22 +2,15 @@
 // unit-tested and imported anywhere (the curator BPM edit uses it).
 
 export const TAP_STALE_MS = 2000; // a pause longer than this starts a fresh measurement
-export const TAP_WINDOW = 8;      // average over at most the last N taps (adapts as you keep tapping)
 
 /**
- * Folds a new tap (at `nowMs`) into the running tap list: restarts the measurement after a long pause, and
- * keeps only the most recent `maxTaps`. Pure — returns a new array.
+ * Folds a new tap (at `nowMs`) into the running tap list. Every tap since the last reset is kept (no window) so
+ * the estimate keeps getting more accurate the longer you tap; a pause longer than `staleMs` starts fresh on the
+ * next tap. Pure — returns a new array.
  */
-export function nextTaps(prev: number[], nowMs: number, staleMs = TAP_STALE_MS, maxTaps = TAP_WINDOW): number[] {
-    let taps = prev;
-    if (taps.length > 0 && nowMs - taps[taps.length - 1] > staleMs) {
-        taps = [];
-    }
-    taps = [...taps, nowMs];
-    if (taps.length > maxTaps) {
-        taps = taps.slice(taps.length - maxTaps);
-    }
-    return taps;
+export function nextTaps(prev: number[], nowMs: number, staleMs = TAP_STALE_MS): number[] {
+    const taps = prev.length > 0 && nowMs - prev[prev.length - 1] > staleMs ? [] : prev;
+    return [...taps, nowMs];
 }
 
 /**

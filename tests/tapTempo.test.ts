@@ -39,8 +39,13 @@ describe("nextTaps", () => {
         expect(nextTaps([1000], 1000 + TAP_STALE_MS + 1)).toEqual([1000 + TAP_STALE_MS + 1]);
     });
 
-    it("keeps only the last maxTaps", () => {
-        const prev = [1, 2, 3, 4, 5, 6, 7, 8];
-        expect(nextTaps(prev, 9, TAP_STALE_MS, 8)).toEqual([2, 3, 4, 5, 6, 7, 8, 9]);
+    it("accumulates every tap within the window (no cap)", () => {
+        // A long run of taps all keeps growing — more taps = more accurate, no truncation.
+        let taps: number[] = [];
+        for (let i = 0; i < 40; i++) {
+            taps = nextTaps(taps, i * 400); // 150 BPM spacing
+        }
+        expect(taps).toHaveLength(40);
+        expect(computeTapBpm(taps)).toBe(150);
     });
 });
