@@ -8,6 +8,7 @@ import { SongDetails } from "@/app/services/db/types";
 import { TagType } from "@/app/services/db/schema";
 import { RequestType } from "@/app/enums";
 import { generateId } from "@/app/tools";
+import { computeTapBpm, nextTaps } from "@/app/tools/tapTempo";
 import DbQueries from "@/app/services/db/queries";
 import { useDb } from "@/app/services/db/DbProvider";
 import { useCurrentUser } from "@/app/services/auth/CurrentUserProvider";
@@ -55,6 +56,7 @@ export default function SongScreen() {
     const [editArtists, setEditArtists] = useState<string[]>([]);
     const [editTags, setEditTags] = useState<{ name: string; type: TagType }[]>([]);
     const [tagDrafts, setTagDrafts] = useState<Record<number, string>>({});
+    const [bpmTaps, setBpmTaps] = useState<number[]>([]);
 
     async function refresh() {
         if (songId == undefined) {
@@ -113,7 +115,20 @@ export default function SongScreen() {
         setEditArtists(details.artists.map((a) => a.name));
         setEditTags(tags.map((t) => ({ name: t.name, type: t.type })));
         setTagDrafts({});
+        setBpmTaps([]);
         setEditing(true);
+    }
+
+    // Tap-tempo: each tap recomputes the BPM from the recent taps and fills the field. A pause restarts it.
+    function handleBpmTap() {
+        setBpmTaps((prev) => {
+            const taps = nextTaps(prev, Date.now());
+            const bpm = computeTapBpm(taps);
+            if (bpm != null) {
+                setEditBpm(String(bpm));
+            }
+            return taps;
+        });
     }
 
     function cancelEditing() {
@@ -248,6 +263,8 @@ export default function SongScreen() {
                             onName={setEditName}
                             bpm={editBpm}
                             onBpm={setEditBpm}
+                            onBpmTap={handleBpmTap}
+                            tapCount={bpmTaps.length}
                             energy={editEnergy}
                             onEnergy={setEditEnergy}
                             artists={editArtists}
@@ -354,7 +371,8 @@ export default function SongScreen() {
                     )}
                 </ScrollView>
             </View>
-            {!editing ? <PlayerBar floating /> : null}
+            {/* Kept visible in edit mode too, so a curator can play the track and tap the tempo along to it. */}
+            <PlayerBar floating />
             <AddToPlaylistSheet songId={details.song.songId} visible={showPlaylistSheet} onClose={() => setShowPlaylistSheet(false)} />
         </Screen>
     );
@@ -365,6 +383,8 @@ interface EditFormProps {
     onName: (v: string) => void;
     bpm: string;
     onBpm: (v: string) => void;
+    onBpmTap: () => void;
+    tapCount: number;
     energy: string;
     onEnergy: (v: string) => void;
     artists: string[];
@@ -394,6 +414,27 @@ function EditForm(props: EditFormProps) {
                 <View style={{ flex: 1 }}>
                     <Field label="BPM">
                         <TextField value={props.bpm} onChangeText={props.onBpm} placeholder="—" keyboardType="number-pad" />
+                        <Pressable
+                            onPress={props.onBpmTap}
+                            accessibilityLabel="Tap tempo"
+                            style={{
+                                flexDirection: "row",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                gap: theme.space.xs,
+                                marginTop: theme.space.xs,
+                                paddingVertical: theme.space.sm,
+                                borderRadius: theme.radius.md,
+                                borderWidth: 1,
+                                borderColor: theme.color.line,
+                                backgroundColor: theme.color.surface,
+                            }}
+                        >
+                            <Ionicons name="hand-left-outline" size={16} color={theme.color.textMuted} />
+                            <Text variant="label" color="textMuted">
+                                {props.tapCount > 0 ? `Tap to the beat (${props.tapCount})` : "Tap to the beat"}
+                            </Text>
+                        </Pressable>
                     </Field>
                 </View>
                 <View style={{ flex: 1 }}>
