@@ -116,3 +116,11 @@ export const PlaylistListResponseSchema = z.object({
 export const CreatePlaylistResponseSchema = z.object({
     playlist: PlaylistSchema
 });
+
+// POST /api/v1/songs/retag-stale?limit=N -> one bounded batch of the library re-tag.
+export interface RetagStaleResponse {
+    enriched: number;
+    failed: number;
+    remaining: number;
+    strongModel: string | null;
+}

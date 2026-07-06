@@ -1,5 +1,5 @@
 import axios, { AxiosInstance } from "axios";
-import { AuthenticateResponse, AuthenticateResponseSchema, ChangedSongPageSchema, CreatePlaylistResponseSchema, Playlist, PlaylistListResponseSchema, SongListResponseSchema, Tag, TagListResponseSchema, UserResponseSchema, UserSongPageSchema } from "./models";
+import { AuthenticateResponse, AuthenticateResponseSchema, ChangedSongPageSchema, CreatePlaylistResponseSchema, Playlist, PlaylistListResponseSchema, RetagStaleResponse, SongListResponseSchema, Tag, TagListResponseSchema, UserResponseSchema, UserSongPageSchema } from "./models";
 import { ApiStatusFailureError } from "./errors";
 import { UpdateSongLastPlayedRequest, UpdateSongMetadataPayload } from "../db/models";
 
@@ -313,6 +313,43 @@ export class ApiClient {
             }
 
             console.log(`[API] Endpoint ${endpoint} succeeded`);
+        } catch (error) {
+            console.log(`[API] Endpoint ${endpoint} failed with error:`, error);
+            throw error;
+        }
+    }
+
+    // Curator-only: re-tag one song from its stored inputs with the current strong model (no re-download).
+    // The server skips curator-locked songs and bumps the version on success.
+    public async songRetag(songId: string) {
+        const endpoint = `/api/v1/songs/${songId}/retag`;
+        console.log(`[API] Calling endpoint: ${endpoint}`);
+        try {
+            const response = await this.client.post(endpoint);
+            if (!isSuccessfulStatus(response.status)) {
+                console.log(`[API] Endpoint ${endpoint} failed with status: ${response.status}`);
+                throw new ApiStatusFailureError(endpoint, response);
+            }
+            console.log(`[API] Endpoint ${endpoint} succeeded`);
+        } catch (error) {
+            console.log(`[API] Endpoint ${endpoint} failed with error:`, error);
+            throw error;
+        }
+    }
+
+    // Curator-only: re-tag up to `limit` stale songs (weaker/older model than the current strong one). Returns
+    // { enriched, failed, remaining, strongModel } so the caller can loop until remaining hits 0.
+    public async songRetagStale(limit: number): Promise<RetagStaleResponse> {
+        const endpoint = `/api/v1/songs/retag-stale`;
+        console.log(`[API] Calling endpoint: ${endpoint}?limit=${limit}`);
+        try {
+            const response = await this.client.post(endpoint, null, { params: { limit } });
+            if (!isSuccessfulStatus(response.status)) {
+                console.log(`[API] Endpoint ${endpoint} failed with status: ${response.status}`);
+                throw new ApiStatusFailureError(endpoint, response);
+            }
+            console.log(`[API] Endpoint ${endpoint} succeeded`);
+            return response.data as RetagStaleResponse;
         } catch (error) {
             console.log(`[API] Endpoint ${endpoint} failed with error:`, error);
             throw error;

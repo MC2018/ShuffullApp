@@ -14,6 +14,7 @@ import { useTheme } from "@/app/theme";
 export default function LibraryScreen() {
     const [playlists, setPlaylists] = React.useState<Playlist[]>([]);
     const [jams, setJams] = React.useState<GenreJam[]>([]);
+    const [isCurator, setIsCurator] = React.useState(false);
     const userId = useCurrentUser();
     const db = useDb();
     const theme = useTheme();
@@ -26,12 +27,18 @@ export default function LibraryScreen() {
         setJams(await DbQueries.getGenreJams(db));
     }, [db]);
 
+    const loadRole = useCallback(async () => {
+        const user = await DbQueries.getUser(db, userId);
+        setIsCurator(user?.isCurator ?? false);
+    }, [db, userId]);
+
     // Reload playlists + jams on focus so a newly created/deleted one shows up immediately.
     useFocusEffect(
         useCallback(() => {
             loadPlaylists();
             loadJams();
-        }, [loadPlaylists, loadJams]),
+            loadRole();
+        }, [loadPlaylists, loadJams, loadRole]),
     );
 
     const confirmDelete = (jam: GenreJam) => {
@@ -84,6 +91,19 @@ export default function LibraryScreen() {
                         }
                         right={chevron}
                     />
+                    {isCurator && (
+                        <ListRow
+                            title="Curator tools"
+                            subtitle="Upgrade library tags"
+                            onPress={() => router.push("/curator")}
+                            left={
+                                <View style={{ width: 48, height: 48, borderRadius: theme.radius.md, backgroundColor: theme.color.accentWash, alignItems: "center", justifyContent: "center" }}>
+                                    <Ionicons name="sparkles-outline" size={22} color={theme.color.accent} />
+                                </View>
+                            }
+                            right={chevron}
+                        />
+                    )}
 
                     <Divider style={{ marginVertical: theme.space.sm }} />
                     <SectionHeader title="Jams" actionLabel="New" onAction={() => router.push("/genre-jam")} />
