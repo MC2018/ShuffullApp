@@ -1,5 +1,5 @@
 import axios, { AxiosInstance } from "axios";
-import { AuthenticateResponse, AuthenticateResponseSchema, ChangedSongPageSchema, CreatePlaylistResponseSchema, Playlist, PlaylistListResponseSchema, RetagStaleResponse, SongListResponseSchema, Tag, TagListResponseSchema, UserResponseSchema, UserSongPageSchema } from "./models";
+import { AuthenticateResponse, AuthenticateResponseSchema, ChangedSongPageSchema, CreatePlaylistResponseSchema, Playlist, PlaylistListResponseSchema, RetagResponse, RetagStaleResponse, SongListResponseSchema, Tag, TagListResponseSchema, UserResponseSchema, UserSongPageSchema } from "./models";
 import { ApiStatusFailureError } from "./errors";
 import { UpdateSongLastPlayedRequest, UpdateSongMetadataPayload } from "../db/models";
 
@@ -319,18 +319,24 @@ export class ApiClient {
         }
     }
 
-    // Curator-only: re-tag one song from its stored inputs with the current strong model (no re-download).
-    // The server skips curator-locked songs and bumps the version on success.
-    public async songRetag(songId: string) {
-        const endpoint = `/api/v1/songs/${songId}/retag`;
-        console.log(`[API] Calling endpoint: ${endpoint}`);
+    // Curator-only: force re-tag a specific set of songs from their stored inputs with the current strong model
+    // (no re-download), regardless of staleness. Multi-id so the offline outbox can coalesce many queued
+    // re-tags into one call. Returns a per-song outcome so the caller can mark items done / retry only failures.
+    public async songRetag(songIds: string[]): Promise<RetagResponse> {
+        const endpoint = `/api/v1/songs/retag`;
+        console.log(`[API] Calling endpoint: ${endpoint} (${songIds.length} songs)`);
         try {
-            const response = await this.client.post(endpoint);
+            const response = await this.client.post(endpoint, JSON.stringify(songIds), {
+                headers: {
+                    "Content-Type": "application/json"
+                }
+            });
             if (!isSuccessfulStatus(response.status)) {
                 console.log(`[API] Endpoint ${endpoint} failed with status: ${response.status}`);
                 throw new ApiStatusFailureError(endpoint, response);
             }
             console.log(`[API] Endpoint ${endpoint} succeeded`);
+            return response.data as RetagResponse;
         } catch (error) {
             console.log(`[API] Endpoint ${endpoint} failed with error:`, error);
             throw error;

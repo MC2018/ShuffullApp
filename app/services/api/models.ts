@@ -124,3 +124,14 @@ export interface RetagStaleResponse {
     remaining: number;
     strongModel: string | null;
 }
+
+// POST /api/v1/songs/retag  body: string[] (song ids) -> per-song outcome (targeted, multi-id).
+export type SongRetagOutcome = "enriched" | "skipped" | "failed";
+export interface SongRetagResult {
+    songId: string;
+    outcome: SongRetagOutcome;
+    error: string | null;
+}
+export interface RetagResponse {
+    results: SongRetagResult[];
+}
