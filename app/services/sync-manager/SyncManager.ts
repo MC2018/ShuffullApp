@@ -158,6 +158,12 @@ export class SyncManager {
             case RequestType.UpdateSongMetadata:
                 statusCode = await this.updateSongMetadata(requests as DbModels.UpdateSongMetadataRequest[]);
                 break;
+            case RequestType.SongRetag:
+                statusCode = await this.songRetag(requests as DbModels.SongRetagRequest[]);
+                break;
+            case RequestType.DeletePlaylist:
+                statusCode = await this.deletePlaylist(requests as DbModels.DeletePlaylistRequest[]);
+                break;
             default:
                 throw new Error("A request type has no method to call.");
         }
@@ -229,6 +235,42 @@ export class SyncManager {
             // Processed individually, so each batch is a single song; loop defensively all the same.
             for (const request of requests) {
                 await this.api.songUpdate(request.songId, request.payload);
+            }
+            return HttpStatusCode.Ok;
+        } catch (e) {
+            if (e instanceof ApiStatusFailureError) {
+                return e.status;
+            }
+
+            return HttpStatusCode.InternalServerError;
+        }
+    }
+
+    private async songRetag(requests: DbModels.SongRetagRequest[]): Promise<HttpStatusCode> {
+        try {
+            // Batched: one POST for all the queued song ids (the endpoint takes a list). Dedupe so a song
+            // liked several times before a sync only re-tags once.
+            const songIds = [...new Set(requests.map(x => x.songId))];
+            if (songIds.length) {
+                await this.api.songRetag(songIds);
+            }
+            return HttpStatusCode.Ok;
+        } catch (e) {
+            if (e instanceof ApiStatusFailureError) {
+                return e.status;
+            }
+
+            return HttpStatusCode.InternalServerError;
+        }
+    }
+
+    private async deletePlaylist(requests: DbModels.DeletePlaylistRequest[]): Promise<HttpStatusCode> {
+        try {
+            // Processed individually, so each batch is a single playlist; loop defensively all the same. The
+            // local rows were already removed optimistically when the user deleted; this just tells the server
+            // (which also purges the un-kept audition songs).
+            for (const request of requests) {
+                await this.api.playlistDelete(request.playlistId);
             }
             return HttpStatusCode.Ok;
         } catch (e) {

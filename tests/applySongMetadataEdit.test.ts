@@ -15,7 +15,7 @@ function makeDb(): GenericDb {
         CREATE TABLE songs (
             song_id TEXT PRIMARY KEY, file_extension TEXT NOT NULL, file_hash TEXT NOT NULL, name TEXT NOT NULL,
             synced_lyrics TEXT, plain_lyrics TEXT, lyrics_instrumental INTEGER NOT NULL DEFAULT 0,
-            lyrics_source TEXT, bpm INTEGER, energy INTEGER
+            lyrics_source TEXT, bpm INTEGER, energy INTEGER, exploratory INTEGER NOT NULL DEFAULT 0
         );
         CREATE TABLE artists ( artist_id TEXT PRIMARY KEY, name TEXT NOT NULL );
         CREATE TABLE song_artists ( song_artist_id TEXT PRIMARY KEY, song_id TEXT NOT NULL, artist_id TEXT NOT NULL );
@@ -29,6 +29,7 @@ function song(id: string, name = `Song ${id}`, bpm: number | null = 120, energy:
     return {
         songId: id, fileExtension: "mp3", fileHash: `hash-${id}`, name,
         syncedLyrics: null, plainLyrics: null, lyricsInstrumental: false, lyricsSource: null, bpm, energy,
+        exploratory: false,
     };
 }
 

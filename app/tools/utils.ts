@@ -1,16 +1,9 @@
 import * as FileSystem from "expo-file-system/legacy";
 import { shaHash } from "./hasher";
-import { monotonicFactory } from "ulid";
 
 // Dependency-free helpers live in ./pure so they can be unit-tested without this file's native imports.
 // Re-exported here so every existing `./utils` / `@/app/tools` import keeps resolving unchanged.
-export { distinctBy, deterministicId, generateRange, isAnyNullish } from "./pure";
-
-// TODO: Math.random() is not cryptographically secure
-export function generateId(): string {
-    const ulid = monotonicFactory(() => Math.random());
-    return ulid();
-}
+export { distinctBy, deterministicId, generateRange, isAnyNullish, generateId } from "./pure";
 
 function getFileNameFromUri(uri: string): string | null {
     if (!uri) {

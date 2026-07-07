@@ -26,5 +26,11 @@ export function getProcessingMethod(requestType: RequestType): ProcessingMethod 
         case RequestType.UpdateSongMetadata:
             // One PUT per song (the endpoint is per-song); the latest queued edit wins server-side.
             return ProcessingMethod.Individual;
+        case RequestType.SongRetag:
+            // The endpoint takes a list of ids, so coalesce many queued promotions into one POST.
+            return ProcessingMethod.Batch;
+        case RequestType.DeletePlaylist:
+            // One DELETE per playlist (the endpoint is per-playlist).
+            return ProcessingMethod.Individual;
     }
 }

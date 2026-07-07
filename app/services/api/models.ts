@@ -46,7 +46,9 @@ export const SongSchema = z.object({
     lyricsInstrumental: z.boolean().default(false),
     lyricsSource: z.string().nullable().default(null),
     bpm: z.number().nullable().default(null),
-    energy: z.number().nullable().default(null)
+    energy: z.number().nullable().default(null),
+    // Un-vetted audition song imported with no AI tags. Defaulted so older API responses still parse.
+    exploratory: z.boolean().default(false)
 });
 export const SongListSchema = SongSchema.array();
 export type Song = z.infer<typeof SongSchema>;
@@ -102,7 +104,9 @@ export const PlaylistSchema = z.object({
     currentSongId: z.string().nullish(),
     percentUntilReplayable: z.number().min(0).max(1),
     version: z.coerce.date(),
-    songIds: z.array(z.string()).default([])
+    songIds: z.array(z.string()).default([]),
+    // Audition playlist: imported from an exploratory source. Defaulted so older API responses still parse.
+    isExploratory: z.boolean().default(false)
 });
 export const PlaylistListSchema = PlaylistSchema.array();
 export type Playlist = z.infer<typeof PlaylistSchema>;

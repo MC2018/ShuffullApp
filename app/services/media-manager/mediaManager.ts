@@ -1,7 +1,8 @@
 import { ExpoSQLiteDatabase } from "drizzle-orm/expo-sqlite";
 import TrackPlayer, { Capability, Event, PlaybackState, RemoteSeekEvent, State } from "react-native-track-player";
-import { CreateUserSongRequest, RecentlyPlayedSong, Song, UpdateSongLastPlayedRequest } from "../db/models";
+import { CreateUserSongRequest, RecentlyPlayedSong, Request, Song, UpdateSongLastPlayedRequest } from "../db/models";
 import DbQueries from "../db/queries";
+import { shouldPromoteExploratory } from "../../tools/promotion";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { STORAGE_KEYS } from "../../constants/storageKeys";
 import { generateRange, generateId } from "../../tools/utils";
@@ -317,7 +318,8 @@ export async function applyLikeStatus(songId: string, likeStatus: LikeStatus) {
 
     const userId = localSessionData.userId;
     await DbQueries.setUserSongLikeStatus(db, userId, songId, likeStatus);
-    await DbQueries.addRequests(db, [
+
+    const requests: Request[] = [
         {
             requestId: generateId(),
             timeRequested: new Date(),
@@ -326,7 +328,23 @@ export async function applyLikeStatus(songId: string, likeStatus: LikeStatus) {
             songId,
             likeStatus,
         },
-    ]);
+    ];
+
+    // Keeping an audition song is its "promote" signal: enqueue a re-tag (the server enriches it and clears
+    // its exploratory flag) and drop the flag locally now so it leaves the audition view immediately.
+    const song = await DbQueries.getSong(db, songId);
+    if (song != undefined && shouldPromoteExploratory(song.exploratory, likeStatus)) {
+        requests.push({
+            requestId: generateId(),
+            timeRequested: new Date(),
+            requestType: RequestType.SongRetag,
+            userId,
+            songId,
+        });
+        await DbQueries.setSongExploratory(db, songId, false);
+    }
+
+    await DbQueries.addRequests(db, requests);
 
     // Mirror into the reactive store so any mounted RatingControl for this song updates, regardless of where
     // the change originated (in-app control or the notification's 👍/👎 buttons).

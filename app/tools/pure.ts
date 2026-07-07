@@ -2,6 +2,14 @@
 // in the native-only imports (expo-file-system, expo-crypto, argon2) that live in ./utils. Behaviour is
 // unchanged: ./utils re-exports each of these, so every existing import path still resolves identically.
 
+import { monotonicFactory } from "ulid";
+
+// TODO: Math.random() is not cryptographically secure
+export function generateId(): string {
+    const ulid = monotonicFactory(() => Math.random());
+    return ulid();
+}
+
 export function distinctBy<T, K>(array: T[], keySelector: (item: T) => K): T[] {
     const seen = new Set<K>();
     return array.filter(item => {

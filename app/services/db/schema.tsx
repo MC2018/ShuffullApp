@@ -16,6 +16,8 @@ export const playlistTable = sqliteTable("playlists", {
     name: text("name").notNull(),
     percentUntilReplayable: real("percent_until_replayable").notNull(),
     version: integer("version", { mode: "timestamp_ms" }).notNull(),
+    // Audition playlist: imported from an exploratory source; deleting it purges the songs never kept.
+    isExploratory: integer("is_exploratory", { mode: "boolean" }).notNull().default(false),
 });
 
 export const songTable = sqliteTable("songs", {
@@ -32,6 +34,9 @@ export const songTable = sqliteTable("songs", {
     bpm: integer("bpm"),
     // Best-effort 1-10 perceived intensity/drive score from the producer's AI (null when unknown).
     energy: integer("energy"),
+    // Un-vetted "audition" song imported with no AI tags. Liking it enqueues a re-tag that promotes it
+    // (clears this + adds tags); deleting its audition playlist purges it if never kept.
+    exploratory: integer("exploratory", { mode: "boolean" }).notNull().default(false),
 }, (table) => {
     return {
         nameIndex: index("idx_songs_name").on(table.name),
@@ -133,6 +138,7 @@ export const requestTable = sqliteTable("requests", {
     username: text("username"),
     userHash: text("user_hash"),
     songId: text("song_id"),
+    playlistId: text("playlist_id"),
     lastPlayed: integer("last_played", { mode: "timestamp_ms" }),
     likeStatus: integer("like_status"),
     // Structured payload for richer requests (e.g. a curator song edit). Null for the simpler request types.

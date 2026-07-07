@@ -146,7 +146,7 @@ export default function LibraryScreen() {
                             <ListRow
                                 key={p.playlistId}
                                 title={p.name}
-                                subtitle="Playlist"
+                                subtitle={p.isExploratory ? "Audition playlist" : "Playlist"}
                                 left={<AlbumArt size={48} radius={theme.radius.md} />}
                                 right={chevron}
                                 onPress={() => router.push({ pathname: "/library/playlist/[id]", params: { id: p.playlistId } })}

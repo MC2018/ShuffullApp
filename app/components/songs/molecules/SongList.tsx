@@ -21,7 +21,11 @@ export function SongList({ songs, onSelectSong, onShowInfo }: SongListProps) {
             renderItem={({ item }) => (
                 <ListRow
                     title={item.song.name}
-                    subtitle={item.artists.length > 0 ? item.artists.map((x) => x.name).join(", ") : "Unknown Artist"}
+                    // Audition songs arrive untagged; flag them so it's clear a like will "keep" (promote) them.
+                    subtitle={
+                        (item.song.exploratory ? "Audition · " : "") +
+                        (item.artists.length > 0 ? item.artists.map((x) => x.name).join(", ") : "Unknown Artist")
+                    }
                     onPress={() => onSelectSong(item)}
                     right={
                         onShowInfo ? (

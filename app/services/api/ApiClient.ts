@@ -176,6 +176,22 @@ export class ApiClient {
         }
     }
 
+    public async playlistDelete(playlistId: string): Promise<void> {
+        const endpoint = `/api/v1/playlists/${playlistId}`;
+        console.log(`[API] Calling endpoint: ${endpoint} (delete)`);
+        try {
+            const response = await this.client.delete(endpoint);
+
+            if (!isSuccessfulStatus(response.status)) {
+                console.log(`[API] Endpoint ${endpoint} failed with status: ${response.status}`);
+                throw new ApiStatusFailureError(endpoint, response);
+            }
+        } catch (error) {
+            console.log(`[API] Endpoint ${endpoint} (delete) failed with error:`, error);
+            throw error;
+        }
+    }
+
     public async userSongGetAll(afterDate: Date) {
         const endpoint = "/api/v1/user-songs";
         console.log(`[API] Calling endpoint: ${endpoint}`);

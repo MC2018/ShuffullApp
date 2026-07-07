@@ -92,6 +92,7 @@ export default function AddToPlaylistSheet({ songId, visible, onClose }: Props) 
                 name: created.name,
                 percentUntilReplayable: created.percentUntilReplayable,
                 version: created.version,
+                isExploratory: false, // a user-created playlist is never an audition playlist
             });
             await api.playlistAddSong(created.playlistId, songId);
             await DbQueries.addSongToPlaylist(db, created.playlistId, songId);

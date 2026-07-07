@@ -35,6 +35,12 @@ export type UpdateSongMetadataRequest = Request & {
     songId: string,
     payload: Schema.UpdateSongMetadataPayload
 };
+export type SongRetagRequest = Request & {
+    songId: string
+};
+export type DeletePlaylistRequest = Request & {
+    playlistId: string
+};
 export type UpdateSongMetadataPayload = Schema.UpdateSongMetadataPayload;
 export type SongTagEdit = Schema.SongTagEdit;
 export type DownloadQueue = typeof Schema.downloadQueueTable.$inferSelect;
