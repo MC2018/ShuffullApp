@@ -24,11 +24,13 @@ function makeDb(): GenericDb {
         CREATE TABLE songs (
             song_id TEXT PRIMARY KEY, file_extension TEXT NOT NULL, file_hash TEXT NOT NULL, name TEXT NOT NULL,
             synced_lyrics TEXT, plain_lyrics TEXT, lyrics_instrumental INTEGER NOT NULL DEFAULT 0,
-            lyrics_source TEXT, bpm INTEGER, energy INTEGER, exploratory INTEGER NOT NULL DEFAULT 0
+            lyrics_source TEXT, bpm INTEGER, energy INTEGER, exploratory INTEGER NOT NULL DEFAULT 0,
+            tags_stale INTEGER NOT NULL DEFAULT 0
         );
         CREATE TABLE playlists (
             playlist_id TEXT PRIMARY KEY, user_id TEXT NOT NULL, name TEXT NOT NULL,
-            percent_until_replayable REAL NOT NULL, version INTEGER NOT NULL, is_exploratory INTEGER NOT NULL DEFAULT 0
+            percent_until_replayable REAL NOT NULL, version INTEGER NOT NULL, is_exploratory INTEGER NOT NULL DEFAULT 0,
+            tags_stale INTEGER NOT NULL DEFAULT 0
         );
         CREATE TABLE playlist_songs ( playlist_song_id TEXT PRIMARY KEY, playlist_id TEXT NOT NULL, song_id TEXT NOT NULL );
         CREATE TABLE song_artists ( song_artist_id TEXT PRIMARY KEY, song_id TEXT NOT NULL, artist_id TEXT NOT NULL );
@@ -47,6 +49,7 @@ function song(id: string, exploratory: boolean): Song {
         songId: id, fileExtension: "mp3", fileHash: `hash-${id}`, name: `Song ${id}`,
         syncedLyrics: null, plainLyrics: null, lyricsInstrumental: false, lyricsSource: null,
         bpm: null, energy: null, exploratory,
+        tagsStale: false,
     };
 }
 

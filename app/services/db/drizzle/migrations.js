@@ -29,6 +29,7 @@ import m0024 from './0024_add_energy_max.sql';
 import m0025 from './0025_add_curator_and_request_payload.sql';
 import m0026 from './0026_add_exploratory_flags.sql';
 import m0027 from './0027_add_request_playlist_id.sql';
+import m0028 from './0028_cheerful_cassandra_nova.sql';
 
   export default {
     journal,
@@ -60,7 +61,8 @@ m0023,
 m0024,
 m0025,
 m0026,
-m0027
+m0027,
+m0028
     }
   }
   

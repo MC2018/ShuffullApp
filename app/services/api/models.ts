@@ -48,7 +48,10 @@ export const SongSchema = z.object({
     bpm: z.number().nullable().default(null),
     energy: z.number().nullable().default(null),
     // Un-vetted audition song imported with no AI tags. Defaulted so older API responses still parse.
-    exploratory: z.boolean().default(false)
+    exploratory: z.boolean().default(false),
+    // Tags produced by a weaker model than the server's current strong one (e.g. a Standard-tier import).
+    // Treated like exploratory for promote-on-like: liking enqueues a re-tag that upgrades the tags.
+    tagsStale: z.boolean().default(false)
 });
 export const SongListSchema = SongSchema.array();
 export type Song = z.infer<typeof SongSchema>;

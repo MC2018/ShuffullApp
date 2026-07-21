@@ -2,7 +2,7 @@ import { ExpoSQLiteDatabase } from "drizzle-orm/expo-sqlite";
 import TrackPlayer, { Capability, Event, PlaybackState, RemoteSeekEvent, State } from "react-native-track-player";
 import { CreateUserSongRequest, RecentlyPlayedSong, Request, Song, UpdateSongLastPlayedRequest } from "../db/models";
 import DbQueries from "../db/queries";
-import { shouldPromoteExploratory } from "../../tools/promotion";
+import { shouldPromoteOnLike } from "../../tools/promotion";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { STORAGE_KEYS } from "../../constants/storageKeys";
 import { generateRange, generateId } from "../../tools/utils";
@@ -330,10 +330,11 @@ export async function applyLikeStatus(songId: string, likeStatus: LikeStatus) {
         },
     ];
 
-    // Keeping an audition song is its "promote" signal: enqueue a re-tag (the server enriches it and clears
-    // its exploratory flag) and drop the flag locally now so it leaves the audition view immediately.
+    // Keeping an audition song — or liking a weak-tagged (Standard-tier) one — is its "promote" signal:
+    // enqueue a re-tag (the server enriches it with the strong model and clears its flags) and drop the
+    // flags locally now so it leaves the audition view / stops re-promoting immediately.
     const song = await DbQueries.getSong(db, songId);
-    if (song != undefined && shouldPromoteExploratory(song.exploratory, likeStatus)) {
+    if (song != undefined && shouldPromoteOnLike(song.exploratory, song.tagsStale, likeStatus)) {
         requests.push({
             requestId: generateId(),
             timeRequested: new Date(),
@@ -341,7 +342,7 @@ export async function applyLikeStatus(songId: string, likeStatus: LikeStatus) {
             userId,
             songId,
         });
-        await DbQueries.setSongExploratory(db, songId, false);
+        await DbQueries.markSongPromoted(db, songId);
     }
 
     await DbQueries.addRequests(db, requests);

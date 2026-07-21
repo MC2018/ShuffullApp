@@ -37,6 +37,9 @@ export const songTable = sqliteTable("songs", {
     // Un-vetted "audition" song imported with no AI tags. Liking it enqueues a re-tag that promotes it
     // (clears this + adds tags); deleting its audition playlist purges it if never kept.
     exploratory: integer("exploratory", { mode: "boolean" }).notNull().default(false),
+    // Tags came from a weaker model than the server's current strong one (server-computed on sync). Liking
+    // the song enqueues the same re-tag as an exploratory promote, upgrading its tags in place.
+    tagsStale: integer("tags_stale", { mode: "boolean" }).notNull().default(false),
 }, (table) => {
     return {
         nameIndex: index("idx_songs_name").on(table.name),

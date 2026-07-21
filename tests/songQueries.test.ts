@@ -34,7 +34,8 @@ function makeDb(): GenericDb {
             lyrics_source TEXT,
             bpm INTEGER,
             energy INTEGER,
-            exploratory INTEGER NOT NULL DEFAULT 0
+            exploratory INTEGER NOT NULL DEFAULT 0,
+            tags_stale INTEGER NOT NULL DEFAULT 0
         );
         CREATE TABLE artists (
             artist_id TEXT PRIMARY KEY,
@@ -63,6 +64,7 @@ function song(id: string, name = `Song ${id}`): Song {
         bpm: null,
         energy: null,
         exploratory: false,
+        tagsStale: false,
     };
 }
 

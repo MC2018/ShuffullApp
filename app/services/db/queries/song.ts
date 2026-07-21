@@ -363,6 +363,7 @@ export async function getSongsByPlaylist(db: GenericDb, playlistId: string): Pro
             bpm: songTable.bpm,
             energy: songTable.energy,
             exploratory: songTable.exploratory,
+            tagsStale: songTable.tagsStale,
             artist: {
                 artistId: artistTable.artistId,
                 name: artistTable.name
@@ -475,6 +476,7 @@ export async function fetchSongDetails(db: GenericDb, songId: string): Promise<S
             bpm: songTable.bpm,
             energy: songTable.energy,
             exploratory: songTable.exploratory,
+            tagsStale: songTable.tagsStale,
             artist: {
                 artistId: artistTable.artistId,
                 name: artistTable.name
@@ -525,10 +527,11 @@ export async function getAllSongIds(db: GenericDb): Promise<string[]> {
     return (await db.select({ songId: songTable.songId }).from(songTable)).map(x => x.songId);
 }
 
-// Optimistic local promote: clear the audition flag right away so the song drops out of the audition view
-// while the queued re-tag reaches the server (the next sync re-pulls the enriched song either way).
-export async function setSongExploratory(db: GenericDb, songId: string, exploratory: boolean): Promise<void> {
-    await db.update(songTable).set({ exploratory }).where(eq(songTable.songId, songId));
+// Optimistic local promote: clear the audition + stale-tags flags right away so the song drops out of the
+// audition view and can't re-promote while the queued re-tag reaches the server (the next sync re-pulls the
+// enriched song either way).
+export async function markSongPromoted(db: GenericDb, songId: string): Promise<void> {
+    await db.update(songTable).set({ exploratory: false, tagsStale: false }).where(eq(songTable.songId, songId));
 }
 
 // Optimistic local apply of a curator's metadata edit, so the UI reflects it immediately (the same edit is
