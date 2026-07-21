@@ -55,7 +55,7 @@ export const typography = {
     section: { fontSize: 15, fontWeight: "700", lineHeight: 20 },
     body: { fontSize: 14, fontWeight: "500", lineHeight: 20 },
     bodyStrong: { fontSize: 14, fontWeight: "700", lineHeight: 20 },
-    label: { fontSize: 12.5, fontWeight: "600", lineHeight: 16 },
+    label: { fontSize: 13, fontWeight: "600", lineHeight: 17 },
     caption: { fontSize: 11, fontWeight: "500", lineHeight: 15 },
     micro: { fontSize: 10.5, fontWeight: "600", lineHeight: 14, letterSpacing: 1.4, textTransform: "uppercase" },
 } as const;

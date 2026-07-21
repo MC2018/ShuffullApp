@@ -48,6 +48,7 @@ export default function SongProgressSync() {
             parameters: {
                 id: generateId()
             },
+            foregroundServiceType: ['dataSync'] as ('dataSync')[],
         };
         
         (async () => {
