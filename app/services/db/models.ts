@@ -36,13 +36,17 @@ export type UpdateSongMetadataRequest = Request & {
     payload: Schema.UpdateSongMetadataPayload
 };
 export type SongRetagRequest = Request & {
-    songId: string
+    songId: string,
+    // Absent on legacy rows => strong. Maintained one-row-per-song with stronger-wins at enqueue time.
+    payload?: Schema.SongRetagPayload | null
 };
 export type DeletePlaylistRequest = Request & {
     playlistId: string
 };
 export type UpdateSongMetadataPayload = Schema.UpdateSongMetadataPayload;
 export type SongTagEdit = Schema.SongTagEdit;
+export type SongRetagPayload = Schema.SongRetagPayload;
+export type RetagModel = Schema.RetagModel;
 export type DownloadQueue = typeof Schema.downloadQueueTable.$inferSelect;
 export type DownloadedSong = typeof Schema.downloadedSongTable.$inferSelect;
 export type GenreJam = typeof Schema.genreJamTable.$inferSelect;

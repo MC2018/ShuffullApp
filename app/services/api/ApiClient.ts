@@ -1,5 +1,5 @@
 import axios, { AxiosInstance } from "axios";
-import { AuthenticateResponse, AuthenticateResponseSchema, ChangedSongPageSchema, CreatePlaylistResponseSchema, Playlist, PlaylistListResponseSchema, RetagResponse, RetagStaleResponse, SongListResponseSchema, Tag, TagListResponseSchema, UserResponseSchema, UserSongPageSchema } from "./models";
+import { AuthenticateResponse, AuthenticateResponseSchema, ChangedSongPageSchema, CreatePlaylistResponseSchema, Playlist, PlaylistListResponseSchema, RetagResponse, RetagStaleResponse, SongListResponseSchema, SongRetagWireItem, Tag, TagListResponseSchema, UserResponseSchema, UserSongPageSchema } from "./models";
 import { ApiStatusFailureError } from "./errors";
 import { UpdateSongLastPlayedRequest, UpdateSongMetadataPayload } from "../db/models";
 
@@ -338,11 +338,13 @@ export class ApiClient {
     // Curator-only: force re-tag a specific set of songs from their stored inputs with the current strong model
     // (no re-download), regardless of staleness. Multi-id so the offline outbox can coalesce many queued
     // re-tags into one call. Returns a per-song outcome so the caller can mark items done / retry only failures.
-    public async songRetag(songIds: string[]): Promise<RetagResponse> {
+    public async songRetag(items: SongRetagWireItem[]): Promise<RetagResponse> {
         const endpoint = `/api/v1/songs/retag`;
-        console.log(`[API] Calling endpoint: ${endpoint} (${songIds.length} songs)`);
+        console.log(`[API] Calling endpoint: ${endpoint} (${items.length} songs)`);
         try {
-            const response = await this.client.post(endpoint, JSON.stringify(songIds), {
+            // Per-item model tiers so one burst flushes a mixed weak/strong backlog; the server collapses
+            // duplicate ids stronger-wins.
+            const response = await this.client.post(endpoint, JSON.stringify({ items }), {
                 headers: {
                     "Content-Type": "application/json"
                 }

@@ -55,3 +55,28 @@ export function advanceSongCursor<T extends { version: Date }>(
 
     return currentCursor;
 }
+
+// One queued re-tag row's shape, as this helper needs it (structurally compatible with
+// DbModels.SongRetagRequest). Absent payload (legacy row) means strong.
+export interface QueuedRetag {
+    songId: string | null;
+    payload?: { model?: string } | null;
+}
+
+// Maps the queued re-tag rows to the wire's per-item shape ({songId, model}) for ONE burst call.
+// Defensive stronger-wins dedupe: the enqueue helper already maintains one row per song, but legacy or
+// hand-inserted duplicates must never demote a strong request (mirrors the server's collapse rule).
+export function toRetagItems(requests: QueuedRetag[]): { songId: string; model: "weak" | "strong" }[] {
+    const modelBySong = new Map<string, "weak" | "strong">();
+    for (const request of requests) {
+        if (!request.songId) {
+            continue;
+        }
+        const model: "weak" | "strong" = request.payload?.model === "weak" ? "weak" : "strong";
+        const existing = modelBySong.get(request.songId);
+        if (existing === undefined || (existing === "weak" && model === "strong")) {
+            modelBySong.set(request.songId, model);
+        }
+    }
+    return [...modelBySong.entries()].map(([songId, model]) => ({ songId, model }));
+}

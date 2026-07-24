@@ -321,6 +321,22 @@ export default function SongScreen() {
                                         onPress={() => setShowPlaylistSheet(true)}
                                         accessibilityLabel="Add to playlist"
                                     />
+                                    {details.song.exploratory ? (
+                                        // Keep = retain this audition song with cheap (weak-model) tags,
+                                        // without the like signal. Disappears once kept/promoted.
+                                        <IconButton
+                                            name="bookmark-outline"
+                                            size={24}
+                                            color={theme.color.textMuted}
+                                            onPress={async () => {
+                                                await MediaManager.keepSong(details.song.songId);
+                                                setDetails(prev => prev
+                                                    ? { ...prev, song: { ...prev.song, exploratory: false, tagsStale: true } }
+                                                    : prev);
+                                            }}
+                                            accessibilityLabel="Keep song"
+                                        />
+                                    ) : null}
                                     <FlagForReplacementControl songId={details.song.songId} />
                                 </View>
                                 <IconButton

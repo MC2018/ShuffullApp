@@ -330,22 +330,17 @@ export async function applyLikeStatus(songId: string, likeStatus: LikeStatus) {
         },
     ];
 
-    // Keeping an audition song — or liking a weak-tagged (Standard-tier) one — is its "promote" signal:
-    // enqueue a re-tag (the server enriches it with the strong model and clears its flags) and drop the
-    // flags locally now so it leaves the audition view / stops re-promoting immediately.
+    await DbQueries.addRequests(db, requests);
+
+    // Liking an audition song — or a weak-tagged (Standard-tier / kept) one — is its "promote" signal:
+    // enqueue a STRONG re-tag and drop the flags locally so it leaves the audition view / stops
+    // re-promoting immediately. enqueueSongRetag keeps one pending row per song with stronger-wins, so a
+    // Like landing after a queued Keep upgrades that row instead of double-spending.
     const song = await DbQueries.getSong(db, songId);
     if (song != undefined && shouldPromoteOnLike(song.exploratory, song.tagsStale, likeStatus)) {
-        requests.push({
-            requestId: generateId(),
-            timeRequested: new Date(),
-            requestType: RequestType.SongRetag,
-            userId,
-            songId,
-        });
+        await DbQueries.enqueueSongRetag(db, userId, songId, "strong");
         await DbQueries.markSongPromoted(db, songId);
     }
-
-    await DbQueries.addRequests(db, requests);
 
     // Mirror into the reactive store so any mounted RatingControl for this song updates, regardless of where
     // the change originated (in-app control or the notification's 👍/👎 buttons).
@@ -355,6 +350,27 @@ export async function applyLikeStatus(songId: string, likeStatus: LikeStatus) {
     if (useActiveSong.getState().songId === songId) {
         await refreshNotificationButtons(likeStatus);
     }
+}
+
+/**
+ * KEEPS an audition song without liking it: "this can stay, but don't spend premium AI on it." Enqueues a
+ * WEAK-model re-tag (the budget tier) and optimistically clears the audition state — with tagsStale set, so
+ * the song remains upgradeable: a later like enqueues strong, and if the Keep is still waiting to sync, the
+ * outbox's stronger-wins rule upgrades that pending row in place. No-op for non-audition songs.
+ */
+export async function keepSong(songId: string) {
+    const localSessionData = await DbQueries.getActiveLocalSessionData(db);
+    if (!localSessionData) {
+        return;
+    }
+
+    const song = await DbQueries.getSong(db, songId);
+    if (song == undefined || !song.exploratory) {
+        return;
+    }
+
+    await DbQueries.enqueueSongRetag(db, localSessionData.userId, songId, "weak");
+    await DbQueries.markSongKept(db, songId);
 }
 
 async function startNewSong(songId: string, recentlyPlayedSong?: RecentlyPlayedSong) {

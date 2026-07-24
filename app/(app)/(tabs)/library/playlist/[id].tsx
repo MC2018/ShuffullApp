@@ -59,6 +59,18 @@ export default function PlaylistScreen() {
         await MediaManager.playSpecificSong(songDetails.song.songId);
     };
 
+    // Keep = retain with cheap tags (weak model), without liking. Optimistically reflect the state change
+    // in this list so the row's Audition marker and bookmark disappear immediately.
+    const handleKeepSong = async (songDetails: SongDetails) => {
+        await MediaManager.keepSong(songDetails.song.songId);
+        const kept = (s: SongDetails) =>
+            s.song.songId === songDetails.song.songId
+                ? { ...s, song: { ...s.song, exploratory: false, tagsStale: true } }
+                : s;
+        setSongs(prev => prev.map(kept));
+        setFilteredSongs(prev => prev.map(kept));
+    };
+
     if (playlist == undefined) {
         return <Screen><View style={{ flex: 1 }} /></Screen>;
     }
@@ -130,6 +142,7 @@ export default function PlaylistScreen() {
                     songs={filteredSongs}
                     onSelectSong={handleSelectSong}
                     onShowInfo={(s) => router.push({ pathname: "/song/[id]", params: { id: s.song.songId } })}
+                    onKeepSong={handleKeepSong}
                 />
             </View>
             <PlayerBar />

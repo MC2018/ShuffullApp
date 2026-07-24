@@ -534,6 +534,13 @@ export async function markSongPromoted(db: GenericDb, songId: string): Promise<v
     await db.update(songTable).set({ exploratory: false, tagsStale: false }).where(eq(songTable.songId, songId));
 }
 
+// Optimistic local mark for a KEEP (weak-model re-tag queued): the song leaves the audition state now, but
+// its tags will be WEAK — tagsStale is set so a later like still promotes it to strong (the outbox's
+// stronger-wins rule upgrades the pending row if the like lands before the sync flushes).
+export async function markSongKept(db: GenericDb, songId: string): Promise<void> {
+    await db.update(songTable).set({ exploratory: false, tagsStale: true }).where(eq(songTable.songId, songId));
+}
+
 // Optimistic local apply of a curator's metadata edit, so the UI reflects it immediately (the same edit is
 // also queued to the server via the outbox; the next sync reconciles from the authoritative record).
 // Artist ids are deterministic-by-name (matching the sync), so reusing/creating them here never diverges

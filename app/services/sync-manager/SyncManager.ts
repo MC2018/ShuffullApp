@@ -10,7 +10,7 @@ import { GenericDb } from "@/app/services/db/GenericDb";
 import { Downloader } from "@/app/services/downloader/Downloader";
 import { STORAGE_KEYS } from "@/app/constants/storageKeys";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { advanceSongCursor, collectNewSongIds, playlistsToFetch } from "@/app/services/sync-manager/syncLogic";
+import { advanceSongCursor, collectNewSongIds, playlistsToFetch, toRetagItems } from "@/app/services/sync-manager/syncLogic";
 
 export class SyncManager {
     db: GenericDb;
@@ -248,11 +248,12 @@ export class SyncManager {
 
     private async songRetag(requests: DbModels.SongRetagRequest[]): Promise<HttpStatusCode> {
         try {
-            // Batched: one POST for all the queued song ids (the endpoint takes a list). Dedupe so a song
-            // liked several times before a sync only re-tags once.
-            const songIds = [...new Set(requests.map(x => x.songId))];
-            if (songIds.length) {
-                await this.api.songRetag(songIds);
+            // ONE burst POST for the whole (possibly mixed) backlog: each item carries its own model tier,
+            // so weak Keeps and strong like-promotions flush together. Stronger-wins dedupe mirrors both the
+            // enqueue rule and the server's collapse.
+            const items = toRetagItems(requests);
+            if (items.length) {
+                await this.api.songRetag(items);
             }
             return HttpStatusCode.Ok;
         } catch (e) {

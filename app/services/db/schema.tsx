@@ -131,6 +131,14 @@ export interface UpdateSongMetadataPayload {
     tags: SongTagEdit[];
 }
 
+// A queued re-tag's engine tier: "weak" = the budget model (an audition Keep), "strong" = full quality
+// (likes, upgrades). Absent payload on a legacy row means strong. One row per song is maintained at
+// enqueue time with STRONGER-WINS (a Like after a Keep upgrades the pending row, never the reverse).
+export type RetagModel = "weak" | "strong";
+export interface SongRetagPayload {
+    model: RetagModel;
+}
+
 export const requestTable = sqliteTable("requests", {
     requestId: text("request_id").primaryKey(),
     timeRequested: integer("time_request", { mode: "timestamp_ms" }).notNull(),
@@ -144,8 +152,9 @@ export const requestTable = sqliteTable("requests", {
     playlistId: text("playlist_id"),
     lastPlayed: integer("last_played", { mode: "timestamp_ms" }),
     likeStatus: integer("like_status"),
-    // Structured payload for richer requests (e.g. a curator song edit). Null for the simpler request types.
-    payload: text("payload", { mode: "json" }).$type<UpdateSongMetadataPayload>()
+    // Structured payload for richer requests (a curator song edit, a re-tag's model tier). Null for the
+    // simpler request types; the per-request-type models narrow it (see db/models.ts).
+    payload: text("payload", { mode: "json" }).$type<UpdateSongMetadataPayload | SongRetagPayload>()
 });
 
 export const downloadQueueTable = sqliteTable("download_queue", {

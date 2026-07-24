@@ -142,3 +142,8 @@ export interface SongRetagResult {
 export interface RetagResponse {
     results: SongRetagResult[];
 }
+/** One song to re-tag and its engine tier — the wire item of POST /songs/retag {items}. */
+export interface SongRetagWireItem {
+    songId: string;
+    model: "weak" | "strong";
+}
