@@ -60,6 +60,30 @@ export async function removeSongFromPlaylist(db: GenericDb, playlistId: string, 
         .where(and(eq(playlistSongTable.playlistId, playlistId), eq(playlistSongTable.songId, songId)));
 }
 
+// One row per song of a playlist with the fields the audition-state derivation needs (see tools/audition):
+// the song's exploratory flag plus the user's likeStatus/lastPlayed (null when no UserSong row exists yet).
+// All three inputs sync through the server, so the derived states are identical across devices.
+export interface PlaylistSongState {
+    songId: string;
+    exploratory: boolean;
+    likeStatus: number | null;
+    lastPlayed: Date | null;
+}
+
+export async function getPlaylistSongStates(db: GenericDb, userId: string, playlistId: string): Promise<PlaylistSongState[]> {
+    return await db
+        .select({
+            songId: songTable.songId,
+            exploratory: songTable.exploratory,
+            likeStatus: userSongTable.likeStatus,
+            lastPlayed: userSongTable.lastPlayed,
+        })
+        .from(playlistSongTable)
+        .innerJoin(songTable, eq(songTable.songId, playlistSongTable.songId))
+        .leftJoin(userSongTable, and(eq(userSongTable.songId, playlistSongTable.songId), eq(userSongTable.userId, userId)))
+        .where(eq(playlistSongTable.playlistId, playlistId));
+}
+
 // Deletes a playlist locally and, for an audition (exploratory) playlist, purges the songs the user never kept
 // - mirroring the server's own delete-purge so the local library matches without waiting for a full re-sync. A
 // song is purged only when it is still exploratory (never promoted by a keep) AND no other playlist references

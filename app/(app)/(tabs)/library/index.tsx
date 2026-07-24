@@ -10,17 +10,32 @@ import { useCurrentUser } from "@/app/services/auth/CurrentUserProvider";
 import { jamSummary, launchJam } from "@/app/services/genre-jam";
 import { AlbumArt, Divider, IconButton, ListRow, Screen, SectionHeader, Text } from "@/app/components/ui";
 import { useTheme } from "@/app/theme";
+import { LikeStatus } from "@/app/enums";
+import { auditionProgress, deriveAuditionRowState } from "@/app/tools/audition";
 
 export default function LibraryScreen() {
     const [playlists, setPlaylists] = React.useState<Playlist[]>([]);
     const [jams, setJams] = React.useState<GenreJam[]>([]);
     const [isCurator, setIsCurator] = React.useState(false);
+    const [cohortProgress, setCohortProgress] = React.useState<Record<string, { evaluated: number; total: number }>>({});
     const userId = useCurrentUser();
     const db = useDb();
     const theme = useTheme();
 
     const loadPlaylists = useCallback(async () => {
-        setPlaylists(await DbQueries.getPlaylists(db, userId));
+        const loaded = await DbQueries.getPlaylists(db, userId);
+        setPlaylists(loaded);
+
+        // Progress bubbles for the audition cohorts, derived from synced data (lastPlayed / likeStatus /
+        // exploratory) — "how many songs have had their chance?" A full bubble marks the cohort done and
+        // safe to delete.
+        const progress: Record<string, { evaluated: number; total: number }> = {};
+        for (const playlist of loaded.filter(p => p.isExploratory)) {
+            const rows = await DbQueries.getPlaylistSongStates(db, userId, playlist.playlistId);
+            progress[playlist.playlistId] = auditionProgress(rows.map(r =>
+                deriveAuditionRowState(r.exploratory, (r.likeStatus ?? LikeStatus.Neutral) as LikeStatus, r.lastPlayed)));
+        }
+        setCohortProgress(progress);
     }, [db, userId]);
 
     const loadJams = useCallback(async () => {
@@ -135,24 +150,75 @@ export default function LibraryScreen() {
                         ))
                     )}
 
-                    <Divider style={{ marginVertical: theme.space.sm }} />
-                    <SectionHeader title="Playlists" />
-                    {playlists.length === 0 ? (
-                        <Text variant="body" color="textFaint">
-                            No playlists yet.
-                        </Text>
-                    ) : (
-                        playlists.map((p) => (
-                            <ListRow
-                                key={p.playlistId}
-                                title={p.name}
-                                subtitle={p.isExploratory ? "Audition playlist" : "Playlist"}
-                                left={<AlbumArt size={48} radius={theme.radius.md} />}
-                                right={chevron}
-                                onPress={() => router.push({ pathname: "/library/playlist/[id]", params: { id: p.playlistId } })}
-                            />
-                        ))
-                    )}
+                    {(() => {
+                        // Audition cohorts get their own section, newest first — the weekly triage inbox —
+                        // each with an evaluated/total bubble that fills when the cohort is done (and thus
+                        // safe to delete). Everything else stays a plain playlist row.
+                        const auditionPlaylists = playlists
+                            .filter(p => p.isExploratory)
+                            .sort((a, b) => b.version.getTime() - a.version.getTime());
+                        const normalPlaylists = playlists.filter(p => !p.isExploratory);
+                        return (
+                            <>
+                                {auditionPlaylists.length > 0 ? (
+                                    <>
+                                        <Divider style={{ marginVertical: theme.space.sm }} />
+                                        <SectionHeader title="Audition" />
+                                        {auditionPlaylists.map((p) => {
+                                            const progress = cohortProgress[p.playlistId];
+                                            const complete = progress != null && progress.total > 0 && progress.evaluated === progress.total;
+                                            return (
+                                                <ListRow
+                                                    key={p.playlistId}
+                                                    title={p.name}
+                                                    subtitle={complete ? "Done — safe to delete" : "Audition playlist"}
+                                                    left={<AlbumArt size={48} radius={theme.radius.md} />}
+                                                    right={
+                                                        <View style={{ flexDirection: "row", alignItems: "center", gap: theme.space.sm }}>
+                                                            {progress != null ? (
+                                                                <View
+                                                                    style={{
+                                                                        paddingVertical: 2,
+                                                                        paddingHorizontal: theme.space.sm,
+                                                                        borderRadius: theme.radius.pill,
+                                                                        backgroundColor: complete ? theme.color.accent : theme.color.neutralFill,
+                                                                    }}
+                                                                >
+                                                                    <Text variant="caption" color={complete ? "onAccent" : "textMuted"}>
+                                                                        {progress.evaluated}/{progress.total}
+                                                                    </Text>
+                                                                </View>
+                                                            ) : null}
+                                                            {chevron}
+                                                        </View>
+                                                    }
+                                                    onPress={() => router.push({ pathname: "/library/playlist/[id]", params: { id: p.playlistId } })}
+                                                />
+                                            );
+                                        })}
+                                    </>
+                                ) : null}
+                                <Divider style={{ marginVertical: theme.space.sm }} />
+                                <SectionHeader title="Playlists" />
+                                {normalPlaylists.length === 0 ? (
+                                    <Text variant="body" color="textFaint">
+                                        No playlists yet.
+                                    </Text>
+                                ) : (
+                                    normalPlaylists.map((p) => (
+                                        <ListRow
+                                            key={p.playlistId}
+                                            title={p.name}
+                                            subtitle="Playlist"
+                                            left={<AlbumArt size={48} radius={theme.radius.md} />}
+                                            right={chevron}
+                                            onPress={() => router.push({ pathname: "/library/playlist/[id]", params: { id: p.playlistId } })}
+                                        />
+                                    ))
+                                )}
+                            </>
+                        );
+                    })()}
                 </ScrollView>
             </View>
             <PlayerBar />

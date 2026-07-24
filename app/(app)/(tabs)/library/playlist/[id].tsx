@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Alert, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { Playlist } from "@/app/services/db/models";
@@ -11,17 +11,20 @@ import { DownloadPriority, SongDetails } from "@/app/services/db/types";
 import { useDownloader } from "@/app/services/downloader/DownloaderProvider";
 import { Downloader } from "@/app/services/downloader/Downloader";
 import { MediaManager } from "@/app/services/media-manager";
-import { Button, Screen, Text, TextField } from "@/app/components/ui";
+import { Button, Chip, Screen, Text, TextField } from "@/app/components/ui";
 import { useTheme } from "@/app/theme";
-import { RequestType } from "@/app/enums";
+import { LikeStatus, RequestType } from "@/app/enums";
 import { generateId } from "@/app/tools";
+import { AuditionRowState, auditionProgress, deriveAuditionRowState } from "@/app/tools/audition";
 
 export default function PlaylistScreen() {
     const theme = useTheme();
     const { id: playlistId } = useLocalSearchParams<{ id: string }>();
     const [songs, setSongs] = useState<SongDetails[]>([]);
     const [playlist, setPlaylist] = useState<Playlist | null>(null);
-    const [filteredSongs, setFilteredSongs] = useState<SongDetails[]>([]);
+    const [songStates, setSongStates] = useState<Record<string, AuditionRowState>>({});
+    const [search, setSearch] = useState("");
+    const [unheardOnly, setUnheardOnly] = useState(false);
     const db = useDb();
     const downloader = useDownloader();
 
@@ -38,37 +41,53 @@ export default function PlaylistScreen() {
             setPlaylist(dbPlaylist);
             const dbSongs = await DbQueries.getSongDetailsByPlaylist(db, playlistId);
             setSongs(dbSongs);
-            setFilteredSongs(dbSongs);
+
+            // Per-row audition/heard states, derived entirely from synced data (identical across devices).
+            // Computed for every playlist — audition views render the full three-state treatment, and the
+            // "unheard only" chip works everywhere.
+            const sessionData = await DbQueries.getActiveLocalSessionData(db);
+            if (sessionData) {
+                const rows = await DbQueries.getPlaylistSongStates(db, sessionData.userId, playlistId);
+                const states: Record<string, AuditionRowState> = {};
+                for (const row of rows) {
+                    states[row.songId] = deriveAuditionRowState(
+                        row.exploratory, (row.likeStatus ?? LikeStatus.Neutral) as LikeStatus, row.lastPlayed);
+                }
+                setSongStates(states);
+            }
         })();
     }, [playlistId]);
 
-    const filterSongs = (search: string) => {
-        if (search === "") {
-            setFilteredSongs(songs);
-            return;
-        }
-        const q = search.toLowerCase();
-        setFilteredSongs(
-            songs.filter(
+    // Search + the unheard-only chip compose over the loaded list; both derive, never mutate.
+    const visibleSongs = useMemo(() => {
+        let result = songs;
+        if (search !== "") {
+            const q = search.toLowerCase();
+            result = result.filter(
                 (x) => x.song.name.toLowerCase().includes(q) || x.artists.map((y) => y.name).join(", ").toLowerCase().includes(q),
-            ),
-        );
-    };
+            );
+        }
+        if (unheardOnly) {
+            result = result.filter((x) => songStates[x.song.songId] === "unheard");
+        }
+        return result;
+    }, [songs, search, unheardOnly, songStates]);
+
+    const progress = useMemo(() => auditionProgress(Object.values(songStates)), [songStates]);
 
     const handleSelectSong = async (songDetails: SongDetails) => {
         await MediaManager.playSpecificSong(songDetails.song.songId);
     };
 
     // Keep = retain with cheap tags (weak model), without liking. Optimistically reflect the state change
-    // in this list so the row's Audition marker and bookmark disappear immediately.
+    // in this list so the row flips to its kept treatment immediately.
     const handleKeepSong = async (songDetails: SongDetails) => {
         await MediaManager.keepSong(songDetails.song.songId);
-        const kept = (s: SongDetails) =>
+        setSongs(prev => prev.map(s =>
             s.song.songId === songDetails.song.songId
                 ? { ...s, song: { ...s.song, exploratory: false, tagsStale: true } }
-                : s;
-        setSongs(prev => prev.map(kept));
-        setFilteredSongs(prev => prev.map(kept));
+                : s));
+        setSongStates(prev => ({ ...prev, [songDetails.song.songId]: "kept" }));
     };
 
     if (playlist == undefined) {
@@ -124,25 +143,34 @@ export default function PlaylistScreen() {
                     {playlist.name}
                 </Text>
                 <Text variant="caption" color="textFaint" style={{ marginTop: 2, marginBottom: theme.space.md }}>
-                    {songs.length} songs{playlist.isExploratory ? " · Audition" : ""}
+                    {songs.length} songs
+                    {playlist.isExploratory ? ` · Audition · ${progress.evaluated}/${progress.total} evaluated` : ""}
                 </Text>
                 <View style={{ flexDirection: "row", gap: theme.space.sm, marginBottom: theme.space.md }}>
                     <Button label="Play" icon="play" onPress={playPlaylist} style={{ flex: 1 }} />
                     <Button label="Download" icon="download-outline" variant="ghost" onPress={downloadPlaylist} style={{ flex: 1 }} />
                     <Button label="Delete" icon="trash-outline" variant="ghost" onPress={confirmDelete} />
                 </View>
-                <TextField
-                    placeholder="Search in playlist"
-                    onChangeText={filterSongs}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    style={{ marginBottom: theme.space.md }}
-                />
+                <View style={{ flexDirection: "row", gap: theme.space.sm, alignItems: "center", marginBottom: theme.space.md }}>
+                    <TextField
+                        placeholder="Search in playlist"
+                        onChangeText={setSearch}
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                        style={{ flex: 1 }}
+                    />
+                    <Chip
+                        label="Unheard only"
+                        state={unheardOnly ? "selected" : "idle"}
+                        onPress={() => setUnheardOnly(v => !v)}
+                    />
+                </View>
                 <SongList
-                    songs={filteredSongs}
+                    songs={visibleSongs}
                     onSelectSong={handleSelectSong}
                     onShowInfo={(s) => router.push({ pathname: "/song/[id]", params: { id: s.song.songId } })}
                     onKeepSong={handleKeepSong}
+                    auditionStates={playlist.isExploratory ? songStates : undefined}
                 />
             </View>
             <PlayerBar />
