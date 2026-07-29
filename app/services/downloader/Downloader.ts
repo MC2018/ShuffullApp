@@ -1,4 +1,3 @@
-import { ExpoSQLiteDatabase } from "drizzle-orm/expo-sqlite";
 import DbQueries from "../db/queries";
 import * as FileSystem from "expo-file-system/legacy";
 import { verifyFileIntegrity } from "../../tools/utils";
@@ -21,7 +20,8 @@ const albumArtFolder = path.join(FileSystem.documentDirectory, "albumart");
 export class Downloader {
     downloading = false;
     paused = true;
-    db: ExpoSQLiteDatabase;
+    // Matches the constructor, which was already driver-agnostic — the field just hadn't kept up.
+    db: GenericDb;
     timerId: ReturnType<typeof setInterval>;
 
     constructor(db: GenericDb) {

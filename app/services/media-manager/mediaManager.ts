@@ -1,4 +1,4 @@
-import { ExpoSQLiteDatabase } from "drizzle-orm/expo-sqlite";
+import { GenericDb } from "../db/GenericDb";
 import TrackPlayer, { Capability, Event, PlaybackState, RemoteSeekEvent, State } from "react-native-track-player";
 import { CreateUserSongRequest, RecentlyPlayedSong, Request, Song, UpdateSongLastPlayedRequest } from "../db/models";
 import DbQueries from "../db/queries";
@@ -14,7 +14,7 @@ import path from "path-browserify";
 import { SongFilters } from "../../types/SongFilters";
 
 let queue: string[] = [];
-let db: ExpoSQLiteDatabase;
+let db: GenericDb;
 let trackPlayerInitialized = false;
 
 interface ActiveSongState {
@@ -64,7 +64,7 @@ export const useLikeStatus = create<LikeStatusState>((set) => ({
     setLikeStatus: (songId, status) => set((s) => ({ statuses: { ...s.statuses, [songId]: status } })),
 }));
 
-export async function setup(activeDb: ExpoSQLiteDatabase) {
+export async function setup(activeDb: GenericDb) {
     db = activeDb;
     initTrackPlayer();
 
