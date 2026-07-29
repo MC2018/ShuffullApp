@@ -15,6 +15,10 @@ export default defineConfig({
         alias: {
             // Mirror the tsconfig "@/*" -> "./*" path mapping so test imports match app code.
             "@": path.resolve(__dirname, "."),
+            // hasher.web.ts is genuinely worth testing (its output is the login credential), but importing it
+            // pulls expo-crypto and therefore React Native's Flow source, which vitest can't parse. Stubbing
+            // the leaf dependency lets the REAL module be tested instead of a copy of it drifting in a test.
+            "expo-crypto": path.resolve(__dirname, "tests/stubs/expo-crypto.ts"),
         },
     },
 });
