@@ -181,7 +181,16 @@ export async function play() {
     }
 }
 
-export async function playSpecificSong(songId: string) {
+/**
+ * Plays a song the user picked out of a list, and sets the SCOPE that playback continues in once it ends.
+ *
+ * `scope` is the context the song was picked from — a playlist, an artist, the downloads list. Passing it is
+ * what keeps the music going: when a song finishes, `skip()` finds the next one through the current filters,
+ * so a caller that leaves the filters empty gets shuffle over the whole library, and one that scopes them
+ * gets the next song from that same list. Previously this ALWAYS cleared the filters, so tapping any song
+ * anywhere played exactly that song and then stopped dead.
+ */
+export async function playSpecificSong(songId: string, scope?: SongFilters) {
     // Activating the song that's already current must never restart it: resume if paused, otherwise leave it
     // playing (don't disturb the existing queue/scope). A different song plays fresh from the start.
     if (useActiveSong.getState().songId === songId) {
@@ -191,8 +200,12 @@ export async function playSpecificSong(songId: string) {
         return;
     }
 
-    await setSongFilters(new SongFilters(), true);
-    startNewSong(songId);
+    // Deliberately NOT setSongFilters(..., clearAndPlay: true): that starts a RANDOM song from the new scope,
+    // which would race the song the user actually tapped. Set the scope, reset the queue/history to it, then
+    // start the chosen song.
+    await setSongFilters(scope ?? new SongFilters());
+    await clear();
+    await startNewSong(songId);
 }
 
 export async function pause() {
@@ -502,8 +515,10 @@ async function getRandomSongId(): Promise<string | undefined> {
 
         songId = filteredSongs[randomSongIndex].songId;
     } else {
-        // Use case: when you select a specific song to play, the next song to play will be nothing
-        songId = undefined;
+        // No scope set => shuffle the whole library rather than stopping. This used to return undefined, which
+        // made playback halt after a single song whenever the filters happened to be empty — the same dead end
+        // reached from any list screen, since those cleared the filters on the way in.
+        songId = await DbQueries.getRandomSongId(db);
     }
 
     return songId;

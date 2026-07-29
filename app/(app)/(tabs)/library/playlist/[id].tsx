@@ -6,7 +6,7 @@ import DbQueries from "@/app/services/db/queries";
 import { useDb } from "@/app/services/db/DbProvider";
 import PlayerBar, { totalPlayerBarHeight } from "@/app/components/music-control/organisms/PlayerBar";
 import { SongList } from "@/app/components/songs/molecules/SongList";
-import { SongFilterType } from "@/app/types/SongFilters";
+import { SongFilters, SongFilterType } from "@/app/types/SongFilters";
 import { DownloadPriority, SongDetails } from "@/app/services/db/types";
 import { useDownloader } from "@/app/services/downloader/DownloaderProvider";
 import { Downloader } from "@/app/services/downloader/Downloader";
@@ -76,7 +76,11 @@ export default function PlaylistScreen() {
     const progress = useMemo(() => auditionProgress(Object.values(songStates)), [songStates]);
 
     const handleSelectSong = async (songDetails: SongDetails) => {
-        await MediaManager.playSpecificSong(songDetails.song.songId);
+        // Scope shuffle to this playlist, so when the tapped song ends the next one comes from the same
+        // playlist instead of playback simply stopping.
+        const scope = new SongFilters();
+        scope.setSoleFilter(SongFilterType.Playlist, [playlistId]);
+        await MediaManager.playSpecificSong(songDetails.song.songId, scope);
     };
 
     // Keep = retain with cheap tags (weak model), without liking. Optimistically reflect the state change

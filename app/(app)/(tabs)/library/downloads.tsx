@@ -6,6 +6,7 @@ import { useDb } from "@/app/services/db/DbProvider";
 import PlayerBar, { totalPlayerBarHeight } from "@/app/components/music-control/organisms/PlayerBar";
 import { SongList } from "@/app/components/songs/molecules/SongList";
 import { SongDetails } from "@/app/services/db/types";
+import { SongFilters } from "@/app/types/SongFilters";
 import { MediaManager } from "@/app/services/media-manager";
 import { Screen, Text, TextField } from "@/app/components/ui";
 import { useTheme } from "@/app/theme";
@@ -38,7 +39,11 @@ export default function LocalDownloadsScreen() {
     };
 
     const handleSelectSong = async (songDetails: SongDetails) => {
-        await MediaManager.playSpecificSong(songDetails.song.songId);
+        // Stay within the downloaded songs after the tapped one ends — the point of this screen is offline
+        // listening, so wandering into songs that aren't on disk would defeat it.
+        const scope = new SongFilters();
+        scope.localOnly = true;
+        await MediaManager.playSpecificSong(songDetails.song.songId, scope);
     };
 
     return (

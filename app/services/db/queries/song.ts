@@ -14,6 +14,15 @@ type FilteredSongs = {
     lastPlayed?: number,
 };
 
+/**
+ * The candidate pool the player draws the next song from.
+ *
+ * Note on the interpolations below: a placeholder in a drizzle `sql` template BINDS A PARAMETER — it does not
+ * splice SQL text. Every condition here therefore interpolates NUMBERS and compares them (`0 = 1` / `1 = 1`),
+ * never a SQL fragment. localOnly used to interpolate the literal string "EXISTS (SELECT ...)", which arrived
+ * as a bound text value; SQLite coerces that to 0 in a boolean context, so the whole WHERE went false and the
+ * filter silently matched NOTHING. Nothing errored — the pool was just empty, and playback stopped.
+ */
 export async function getFilteredSong(db: GenericDb, songFilters: SongFilters) {
     const whitelistArtists = JSON.stringify(songFilters.whitelists.artistIds);
     const whitelistPlaylists = JSON.stringify(songFilters.whitelists.playlistIds);
@@ -40,8 +49,11 @@ export async function getFilteredSong(db: GenericDb, songFilters: SongFilters) {
             WHERE
                 -- Dislike = never play again: exclude disliked songs from shuffle (explicit play still allowed).
                 (us.like_status IS NULL OR us.like_status <> 3)
-            AND
-                ${songFilters.localOnly ? "EXISTS (SELECT 1 FROM downloaded_songs ds WHERE ds.song_id = s.song_id)" : "1 = 1"}
+            AND (
+                -- localOnly: see the note above this function.
+                ${songFilters.localOnly ? 0 : 1} = 1
+                OR EXISTS (SELECT 1 FROM downloaded_songs ds WHERE ds.song_id = s.song_id)
+            )
             AND (
                 ${whitelistsEmpty ? 1 : 0} = 1 OR
                 (

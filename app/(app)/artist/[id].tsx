@@ -7,7 +7,7 @@ import DbQueries from "@/app/services/db/queries";
 import { useDb } from "@/app/services/db/DbProvider";
 import PlayerBar, { totalPlayerBarHeight } from "@/app/components/music-control/organisms/PlayerBar";
 import { SongList } from "@/app/components/songs/molecules/SongList";
-import { SongFilterType } from "@/app/types/SongFilters";
+import { SongFilters, SongFilterType } from "@/app/types/SongFilters";
 import { SongDetails } from "@/app/services/db/types";
 import { MediaManager } from "@/app/services/media-manager";
 import { Button, IconButton, Screen, Text, TextField } from "@/app/components/ui";
@@ -36,7 +36,12 @@ export default function ArtistScreen() {
     const filteredSongs = q === "" ? songs : songs.filter((x) => x.song.name.toLowerCase().includes(q));
 
     const handleSelectSong = async (songDetails: SongDetails) => {
-        await MediaManager.playSpecificSong(songDetails.song.songId);
+        // Keep playing within this artist once the tapped song ends.
+        const scope = new SongFilters();
+        if (artistId != undefined) {
+            scope.setSoleFilter(SongFilterType.Artist, [artistId]);
+        }
+        await MediaManager.playSpecificSong(songDetails.song.songId, scope);
     };
 
     const playArtist = async () => {
