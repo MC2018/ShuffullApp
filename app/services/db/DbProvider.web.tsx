@@ -4,6 +4,7 @@ import { sql } from "drizzle-orm";
 import migrations from "./drizzle/migrations";
 import { getDb, initDbAsync, resetDbAsync } from "./database.web";
 import { GenericDb } from "./GenericDb";
+import { MediaManager } from "../media-manager";
 
 const DbContext = createContext<GenericDb | null>(null);
 
@@ -20,8 +21,10 @@ interface DbProviderProps {
  * use. The migration data itself is the same `drizzle/migrations` bundle native runs, so both platforms
  * apply an identical schema history — only the runner differs.
  *
- * Deliberately does NOT initialise MediaManager: importing it pulls react-native-track-player, which is
- * aliased on web but still owns native-only setup. Playback wiring for desktop is a separate step.
+ * It DOES initialise the MediaManager, exactly as the native provider does. That was deferred while the web
+ * target was being brought up, on the assumption react-native-track-player would drag in native-only setup —
+ * but Metro aliases it to an HTMLAudioElement shim here, so there is nothing native left to avoid, and
+ * skipping it left mediaManager without a database handle.
  */
 async function runMigrations(db: GenericDb) {
     // Bookkeeping table so an already-applied migration is never re-run on this origin. INTEGER PRIMARY KEY
@@ -77,6 +80,10 @@ export const DbProvider = ({ children }: DbProviderProps) => {
             try {
                 const db = await initDbAsync();
                 await runMigrations(db);
+                // Same handoff the native provider does. mediaManager keeps the handle in a module-level
+                // variable, so without this every playback path dereferenced an undefined db and threw
+                // "Cannot read properties of undefined (reading 'select')" — tapping a song did nothing.
+                await MediaManager.setup(db);
                 if (!cancelled) setReady(true);
             } catch (e) {
                 // Same last resort as native: a schema we cannot migrate is rebuilt from scratch. The local

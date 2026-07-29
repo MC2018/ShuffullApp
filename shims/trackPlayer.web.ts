@@ -59,6 +59,7 @@ let audio: HTMLAudioElement | null = null;
 let queue: Track[] = [];
 let activeIndex = -1;
 let state: State = State.None;
+let isSetup = false;
 
 type Listener = (payload: any) => void;
 const listeners = new Map<Event, Set<Listener>>();
@@ -101,11 +102,21 @@ async function load(index: number, autoplay: boolean) {
 }
 
 const TrackPlayer = {
-    async setupPlayer() { el(); setState(State.Ready); },
+    async setupPlayer() { el(); isSetup = true; setState(State.Ready); },
     /** Accepted and ignored — OS transport controls would need the Media Session API. */
     async updateOptions(_options?: unknown) { },
-    /** Native-only concept; there is no background service on web. */
-    registerPlaybackService(_factory: () => any) { },
+
+    /**
+     * On native this hands RNTP a factory whose returned function runs in a separate headless service. There
+     * is no such process on web, so the service function is simply invoked here — the listeners it registers
+     * are what advance the queue when a track ends. Leaving this a no-op (as it first was) meant nothing was
+     * ever subscribed to Event.PlaybackState, so playback stopped silently at the end of every song.
+     */
+    registerPlaybackService(factory: () => any) {
+        Promise.resolve(factory())
+            .then((service) => (typeof service === "function" ? service() : undefined))
+            .catch((e) => console.error("Playback service failed to start:", e));
+    },
 
     async add(tracks: Track | Track[], insertBeforeIndex?: number) {
         const items = Array.isArray(tracks) ? tracks : [tracks];
@@ -118,7 +129,21 @@ const TrackPlayer = {
         const list = (Array.isArray(indexes) ? indexes : [indexes]).sort((a, b) => b - a);
         for (const i of list) {
             queue.splice(i, 1);
-            if (i < activeIndex) activeIndex--;
+            if (i < activeIndex) {
+                activeIndex--;
+            } else if (i === activeIndex) {
+                // Removing the ACTIVE track has to clear the cursor, not just the entry. mediaManager plays
+                // each song by emptying the queue and adding one track, so leaving activeIndex pointing at the
+                // removed slot made the following `add` skip its load() — the element kept the previous song's
+                // src and every track after the first silently replayed (or did nothing).
+                activeIndex = -1;
+            }
+        }
+
+        if (activeIndex === -1 && audio) {
+            audio.pause();
+            audio.removeAttribute("src");
+            audio.load();
         }
     },
 
@@ -141,7 +166,17 @@ const TrackPlayer = {
         return { position: a.currentTime || 0, duration: Number.isFinite(a.duration) ? a.duration : 0, buffered: 0 };
     },
     async getQueue() { return queue; },
-    async getActiveTrack() { return queue[activeIndex]; },
+    /**
+     * Throws before setupPlayer(), matching RNTP. mediaManager's initTrackPlayer() probes with this inside a
+     * try/catch and only does its one-time setup (registering the playback service, setupPlayer) in the catch
+     * — so returning undefined here quietly skipped ALL of that on web.
+     */
+    async getActiveTrack() {
+        if (!isSetup) {
+            throw new Error("The player is not initialized. Call setupPlayer first.");
+        }
+        return queue[activeIndex];
+    },
     async getActiveTrackIndex() { return activeIndex === -1 ? undefined : activeIndex; },
     async getPlaybackState(): Promise<PlaybackState> { return { state }; },
 
