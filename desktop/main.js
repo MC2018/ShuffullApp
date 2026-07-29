@@ -37,7 +37,9 @@ function createWindow() {
         },
     });
 
-    win.loadURL(`${SCHEME}://local/index.html`);
+    // Load the SPA ROOT, not /index.html: expo-router treats the path as a route, and "/index.html"
+    // matches nothing — you get its "Unmatched Route" screen instead of the app.
+    win.loadURL(`${SCHEME}://local/`);
     return win;
 }
 
