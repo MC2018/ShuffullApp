@@ -8,6 +8,7 @@ import { SongDetails } from "../types";
 // so this query module stays importable from the Vitest (node) test harness.
 import { deterministicId } from "@/app/tools/pure";
 import { chunkIds, chunkRows } from "./_chunk";
+import { namedRows } from "./_rawRow";
 
 type FilteredSongs = {
     songId: string,
@@ -41,7 +42,7 @@ export async function getFilteredSong(db: GenericDb, songFilters: SongFilters) {
     const whitelistsEmpty = !songFilters.hasAnyWhitelistFilter();
     const blacklistsEmpty = !songFilters.hasAnyBlacklistFilter();
 
-    const filteredSongs = db.all<FilteredSongs>(sql`
+    const rawFilteredSongs = await db.all<FilteredSongs>(sql`
         WITH FilteredSongs AS (
             SELECT s.song_id, us.last_played
             FROM songs s
@@ -195,7 +196,9 @@ export async function getFilteredSong(db: GenericDb, songFilters: SongFilters) {
         LIMIT 500
     `);
 
-    return filteredSongs;
+    // Raw sql => no field mapping, so the row shape is driver-dependent. Column order must match the SELECT
+    // above. See _rawRow.ts.
+    return namedRows<FilteredSongs>(rawFilteredSongs, ["songId", "lastPlayed"]);
 }
 
 export async function getAllSongDetails(db: GenericDb): Promise<SongDetails[]> {

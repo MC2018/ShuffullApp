@@ -102,7 +102,12 @@ async function load(index: number, autoplay: boolean) {
 }
 
 const TrackPlayer = {
-    async setupPlayer() { el(); isSetup = true; setState(State.Ready); },
+    /**
+     * State.None, not State.Ready. In RNTP, Ready means "a track is loaded and ready to play" — an idle player
+     * with an empty queue reports None. Reporting Ready here made mediaManager's play() take its RESUME branch
+     * and call play() on an empty queue, so the playlist Play button did nothing on a fresh launch.
+     */
+    async setupPlayer() { el(); isSetup = true; setState(State.None); },
     /** Accepted and ignored — OS transport controls would need the Media Session API. */
     async updateOptions(_options?: unknown) { },
 
@@ -140,10 +145,14 @@ const TrackPlayer = {
             }
         }
 
-        if (activeIndex === -1 && audio) {
-            audio.pause();
-            audio.removeAttribute("src");
-            audio.load();
+        if (activeIndex === -1) {
+            if (audio) {
+                audio.pause();
+                audio.removeAttribute("src");
+                audio.load();
+            }
+            // Back to idle: nothing is loaded, so anything asking "can I resume?" must be told no.
+            setState(State.None);
         }
     },
 

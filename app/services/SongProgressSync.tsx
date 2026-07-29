@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Platform } from "react-native";
 import { useDb } from "./db/DbProvider";
 import DbQueries from "./db/queries";
 import React from "react";
@@ -53,7 +54,25 @@ export default function SongProgressSync() {
         
         (async () => {
             await AsyncStorage.setItem(STORAGE_KEYS.FOREGROUND_TIMER_ID, options.parameters.id);
-            await BackgroundService.start(veryIntensiveTask, options);
+
+            // react-native-background-actions keeps an Android FOREGROUND SERVICE alive so the interval above
+            // keeps running while the app is backgrounded. It is native-only and ships no web implementation:
+            // the JS wrapper's start() exists but immediately dereferences a native module that isn't there,
+            // throwing "Cannot read properties of undefined (reading 'start')" as an unhandled rejection on
+            // every desktop launch. (Guarding on `BackgroundService.start` is NOT enough — the method is
+            // present; it's what it reaches for that's missing.)
+            //
+            // Nothing is lost by skipping it here: an open desktop window is already foreground, and the
+            // interval above runs regardless. The try/catch covers any other platform lacking the module.
+            if (Platform.OS === "web") {
+                return;
+            }
+
+            try {
+                await BackgroundService.start(veryIntensiveTask, options);
+            } catch (e) {
+                console.warn("Background progress service unavailable; progress still syncs while open.", e);
+            }
         })();
 
         return () => clearInterval(interval);

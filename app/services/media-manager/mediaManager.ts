@@ -166,7 +166,19 @@ async function setupEventListeners() {
 export async function play() {
     const playbackState = (await getPlaybackState()).state;
 
-    if (playbackState == State.Paused || playbackState == State.Ready) {
+    // "Resume" only means something if a track is actually LOADED. Without this check the branch below depends
+    // on the player distinguishing None from Ready exactly right, and a Ready-but-empty player swallowed the
+    // call: TrackPlayer.play() on an empty queue does nothing, which is how the playlist Play button came to
+    // silently do nothing on desktop. getActiveTrack throws on an uninitialised player, so treat that as
+    // "nothing loaded" rather than letting it escape.
+    let hasTrack = false;
+    try {
+        hasTrack = (await TrackPlayer.getActiveTrack()) != undefined;
+    } catch {
+        hasTrack = false;
+    }
+
+    if (hasTrack && (playbackState == State.Paused || playbackState == State.Ready)) {
         await TrackPlayer.play();
     } else if (playbackState == State.None) {
         const currentlyPlayingSong = await getCurrentlyPlayingSong();
@@ -502,7 +514,7 @@ async function getRandomSongId(): Promise<string | undefined> {
 
     if (songFilters.hasAnyFilter()) {
         const filteredSongs = await DbQueries.getFilteredSong(db, songFilters);
-        
+
         if (!filteredSongs.length) {
             return undefined;
         }
