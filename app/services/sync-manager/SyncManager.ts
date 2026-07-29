@@ -2,7 +2,7 @@ import { ApiClient } from "@/app/services/api/ApiClient";
 import DbQueries from "@/app/services/db/queries";
 import * as DbModels from "@/app/services/db/models";
 import * as ApiModels from "@/app/services/api/models";
-import { deterministicId, distinctBy, generateId } from "@/app/tools";
+import { deterministicId, distinctBy, distinctByLast, generateId } from "@/app/tools";
 import { HttpStatusCode } from "axios";
 import { RequestType, getProcessingMethod, ProcessingMethod } from "@/app/enums";
 import { ApiStatusFailureError } from "@/app/services/api/errors";
@@ -306,15 +306,26 @@ export class SyncManager {
             // so a year-0000 sentinel fails model binding (400) on a first/cleared sync.
             let afterDate: Date = oldUser != undefined ? oldUser.version : new Date("0001-01-01T00:00:00Z");
             let endOfList = false;
-            const updatedUserSongs: ApiModels.UserSong[] = [];
+            const fetchedUserSongs: ApiModels.UserSong[] = [];
             while (!endOfList) {
                 const paginatedResponse = await this.api.userSongGetAll(afterDate);
-                updatedUserSongs.push(...paginatedResponse.items);
+                fetchedUserSongs.push(...paginatedResponse.items);
                 endOfList = paginatedResponse.endOfList;
                 if (!endOfList && paginatedResponse.items.length) {
                     afterDate = paginatedResponse.items[paginatedResponse.items.length - 1].version;
                 }
             }
+
+            // Consecutive pages OVERLAP by design, so the concatenation above can hold the same user song
+            // twice. The server pages on `Version > afterDate` using a .NET DateTime (100-nanosecond ticks),
+            // but the cursor round-trips through a JS Date, which only has millisecond resolution. The
+            // truncated cursor is fractionally EARLIER than the row it came from, so that row still satisfies
+            // the filter and is re-sent at the top of the next page — one duplicate per page boundary.
+            //
+            // (user_id, song_id) is the primary key, so those duplicates make the whole multi-row INSERT
+            // fail, and with it the entire sync: the library stayed empty on any device whose first sync was
+            // large enough to paginate (>500 user songs). Collapse them, newest wins.
+            const updatedUserSongs = distinctByLast(fetchedUserSongs, x => `${x.userId} ${x.songId}`);
 
             // Songs referenced by the updated playlists/user-songs that we don't have locally yet.
             const localSongIds = await DbQueries.getAllSongIds(this.db);
@@ -335,7 +346,7 @@ export class SyncManager {
             // through the changes feed would be wasteful. ──
             const songCursorRaw = await AsyncStorage.getItem(STORAGE_KEYS.SONG_SYNC_CURSOR);
             let nextSongCursor: Date = songCursorRaw != null ? new Date(songCursorRaw) : syncStartTime;
-            const changedLocalSongs: ApiModels.ChangedSong[] = [];
+            const fetchedChangedSongs: ApiModels.ChangedSong[] = [];
             if (songCursorRaw != null) {
                 const localSongIdSet = new Set(localSongIds);
                 let songAfterDate = new Date(songCursorRaw);
@@ -345,7 +356,7 @@ export class SyncManager {
                     for (const changed of page.items) {
                         // Only refresh songs we hold locally; brand-new ones are handled by the fetch above.
                         if (localSongIdSet.has(changed.songId)) {
-                            changedLocalSongs.push(changed);
+                            fetchedChangedSongs.push(changed);
                         }
                     }
                     songEndOfList = page.endOfList;
@@ -357,6 +368,10 @@ export class SyncManager {
                     }
                 }
             }
+
+            // Same overlapping-page caveat as the user songs above: songId is this table's primary key, so a
+            // row repeated across a page boundary would break the whole insert. Newest wins.
+            const changedLocalSongs = distinctByLast(fetchedChangedSongs, x => x.songId);
 
             // Of those, find the songs whose audio (fileHash) actually changed: their local files are now
             // orphaned and any "downloaded" flag is stale. Read the OLD records BEFORE the write below
@@ -477,6 +492,12 @@ export class SyncManager {
                 return e.status;
             }
 
+            // A NON-API failure here (a bad write, a driver that rejects a statement, a null deref) used to be
+            // indistinguishable from "the server is down": it collapsed into a bare 500 that the caller only
+            // logs as a status number, so the sync silently failed every 10s forever and the only symptom was
+            // an empty library. Log the actual error — it is the difference between a diagnosable bug and a
+            // mystery on every platform.
+            console.error("Overall sync failed:", e);
             return HttpStatusCode.InternalServerError;
         }
     }

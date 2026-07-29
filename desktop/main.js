@@ -37,6 +37,18 @@ function createWindow() {
         },
     });
 
+    // Renderer console -> terminal. Without this the web build's console output is only visible by opening
+    // devtools by hand, which makes anything that fails on a timer (the 10s sync loop) practically invisible.
+    win.webContents.on("console-message", (_event, level, message, line, sourceId) => {
+        const tag = ["verbose", "info", "warning", "error"][level] ?? "info";
+        console.log(`[renderer:${tag}] ${message}${sourceId ? ` (${sourceId}:${line})` : ""}`);
+    });
+
+    // SHUFFULL_DEVTOOLS=1 pnpm desktop:run — opens devtools for network/OPFS inspection.
+    if (process.env.SHUFFULL_DEVTOOLS === "1") {
+        win.webContents.openDevTools({ mode: "detach" });
+    }
+
     // Load the SPA ROOT, not /index.html: expo-router treats the path as a route, and "/index.html"
     // matches nothing — you get its "Unmatched Route" screen instead of the app.
     win.loadURL(`${SCHEME}://local/`);

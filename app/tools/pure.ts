@@ -22,6 +22,23 @@ export function distinctBy<T, K>(array: T[], keySelector: (item: T) => K): T[] {
     });
 }
 
+/**
+ * distinctBy, but the LAST occurrence of each key wins (order of first appearance is preserved).
+ *
+ * Meant for cursor-paginated feeds, where the same row can legitimately arrive on two consecutive pages and
+ * the later copy is the more recent one. Concatenating those pages yields duplicate primary keys, and a
+ * multi-row INSERT containing them fails as a whole — so the caller must collapse them before writing.
+ */
+export function distinctByLast<T, K>(array: T[], keySelector: (item: T) => K): T[] {
+    const byKey = new Map<K, T>();
+    for (const item of array) {
+        // Map.set keeps the key's ORIGINAL insertion position while replacing the value, so this is
+        // "last value wins, first position kept".
+        byKey.set(keySelector(item), item);
+    }
+    return [...byKey.values()];
+}
+
 // Stable, content-derived ID for rows the API no longer supplies an ID for: synthesized artists
 // and the song/playlist join rows (the API now returns artist/tag names and a flat songIds list
 // with no IDs). Deterministic so re-syncing the same logical row yields the same primary key,

@@ -3,6 +3,7 @@ import { Playlist, Song } from "../models";
 import { downloadedSongTable, playlistSongTable, playlistTable, songArtistTable, songTable, songTagTable, userSongTable } from "../schema";
 import { eq, gt, lt, ExtractTablesWithRelations, inArray, sql, isNotNull, and, desc, asc, or } from "drizzle-orm";
 import { generateId } from "@/app/tools/pure";
+import { chunkIds } from "./_chunk";
 
 export async function removeOldPlaylists(db: GenericDb, accessiblePlaylistIds: string[]): Promise<void> {
     // Drop only the local playlists the user no longer has access to (NOT in the server's accessible set).
@@ -12,8 +13,8 @@ export async function removeOldPlaylists(db: GenericDb, accessiblePlaylistIds: s
     const staleIds = (await db.select().from(playlistTable))
         .map(x => x.playlistId)
         .filter(x => !accessiblePlaylistIds.includes(x));
-    if (staleIds.length) {
-        await db.delete(playlistTable).where(inArray(playlistTable.playlistId, staleIds));
+    for (const idChunk of chunkIds(staleIds)) {
+        await db.delete(playlistTable).where(inArray(playlistTable.playlistId, idChunk));
     }
 }
 

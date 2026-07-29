@@ -3,6 +3,7 @@ import { UserSong } from "../models";
 import { userSongTable } from "../schema";
 import { eq, gt, lt, ExtractTablesWithRelations, inArray, sql, isNotNull, and, desc, asc, or } from "drizzle-orm";
 import { getActiveLocalSessionData } from "./localSessionData";
+import { chunkIds, chunkRows } from "./_chunk";
 
 export async function updateUserSongs(db: GenericDb, userSongs: UserSong[]): Promise<void> {
     const localSessionData = await getActiveLocalSessionData(db);
@@ -10,25 +11,29 @@ export async function updateUserSongs(db: GenericDb, userSongs: UserSong[]): Pro
     if (!localSessionData) {
         throw new Error("Local session data is undefined while updating user songs.");
     }
-    
-    const songIds = userSongs.map(x => x.songId);
-    const localUserSongs = await db
-        .select()
-        .from(userSongTable)
-        .where(
-            and(
-                eq(userSongTable.userId, localSessionData.userId),
-                inArray(userSongTable.songId, songIds)
-            )
-        );
-    const localuserSongIds = localUserSongs.map(x => x.songId);
-    
-    if (localUserSongs.length) {
-        await db.delete(userSongTable).where(inArray(userSongTable.songId, localuserSongIds));
+
+    // Every list here scales with the sync payload, so each statement is chunked — an unsplit sync of ~1400
+    // user songs is what first broke the desktop build. See _chunk.ts.
+    const localUserSongs: UserSong[] = [];
+    for (const idChunk of chunkIds(userSongs.map(x => x.songId))) {
+        localUserSongs.push(...await db
+            .select()
+            .from(userSongTable)
+            .where(
+                and(
+                    eq(userSongTable.userId, localSessionData.userId),
+                    inArray(userSongTable.songId, idChunk)
+                )
+            ));
     }
-    
-    if (userSongs.length) {
-        await db.insert(userSongTable).values(userSongs);
+    const localuserSongIds = localUserSongs.map(x => x.songId);
+
+    for (const idChunk of chunkIds(localuserSongIds)) {
+        await db.delete(userSongTable).where(inArray(userSongTable.songId, idChunk));
+    }
+
+    for (const rowChunk of chunkRows(userSongs)) {
+        await db.insert(userSongTable).values(rowChunk);
     }
 }
 

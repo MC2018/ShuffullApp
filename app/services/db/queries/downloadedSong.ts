@@ -3,6 +3,7 @@ import { GenericDb } from "../GenericDb";
 import { downloadedSongTable } from "../schema";
 import { eq, gt, lt, ExtractTablesWithRelations, inArray, sql, isNotNull, and, desc, asc, or } from "drizzle-orm";
 import { DownloadQueue } from "../models";
+import { chunkIds } from "./_chunk";
 
 export async function addDownloadedSong(db: GenericDb, songId: string): Promise<void> {
     await db.insert(downloadedSongTable).values({
@@ -17,5 +18,7 @@ export async function removeDownloadedSongs(db: GenericDb, songIds: string[]): P
     if (!songIds.length) {
         return;
     }
-    await db.delete(downloadedSongTable).where(inArray(downloadedSongTable.songId, songIds));
+    for (const idChunk of chunkIds(songIds)) {
+        await db.delete(downloadedSongTable).where(inArray(downloadedSongTable.songId, idChunk));
+    }
 }

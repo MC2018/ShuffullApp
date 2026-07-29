@@ -7,6 +7,7 @@ import { SongDetails } from "../types";
 // Import the dependency-free helper directly (not via @/app/tools, which re-exports React-Native-bound utils)
 // so this query module stays importable from the Vitest (node) test harness.
 import { deterministicId } from "@/app/tools/pure";
+import { chunkIds, chunkRows } from "./_chunk";
 
 type FilteredSongs = {
     songId: string,
@@ -380,8 +381,13 @@ export async function updateSongs(db: GenericDb, songs: Song[]): Promise<void> {
         return;
     }
 
-    await db.delete(songTable).where(inArray(songTable.songId, songs.map(x => x.songId)));
-    await db.insert(songTable).values(songs);
+    for (const idChunk of chunkIds(songs.map(x => x.songId))) {
+        await db.delete(songTable).where(inArray(songTable.songId, idChunk));
+    }
+
+    for (const rowChunk of chunkRows(songs)) {
+        await db.insert(songTable).values(rowChunk);
+    }
 }
 
 export async function getRandomSongId(db: GenericDb): Promise<string | undefined> {

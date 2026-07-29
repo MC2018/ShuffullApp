@@ -2,6 +2,7 @@ import { GenericDb } from "../GenericDb";
 import { artistTable, songArtistTable } from "../schema";
 import { eq, gt, lt, ExtractTablesWithRelations, inArray, sql, isNotNull, and, desc, asc, or } from "drizzle-orm";
 import { Artist } from "../models";
+import { chunkRows } from "./_chunk";
 
 export interface ArtistWithCount {
     artistId: string;
@@ -10,12 +11,15 @@ export interface ArtistWithCount {
 }
 
 export async function updateArtists(db: GenericDb, artists: Artist[]): Promise<void> {
-    await db.insert(artistTable).values(artists).onConflictDoUpdate({
-        target: artistTable.artistId,
-        set: {
-            name: sql`excluded.name`
-        }
-    });
+    // Grows with the number of songs synced, so it is chunked like the other bulk writes (see _chunk.ts).
+    for (const rowChunk of chunkRows(artists)) {
+        await db.insert(artistTable).values(rowChunk).onConflictDoUpdate({
+            target: artistTable.artistId,
+            set: {
+                name: sql`excluded.name`
+            }
+        });
+    }
 }
 
 export async function getArtists(db: GenericDb): Promise<Artist[]> {

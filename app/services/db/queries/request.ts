@@ -4,9 +4,13 @@ import { requestTable } from "../schema";
 import { eq, gt, lt, ExtractTablesWithRelations, inArray, sql, isNotNull, and, desc, asc, or } from "drizzle-orm";
 import { RequestType } from "@/app/enums";
 import { generateId } from "@/app/tools/pure";
+import { chunkIds, chunkRows } from "./_chunk";
 
 export async function addRequests(db: GenericDb, requests: Request[]): Promise<void> {
-    await db.insert(requestTable).values(requests);
+    // The outbox flushes in bursts (a batch of Keeps/likes), so this is chunked too (see _chunk.ts).
+    for (const rowChunk of chunkRows(requests)) {
+        await db.insert(requestTable).values(rowChunk);
+    }
 }
 
 // Enqueues a re-tag for a song, maintaining ONE pending row per song with STRONGER-WINS: a Like queued
@@ -41,7 +45,9 @@ export async function getRequests(db: GenericDb): Promise<Request[]> {
 }
 
 export async function deleteRequests(db: GenericDb, requestIds: string[]): Promise<void> {
-    await db.delete(requestTable).where(inArray(requestTable.requestId, requestIds));
+    for (const idChunk of chunkIds(requestIds)) {
+        await db.delete(requestTable).where(inArray(requestTable.requestId, idChunk));
+    }
 }
 
 // TODO: move all requests from SyncManager to here

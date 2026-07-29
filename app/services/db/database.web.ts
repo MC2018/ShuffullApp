@@ -23,9 +23,26 @@ const dbName = "shuffull-db";
 let native: SQLite.SQLiteDatabase | null = null;
 let db: GenericDb | null = null;
 
-/** Rows must be arrays of values, in column order — what sqlite-proxy expects. */
-function toRows(records: any[]): any[][] {
-    return records.map((r) => Object.values(r));
+/**
+ * Runs a query and returns rows as arrays of values IN COLUMN ORDER, which is what sqlite-proxy expects.
+ *
+ * `getAllAsync` cannot be used for this. It returns row OBJECTS keyed by column name, and a join whose sides
+ * share a column name (`songs.name` and `artists.name`, say) collapses to a single key — so `Object.values()`
+ * yields fewer values than the query has columns and every column after the collision shifts by one. The
+ * visible symptom was song rows rendering the artist as the title with a blank artist beneath it.
+ *
+ * `executeForRawResultAsync` hands back the raw value array instead, so duplicate column names stay distinct.
+ * It is marked "advanced use only" rather than private; the alternative is aliasing every column, which the
+ * Drizzle-generated SQL does not do.
+ */
+async function queryRows(db: SQLite.SQLiteDatabase, source: string, params: any[]): Promise<any[][]> {
+    const statement = await db.prepareAsync(source);
+    try {
+        const result = await statement.executeForRawResultAsync(params);
+        return (await result.getAllAsync()) as any[][];
+    } finally {
+        await statement.finalizeAsync();
+    }
 }
 
 async function openAsync(): Promise<GenericDb> {
@@ -35,15 +52,24 @@ async function openAsync(): Promise<GenericDb> {
         async (sql, params, method) => {
             if (!native) throw new Error("Database is not open.");
 
-            if (method === "run") {
-                await native.runAsync(sql, params as any[]);
-                return { rows: [] };
-            }
+            try {
+                if (method === "run") {
+                    await native.runAsync(sql, params as any[]);
+                    return { rows: [] };
+                }
 
-            const records = await native.getAllAsync(sql, params as any[]);
-            const rows = toRows(records);
-            // "get" wants a single row, not a list of them.
-            return { rows: method === "get" ? (rows[0] ?? []) : rows };
+                const rows = await queryRows(native, sql, params as any[]);
+                // "get" wants a single row, not a list of them.
+                return { rows: method === "get" ? (rows[0] ?? []) : rows };
+            } catch (e) {
+                // Drizzle wraps driver failures in "Failed query: <the entire SQL>", which for a bulk insert is
+                // thousands of placeholders and buries the actual SQLite message. Log the real one, plus the
+                // parameter count, since exceeding the bind-variable limit is the failure this most often is.
+                console.error(
+                    `SQLite ${method} failed (${params?.length ?? 0} params): ${(e as Error)?.message ?? e}`,
+                );
+                throw e;
+            }
         },
         async (queries) => {
             // Batch driver: sqlite-proxy issues these together; expo-sqlite has no batch API, so run in order.
@@ -54,7 +80,7 @@ async function openAsync(): Promise<GenericDb> {
                     await native.runAsync(q.sql, q.params as any[]);
                     results.push({ rows: [] });
                 } else {
-                    const rows = toRows(await native.getAllAsync(q.sql, q.params as any[]));
+                    const rows = await queryRows(native, q.sql, q.params as any[]);
                     results.push({ rows: q.method === "get" ? (rows[0] ?? []) : rows });
                 }
             }

@@ -3,7 +3,7 @@ import { shaHash } from "./hasher";
 
 // Dependency-free helpers live in ./pure so they can be unit-tested without this file's native imports.
 // Re-exported here so every existing `./utils` / `@/app/tools` import keeps resolving unchanged.
-export { distinctBy, deterministicId, generateRange, isAnyNullish, generateId } from "./pure";
+export { distinctBy, distinctByLast, deterministicId, generateRange, isAnyNullish, generateId } from "./pure";
 
 function getFileNameFromUri(uri: string): string | null {
     if (!uri) {

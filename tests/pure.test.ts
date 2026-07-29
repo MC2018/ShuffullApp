@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { distinctBy, deterministicId, generateRange, isAnyNullish } from "@/app/tools/pure";
+import { distinctBy, distinctByLast, deterministicId, generateRange, isAnyNullish } from "@/app/tools/pure";
 
 describe("distinctBy", () => {
     it("keeps the first item per key and drops later duplicates", () => {
@@ -28,6 +28,46 @@ describe("distinctBy", () => {
         const a = { id: "x" };
         const b = { id: "x" };
         expect(distinctBy([a, b], x => x.id)).toEqual([a]);
+    });
+});
+
+describe("distinctByLast", () => {
+    it("keeps the LAST item per key, at the key's first position", () => {
+        const input = [
+            { id: 1, v: "a" },
+            { id: 2, v: "b" },
+            { id: 1, v: "c" },
+        ];
+        expect(distinctByLast(input, x => x.id)).toEqual([
+            { id: 1, v: "c" },
+            { id: 2, v: "b" },
+        ]);
+    });
+
+    it("returns an empty array unchanged", () => {
+        expect(distinctByLast([], (x: number) => x)).toEqual([]);
+    });
+
+    it("preserves order and treats all-distinct input as a copy", () => {
+        expect(distinctByLast([3, 1, 2], x => x)).toEqual([3, 1, 2]);
+    });
+
+    it("collapses the page-boundary overlap a paginated sync produces", () => {
+        // Two pages that overlap by one row, the later copy being the newer one — the exact shape that made
+        // a (user_id, song_id) insert fail and left the desktop library empty.
+        const pageOne = [
+            { userId: "u", songId: "s1", version: 1 },
+            { userId: "u", songId: "s2", version: 2 },
+        ];
+        const pageTwo = [
+            { userId: "u", songId: "s2", version: 3 },
+            { userId: "u", songId: "s3", version: 4 },
+        ];
+        const merged = distinctByLast([...pageOne, ...pageTwo], x => `${x.userId} ${x.songId}`);
+
+        expect(merged).toHaveLength(3);
+        expect(new Set(merged.map(x => x.songId)).size).toBe(3);
+        expect(merged.find(x => x.songId === "s2")?.version).toBe(3);
     });
 });
 
