@@ -11,4 +11,18 @@ config.resolver.sourceExts.push('sql');
 // graph is walked when bundling for web. Treating .wasm as an asset keeps that walk resolvable.
 config.resolver.assetExts.push('wasm');
 
+// react-native-track-player is native-only: it calls TurboModuleRegistry.getEnforcing at module scope,
+// which throws during bundle evaluation on web and takes the app down before React mounts. Point the web
+// bundle at an HTMLAudioElement-backed stand-in with the same surface, so mediaManager and the transport
+// components run unmodified. Covers the deep import the app uses for getPlaybackState too.
+const path = require('path');
+const webTrackPlayer = path.join(__dirname, 'shims/trackPlayer.web.ts');
+const prevResolve = config.resolver.resolveRequest;
+config.resolver.resolveRequest = (context, moduleName, platform) => {
+  if (platform === 'web' && moduleName.startsWith('react-native-track-player')) {
+    return { type: 'sourceFile', filePath: webTrackPlayer };
+  }
+  return (prevResolve ?? context.resolveRequest)(context, moduleName, platform);
+};
+
 module.exports = config;
