@@ -46,7 +46,7 @@
     "react-native-reanimated": "~4.1.1",
     "react-native-safe-area-context": "~5.6.0",
     "react-native-screens": "~4.16.0",
-    "react-native-track-player": "github:lovegaoshi/react-native-track-player#33a3ecd0522c4d47576153b820c1da68942813cd",
+    "react-native-track-player": "file:vendor/react-native-track-player-4.1.1-lovegaoshi-33a3ecd.tgz",
     "react-native-web": "^0.21.0",
     "react-native-worklets": "0.5.1",
     "ulid": "^3.0.0",
@@ -75,5 +75,6 @@
   "overrides": {
     "react-server-dom-webpack": "19.1.0"
   },
-  "private": true
+  "private": true,
+  "packageManager": "pnpm@11.5.0"
 }
