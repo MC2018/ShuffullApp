@@ -206,32 +206,42 @@ export default function NowPlayingScreen() {
                         <View style={{ marginTop: theme.space.lg, alignItems: "center" }}>
                             <RatingControl songId={details.song.songId} gap={theme.space.xl} />
                         </View>
-                        {showToggle ? (
-                            <View style={{ alignItems: "center", marginTop: theme.space.lg, marginBottom: theme.space.sm }}>
-                                <Pressable
-                                    onPress={toggleLyrics}
-                                    accessibilityRole="button"
-                                    accessibilityLabel={showLyrics ? "Hide lyrics" : "Show lyrics"}
-                                    style={({ pressed }) => ({
-                                        flexDirection: "row",
-                                        alignItems: "center",
-                                        gap: 6,
-                                        paddingVertical: theme.space.sm,
-                                        paddingHorizontal: theme.space.lg,
-                                        borderRadius: theme.radius.pill,
-                                        backgroundColor: theme.color.surface,
-                                        borderWidth: 1,
-                                        borderColor: theme.color.line,
-                                        opacity: pressed ? 0.8 : 1,
-                                    })}
-                                >
-                                    <Ionicons name={showLyrics ? "chevron-down" : "chevron-up"} size={14} color={theme.color.textMuted} />
-                                    <Text variant="label" color="textMuted">
-                                        {showLyrics ? "Hide lyrics" : "Lyrics"}
-                                    </Text>
-                                </Pressable>
-                            </View>
-                        ) : null}
+                        {/* The lyrics pill ALWAYS occupies its slot, and is merely made invisible when a song
+                            has none. Unmounting it shortens this pinned stack, which grows the flex:1 area
+                            above — and because the art is centred off that area's measured height, the
+                            artwork and title visibly jump every time playback moves between a song with
+                            lyrics and one without. Reserving the space keeps the whole screen still. */}
+                        <View
+                            style={{ alignItems: "center", marginTop: theme.space.lg, marginBottom: theme.space.sm }}
+                            pointerEvents={showToggle ? "auto" : "none"}
+                            // Keep the hidden placeholder out of the accessibility tree — it is layout, not a control.
+                            accessibilityElementsHidden={!showToggle}
+                            importantForAccessibility={showToggle ? "auto" : "no-hide-descendants"}
+                        >
+                            <Pressable
+                                onPress={toggleLyrics}
+                                disabled={!showToggle}
+                                accessibilityRole="button"
+                                accessibilityLabel={showLyrics ? "Hide lyrics" : "Show lyrics"}
+                                style={({ pressed }) => ({
+                                    flexDirection: "row",
+                                    alignItems: "center",
+                                    gap: 6,
+                                    paddingVertical: theme.space.sm,
+                                    paddingHorizontal: theme.space.lg,
+                                    borderRadius: theme.radius.pill,
+                                    backgroundColor: theme.color.surface,
+                                    borderWidth: 1,
+                                    borderColor: theme.color.line,
+                                    opacity: !showToggle ? 0 : pressed ? 0.8 : 1,
+                                })}
+                            >
+                                <Ionicons name={showLyrics ? "chevron-down" : "chevron-up"} size={14} color={theme.color.textMuted} />
+                                <Text variant="label" color="textMuted">
+                                    {showLyrics ? "Hide lyrics" : "Lyrics"}
+                                </Text>
+                            </Pressable>
+                        </View>
                     </View>
                 </>
             )}
