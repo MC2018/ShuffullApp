@@ -12,6 +12,7 @@ import { Downloader } from "../downloader/Downloader";
 import { create } from "zustand";
 import path from "path-browserify";
 import { SongFilters } from "../../types/SongFilters";
+import { selectNextSong } from "../../tools/shuffle";
 
 let queue: string[] = [];
 let db: GenericDb;
@@ -460,7 +461,10 @@ async function startNewSong(songId: string, recentlyPlayedSong?: RecentlyPlayedS
     if (recentlyPlayedSongFound) {
         const timestampSeconds = recentlyPlayedSong?.timestampSeconds ?? 0;
         await TrackPlayer.seekTo(timestampSeconds);
-        await DbQueries.setRecentlyPlayedSongTimestampSeconds(db, recentlyPlayedSong?.recentlyPlayedSongId!, timestampSeconds);
+        // markCurrent, not the progress writer: every marker was just cleared above, and only a genuine
+        // start/resume may set one. The progress writer deliberately cannot, so a late tick from the song that
+        // just finished can't resurrect it as "current" and get itself played twice.
+        await DbQueries.markRecentlyPlayedSongCurrent(db, recentlyPlayedSong?.recentlyPlayedSongId!, timestampSeconds);
     } else {
         await DbQueries.addRecentlyPlayedSong(db, {
             songId: songId,
@@ -519,13 +523,10 @@ async function getRandomSongId(): Promise<string | undefined> {
             return undefined;
         }
 
-        const percentage = 0.3;
-        const percentageUpperBoundIndex = filteredSongs.length * percentage;
-        const nullUpperBoundIndex = filteredSongs.findIndex(x => x.lastPlayed != null) ?? 0;
-        const upperBoundIndex = Math.max(percentageUpperBoundIndex, nullUpperBoundIndex);
-        const randomSongIndex = Math.floor(upperBoundIndex * Math.random());
-
-        songId = filteredSongs[randomSongIndex].songId;
+        // getFilteredSong orders by last_played ASC, so the song that just finished is at the END and the
+        // selection window off the front cannot reach it. See shuffle.ts - it is extracted so that property
+        // can actually be tested.
+        songId = selectNextSong(filteredSongs);
     } else {
         // No scope set => shuffle the whole library rather than stopping. This used to return undefined, which
         // made playback halt after a single song whenever the filters happened to be empty — the same dead end
