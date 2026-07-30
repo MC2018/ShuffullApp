@@ -16,13 +16,17 @@ interface LyricsViewProps {
     song: Song;
 }
 
-// Picks the right presentation for a song's lyrics. Order: explicit instrumental flag, then synced
-// (LRC, highlighted + auto-scrolled), then plain text, then nothing. No hooks here so the branch can
-// vary per song; each leaf component owns its own hooks.
+// Picks the right presentation for a song's lyrics. Order: synced (LRC, highlighted + auto-scrolled), then
+// plain text, then nothing. No hooks here so the branch can vary per song; each leaf component owns its own
+// hooks.
+//
+// There is deliberately NO instrumental branch. `lyricsInstrumental` remains real, useful data - it is how the
+// producer knows a track has no lyrics by design and stops re-querying providers for it forever - but
+// rendering it produced a lyrics panel whose entire content was "♪ Instrumental ♪": a lyrics UI whose only
+// message is that there are no lyrics. hasDisplayableLyrics now hides the toggle for such songs, so this is
+// normally unreachable; it is still reachable if the panel was already open when playback moved onto one, and
+// falls through to the same empty state as any other song without lyrics.
 export default function LyricsView({ song }: LyricsViewProps) {
-    if (song.lyricsInstrumental) {
-        return <Centered text="♪ Instrumental ♪" />;
-    }
     if (song.syncedLyrics) {
         return <SyncedLyrics song={song} lrc={song.syncedLyrics} />;
     }

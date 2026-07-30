@@ -12,6 +12,7 @@ import { Downloader } from "@/app/services/downloader/Downloader";
 import Skimmer from "@/app/components/music-control/atoms/Skimmer";
 import Transport from "@/app/components/music-control/molecules/Transport";
 import LyricsView from "@/app/components/lyrics/organisms/LyricsView";
+import { hasDisplayableLyrics } from "@/app/tools/lrc";
 import RatingControl from "@/app/components/likes/atoms/RatingControl";
 import SongDownloadControl from "@/app/components/downloading/atoms/SongDownloadControl";
 import { AlbumArt, IconButton, Screen, Text } from "@/app/components/ui";
@@ -92,7 +93,7 @@ export default function NowPlayingScreen() {
 
     const song = details?.song;
     const artistText = details && details.artists.length > 0 ? details.artists.map((a) => a.name).join(", ") : "Unknown Artist";
-    const hasLyrics = !!(song && (song.syncedLyrics || song.plainLyrics || song.lyricsInstrumental));
+    const hasLyrics = hasDisplayableLyrics(song);
     const showToggle = hasLyrics || showLyrics;
 
     // Geometry: art animates from big+centered (progress 0) to COMPACT_ART top-left (progress 1).

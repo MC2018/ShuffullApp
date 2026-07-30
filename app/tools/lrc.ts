@@ -68,3 +68,15 @@ export function activeLineIndex(lines: LrcLine[], positionMs: number): number {
 
     return ans;
 }
+
+/**
+ * Whether a song has lyrics worth showing a lyrics UI for.
+ *
+ * Deliberately does NOT count `lyricsInstrumental`. The flag is real and useful data - it is how the producer
+ * knows this track has no lyrics BY DESIGN and stops re-querying providers for it forever - but as a panel it
+ * only ever renders a "♪ Instrumental ♪" placeholder, which is a lyrics UI that exists to say there are no
+ * lyrics. Treating it as "no lyrics" here hides the toggle entirely while leaving the fact intact in the data.
+ */
+export function hasDisplayableLyrics(song: { syncedLyrics?: string | null; plainLyrics?: string | null } | null | undefined): boolean {
+    return !!(song && (song.syncedLyrics || song.plainLyrics));
+}
