@@ -50,8 +50,13 @@ export default function PlaylistScreen() {
                 const rows = await DbQueries.getPlaylistSongStates(db, sessionData.userId, playlistId);
                 const states: Record<string, AuditionRowState> = {};
                 for (const row of rows) {
+                    // Pass whether this IS an audition playlist: outside one, "not exploratory" cannot mean
+                    // "kept via the Keep button" (nothing here was ever exploratory), and assuming it did made
+                    // every row read as evaluated - which is why "Unheard only" filtered to nothing on ordinary
+                    // playlists.
                     states[row.songId] = deriveAuditionRowState(
-                        row.exploratory, (row.likeStatus ?? LikeStatus.Neutral) as LikeStatus, row.lastPlayed);
+                        row.exploratory, (row.likeStatus ?? LikeStatus.Neutral) as LikeStatus, row.lastPlayed,
+                        dbPlaylist.isExploratory);
                 }
                 setSongStates(states);
             }
