@@ -14,6 +14,7 @@ import Transport from "@/app/components/music-control/molecules/Transport";
 import LyricsView from "@/app/components/lyrics/organisms/LyricsView";
 import { hasDisplayableLyrics } from "@/app/tools/lrc";
 import RatingControl from "@/app/components/likes/atoms/RatingControl";
+import { MediaManager } from "@/app/services/media-manager";
 import SongDownloadControl from "@/app/components/downloading/atoms/SongDownloadControl";
 import { AlbumArt, IconButton, Screen, Text } from "@/app/components/ui";
 import { useTheme } from "@/app/theme";
@@ -204,8 +205,22 @@ export default function NowPlayingScreen() {
                         <View style={{ marginTop: theme.space.md }}>
                             <Transport />
                         </View>
-                        <View style={{ marginTop: theme.space.lg, alignItems: "center" }}>
+                        {/* Keep sits beside the rating control, and ONLY for audition songs (it is a no-op for
+                            anything else). Until now it existed solely as a bookmark glyph on audition
+                            playlist ROWS, which is unreachable while a song is playing full-screen - the exact
+                            moment you decide whether to keep it, and the only view you get on a phone. */}
+                        <View style={{ marginTop: theme.space.lg, flexDirection: "row", alignItems: "center", justifyContent: "center" }}>
                             <RatingControl songId={details.song.songId} gap={theme.space.xl} />
+                            {details.song.exploratory ? (
+                                <IconButton
+                                    name="bookmark-outline"
+                                    size={26}
+                                    color={theme.color.textMuted}
+                                    onPress={() => MediaManager.keepSong(details.song.songId)}
+                                    accessibilityLabel="Keep song"
+                                    style={{ marginLeft: theme.space.xl }}
+                                />
+                            ) : null}
                         </View>
                         {/* The lyrics pill ALWAYS occupies its slot, and is merely made invisible when a song
                             has none. Unmounting it shortens this pinned stack, which grows the flex:1 area

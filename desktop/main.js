@@ -1,6 +1,24 @@
-const { app, BrowserWindow, protocol, net, session } = require("electron");
+const { app, BrowserWindow, protocol, net, session, globalShortcut, ipcMain, Notification } = require("electron");
 const path = require("node:path");
 const url = require("node:url");
+
+/**
+ * Global rating shortcuts.
+ *
+ * Chosen against the accelerators actually bound on this machine (Cinnamon): Ctrl+Alt+L is the screensaver and
+ * Super+L is Looking Glass, so the obvious "L for Like" combos are taken. Super+Alt is otherwise free apart
+ * from Super+Alt+S (screen reader) and the magnifier's 0/=/-.
+ *
+ * H rather than Shift+L for Love, because Like and Love both start with L and a three-modifier chord is worse
+ * to hit than a different letter.
+ */
+const RATING_SHORTCUTS = [
+    { accelerator: "Super+Alt+L", action: "like" },
+    { accelerator: "Super+Alt+H", action: "love" },
+    { accelerator: "Super+Alt+D", action: "dislike" },
+    { accelerator: "Super+Alt+K", action: "keep" },
+    { accelerator: "Super+Alt+N", action: "neutral" },
+];
 
 /**
  * Desktop shell around the Expo web build (`dist/`, produced by `expo export --platform web`).
@@ -34,6 +52,8 @@ function createWindow() {
             // Nothing in the web bundle needs Node, and letting the renderer have it would be a liability.
             nodeIntegration: false,
             contextIsolation: true,
+            // The single, deliberately narrow bridge: rating shortcuts in, notifications out. See preload.js.
+            preload: path.join(__dirname, "preload.js"),
         },
     });
 
@@ -83,12 +103,37 @@ app.whenReady().then(() => {
         return net.fetch(url.pathToFileURL(filePath).toString());
     });
 
-    createWindow();
+    const mainWindow = createWindow();
+
+    // Notifications raised by the renderer after a shortcut lands. The shortcuts are GLOBAL, so the user is
+    // normally looking at another window - without feedback a rating that silently failed is indistinguishable
+    // from one that worked, which matters because a Like spends AI credit on audition songs.
+    ipcMain.on("shuffull:notify", (_event, { title, body } = {}) => {
+        if (!Notification.isSupported()) return;
+        new Notification({ title: title || "Shuffull", body: body || "" }).show();
+    });
+
+    // Global rating shortcuts. register() returns false when something else already owns the combo; report
+    // that rather than leaving a key that silently does nothing.
+    for (const { accelerator, action } of RATING_SHORTCUTS) {
+        const registered = globalShortcut.register(accelerator, () => {
+            const target = BrowserWindow.getAllWindows()[0] ?? mainWindow;
+            target?.webContents.send("shuffull:rating-shortcut", action);
+        });
+
+        if (!registered) {
+            console.warn(`[shortcuts] ${accelerator} (${action}) is already taken by another application.`);
+        }
+    }
 
     app.on("activate", () => {
         if (BrowserWindow.getAllWindows().length === 0) createWindow();
     });
 });
+
+// Global shortcuts are process-wide OS grabs; releasing them on quit stops a crashed/closed instance holding
+// Super+Alt+L hostage for every other app.
+app.on("will-quit", () => globalShortcut.unregisterAll());
 
 app.on("window-all-closed", () => {
     if (process.platform !== "darwin") app.quit();

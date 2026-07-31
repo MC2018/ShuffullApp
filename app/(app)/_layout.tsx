@@ -6,6 +6,7 @@ import { CurrentUserProvider } from "@/app/services/auth/CurrentUserProvider";
 import { SessionExpiryWatcher } from "@/app/services/auth/SessionExpiryWatcher";
 import SyncManagerProvider from "@/app/services/sync-manager/SyncManagerProvider";
 import SongProgressSync from "@/app/services/SongProgressSync";
+import DesktopShortcuts from "@/app/services/DesktopShortcuts";
 
 // Auth guard for everything under (app). If there is no live session it redirects to login; otherwise
 // it provides the session-scoped context (authenticated api client, current user) and starts the
@@ -30,6 +31,8 @@ export default function AppLayout() {
                 {/* Background services (render nothing) */}
                 <SyncManagerProvider userId={userId} />
                 <SongProgressSync />
+                {/* Global rating shortcuts; inert unless running inside the Electron shell. */}
+                <DesktopShortcuts />
                 <SessionExpiryWatcher />
 
                 <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: color.bg } }}>

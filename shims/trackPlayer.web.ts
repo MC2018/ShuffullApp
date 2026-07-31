@@ -168,7 +168,14 @@ const TrackPlayer = {
         await el().play().catch(() => setState(State.Error));
     },
     async pause() { el().pause(); },
-    async seekTo(position: number) { el().currentTime = position; emit(Event.RemoteSeek, { position }); },
+    /**
+     * Does NOT emit Event.RemoteSeek. In RNTP the Remote* events are INPUT - "the OS/lock-screen asked us to
+     * do this" - not notifications that it happened. mediaManager listens for RemoteSeek and responds by
+     * calling seekTo, so emitting it here made seekTo call itself forever: a stack overflow every time a song
+     * resumed at a saved position. (Latent until registerPlaybackService actually began registering listeners;
+     * before that the emit went nowhere.)
+     */
+    async seekTo(position: number) { el().currentTime = position; },
 
     async getProgress() {
         const a = el();
