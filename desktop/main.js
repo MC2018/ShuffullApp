@@ -12,19 +12,24 @@ const url = require("node:url");
  * registration. Verified empirically: Super+Alt+J registered and never fired, while Control+Alt+J and
  * Alt+Shift+J both fired. An accelerator being unbound in gsettings is NOT evidence that it is deliverable.
  *
- * Ctrl+Alt+<letter> is the conventional Linux space for global shortcuts (apps rarely bind it internally, so
- * grabbing it system-wide steals little). Taken on this machine: L = screensaver, T = terminal, Q = a user
- * script — hence U for Like ("thumbs Up") rather than the obvious L.
+ * Alt+Shift keeps the letters mnemonic, which is the whole point: L=Like, H=Heart, D=Dislike, K=Keep,
+ * N=Neutral. Ctrl+Alt would have been the more conventional space, but Ctrl+Alt+L is the screensaver here, and
+ * losing L is what makes the set worth less than the chord it saves. Nothing is bound to Alt+Shift+<letter> on
+ * this machine, and there is no Alt+Shift keyboard-layout toggle to fight (single US layout, no xkb-options).
  *
- * H rather than Shift+L for Love, because Like and Love both start with L and a three-modifier chord is worse
- * to hit than a different letter.
+ * Known cost: Firefox triggers a page's accesskeys with Alt+Shift+<key>, so grabbing these five removes them
+ * from web pages. Accepted deliberately - the letters are worth more here.
+ *
+ * H rather than Shift+L for Love, because Like and Love both start with L.
+ *
+ * All five were verified to actually FIRE (not merely register) by synthetic keypress before being adopted.
  */
 const RATING_SHORTCUTS = [
-    { accelerator: "Control+Alt+U", action: "like" },
-    { accelerator: "Control+Alt+H", action: "love" },
-    { accelerator: "Control+Alt+D", action: "dislike" },
-    { accelerator: "Control+Alt+K", action: "keep" },
-    { accelerator: "Control+Alt+N", action: "neutral" },
+    { accelerator: "Alt+Shift+L", action: "like" },
+    { accelerator: "Alt+Shift+H", action: "love" },
+    { accelerator: "Alt+Shift+D", action: "dislike" },
+    { accelerator: "Alt+Shift+K", action: "keep" },
+    { accelerator: "Alt+Shift+N", action: "neutral" },
 ];
 
 /**
