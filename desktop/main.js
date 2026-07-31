@@ -5,19 +5,26 @@ const url = require("node:url");
 /**
  * Global rating shortcuts.
  *
- * Chosen against the accelerators actually bound on this machine (Cinnamon): Ctrl+Alt+L is the screensaver and
- * Super+L is Looking Glass, so the obvious "L for Like" combos are taken. Super+Alt is otherwise free apart
- * from Super+Alt+S (screen reader) and the magnifier's 0/=/-.
+ * NO SUPER-BASED ACCELERATORS. This is the trap that made the first attempt (Super+Alt+…) silently do nothing:
+ * under Cinnamon/Muffin on X11 the window manager owns the Super key, so it swallows Super chords before they
+ * reach another client's passive grab. `globalShortcut.register` still returns TRUE — it only reports whether
+ * XGrabKey succeeded, not whether the key will ever be delivered — so the failure looks exactly like a working
+ * registration. Verified empirically: Super+Alt+J registered and never fired, while Control+Alt+J and
+ * Alt+Shift+J both fired. An accelerator being unbound in gsettings is NOT evidence that it is deliverable.
+ *
+ * Ctrl+Alt+<letter> is the conventional Linux space for global shortcuts (apps rarely bind it internally, so
+ * grabbing it system-wide steals little). Taken on this machine: L = screensaver, T = terminal, Q = a user
+ * script — hence U for Like ("thumbs Up") rather than the obvious L.
  *
  * H rather than Shift+L for Love, because Like and Love both start with L and a three-modifier chord is worse
  * to hit than a different letter.
  */
 const RATING_SHORTCUTS = [
-    { accelerator: "Super+Alt+L", action: "like" },
-    { accelerator: "Super+Alt+H", action: "love" },
-    { accelerator: "Super+Alt+D", action: "dislike" },
-    { accelerator: "Super+Alt+K", action: "keep" },
-    { accelerator: "Super+Alt+N", action: "neutral" },
+    { accelerator: "Control+Alt+U", action: "like" },
+    { accelerator: "Control+Alt+H", action: "love" },
+    { accelerator: "Control+Alt+D", action: "dislike" },
+    { accelerator: "Control+Alt+K", action: "keep" },
+    { accelerator: "Control+Alt+N", action: "neutral" },
 ];
 
 /**

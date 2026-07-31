@@ -25,6 +25,7 @@ export const color = {
     surface: "rgba(255,245,246,0.05)",
     surfaceAlt: "rgba(255,245,246,0.09)",
     line: "rgba(200,168,170,0.12)",
+    lineStrong: "rgba(200,168,170,0.22)",
     textPrimary: palette.ink,
     textMuted: palette.inkMuted,
     textFaint: palette.inkFaint,

@@ -1,4 +1,4 @@
-import { ImageURISource, Pressable, View } from "react-native";
+import { ImageURISource, Pressable, StyleSheet, View } from "react-native";
 import React, { useEffect, useState } from "react";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -87,15 +87,23 @@ export default function PlayerBar({ floating = false }: { floating?: boolean }) 
                 bottom: margin + (floating ? insets.bottom : 0),
                 height: playerBarHeight,
                 borderRadius: theme.radius.lg,
-                backgroundColor: theme.color.surfaceAlt,
+                // Opaque backplate: this is a floating bar over scrolling content, so a solid base is needed
+                // or the page's text bleeds through. The surfaceAlt tint is layered on top (overlay below) to
+                // keep the intended glassy look without losing readability.
+                backgroundColor: theme.color.bg,
                 borderWidth: 1,
-                borderColor: theme.color.line,
+                borderColor: theme.color.lineStrong,
                 flexDirection: "row",
                 alignItems: "center",
                 paddingHorizontal: theme.space.sm,
                 gap: theme.space.sm,
+                ...theme.shadow.card,
             }}
         >
+            <View
+                pointerEvents="none"
+                style={{ ...StyleSheet.absoluteFillObject, borderRadius: theme.radius.lg, backgroundColor: theme.color.surfaceAlt }}
+            />
             <Pressable style={{ flexDirection: "row", alignItems: "center", gap: theme.space.sm, flex: 1, minWidth: 0 }} onPress={() => router.push("/now-playing")}>
                 <AlbumArt source={albumArt} size={40} radius={theme.radius.sm} />
                 <View style={{ flex: 1, minWidth: 0 }}>

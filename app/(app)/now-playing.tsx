@@ -14,7 +14,7 @@ import Transport from "@/app/components/music-control/molecules/Transport";
 import LyricsView from "@/app/components/lyrics/organisms/LyricsView";
 import { hasDisplayableLyrics } from "@/app/tools/lrc";
 import RatingControl from "@/app/components/likes/atoms/RatingControl";
-import { MediaManager } from "@/app/services/media-manager";
+import KeepControl from "@/app/components/likes/atoms/KeepControl";
 import SongDownloadControl from "@/app/components/downloading/atoms/SongDownloadControl";
 import { AlbumArt, IconButton, Screen, Text } from "@/app/components/ui";
 import { useTheme } from "@/app/theme";
@@ -212,12 +212,8 @@ export default function NowPlayingScreen() {
                         <View style={{ marginTop: theme.space.lg, flexDirection: "row", alignItems: "center", justifyContent: "center" }}>
                             <RatingControl songId={details.song.songId} gap={theme.space.xl} />
                             {details.song.exploratory ? (
-                                <IconButton
-                                    name="bookmark-outline"
-                                    size={26}
-                                    color={theme.color.textMuted}
-                                    onPress={() => MediaManager.keepSong(details.song.songId)}
-                                    accessibilityLabel="Keep song"
+                                <KeepControl
+                                    songId={details.song.songId}
                                     style={{ marginLeft: theme.space.xl }}
                                 />
                             ) : null}
