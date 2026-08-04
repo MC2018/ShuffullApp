@@ -12,8 +12,10 @@ import { useEffect, useState } from "react";
  * Chromium, so codec support matches the browser. It implements only the surface this app actually uses;
  * anything else is deliberately absent so a missing feature fails loudly rather than silently no-ops.
  *
- * Not implemented (needs the Media Session API to do properly): OS/lock-screen transport controls, and
- * background playback when the window is closed. `updateOptions` is accepted and ignored for that reason.
+ * OS transport keys (play/pause, next, previous) are wired up through the Media Session API — see
+ * `setupMediaSession` below. Still not implemented: background playback once the window is closed, and the
+ * media notification's custom like/dislike buttons, which have no Media Session equivalent — `updateOptions`
+ * is accepted and ignored for that reason.
  */
 
 // ── enums, matching RNTP's shape ──────────────────────────────────────────────────────────────
@@ -70,7 +72,130 @@ function emit(event: Event, payload: any = {}) {
 
 function setState(next: State) {
     state = next;
+    syncPlaybackState(next);
     emit(Event.PlaybackState, { state: next });
+}
+
+// ── Media Session: the OS transport keys ──────────────────────────────────────────────────────
+/**
+ * Wires the keyboard's media keys (Fn+F6/F7/F8 on this keyboard) and the desktop's media applet to the queue.
+ *
+ * Play/pause LOOKS like it needs none of this, because Chromium can pause and resume the underlying <audio>
+ * element on its own. Next/previous have no such default: the browser has no idea what our queue is, so unless
+ * the page registers these handlers it advertises CanGoNext/CanGoPrevious = false over MPRIS and the keypress
+ * is discarded. That asymmetry is exactly why F7 worked while F6/F8 did nothing.
+ *
+ * The handlers only EMIT Remote* events. That is RNTP's own contract — Remote* means "the OS asked us to do
+ * this", not "this happened" — so mediaManager's existing listeners do the work and none of the queue logic
+ * becomes web-specific. They must never call back into the TrackPlayer methods below: seekTo emitting
+ * RemoteSeek is precisely the loop that recursed until the stack blew.
+ *
+ * Typed structurally rather than against lib.dom's MediaSession so this compiles under the React Native TS
+ * config, which does not necessarily ship those DOM definitions.
+ */
+type MediaSessionLike = {
+    metadata: unknown;
+    playbackState: "none" | "paused" | "playing";
+    setActionHandler: (action: string, handler: ((details?: any) => void) | null) => void;
+    setPositionState?: (state: { duration: number; position: number; playbackRate?: number }) => void;
+};
+
+function media(): MediaSessionLike | undefined {
+    return (globalThis as any)?.navigator?.mediaSession;
+}
+
+/**
+ * Keeps the OS's idea of play/pause honest. This matters more than it looks: mediaManager.play() treats a
+ * RemotePlay that arrives while ALREADY playing as a skip, so a stale "paused" here would turn the play key
+ * into a next-track key.
+ */
+function syncPlaybackState(next: State) {
+    const ms = media();
+    if (!ms) {
+        return;
+    }
+
+    ms.playbackState =
+        next === State.Playing || next === State.Buffering || next === State.Loading ? "playing"
+        : next === State.None || next === State.Error ? "none"
+        : "paused";
+}
+
+let mediaSessionReady = false;
+
+function setupMediaSession() {
+    const ms = media();
+    if (!ms || mediaSessionReady) {
+        return;
+    }
+
+    // Each action is bound defensively: an action a given browser doesn't know throws on assignment, and one
+    // unsupported key must not take the rest of the transport controls down with it.
+    const bind = (action: string, handler: (details?: any) => void) => {
+        try {
+            ms.setActionHandler(action, handler);
+        } catch {
+            // Unsupported action — skip it.
+        }
+    };
+
+    bind("play", () => emit(Event.RemotePlay));
+    bind("pause", () => emit(Event.RemotePause));
+    bind("nexttrack", () => emit(Event.RemoteNext));
+    bind("previoustrack", () => emit(Event.RemotePrevious));
+    bind("seekto", (details) => {
+        if (typeof details?.seekTime === "number") {
+            emit(Event.RemoteSeek, { position: details.seekTime });
+        }
+    });
+
+    mediaSessionReady = true;
+}
+
+/** Title/artist/art for the desktop media applet, which otherwise just shows "Electron". */
+function publishMetadata(track: Track | undefined) {
+    const ms = media();
+    const Metadata = (globalThis as any)?.MediaMetadata;
+    if (!ms || !Metadata || !track) {
+        return;
+    }
+
+    try {
+        ms.metadata = new Metadata({
+            title: track.title ?? "",
+            artist: track.artist ?? "",
+            artwork: track.artwork ? [{ src: String(track.artwork) }] : [],
+        });
+    } catch {
+        // Purely cosmetic: never let an unreachable album-art URL interfere with playback.
+    }
+}
+
+/**
+ * Publishes duration/position so the applet can draw a scrubber. Only needed on load and after a seek —
+ * Chromium extrapolates position from the last report and the playback rate, so there is no need to feed it
+ * every timeupdate.
+ */
+function publishPosition() {
+    const ms = media();
+    if (!ms?.setPositionState || !audio) {
+        return;
+    }
+
+    const duration = audio.duration;
+    if (!Number.isFinite(duration) || duration <= 0) {
+        return;
+    }
+
+    try {
+        ms.setPositionState({
+            duration,
+            position: Math.min(audio.currentTime || 0, duration),
+            playbackRate: audio.playbackRate || 1,
+        });
+    } catch {
+        // Throws if position momentarily exceeds duration mid-load; harmless.
+    }
 }
 
 function el(): HTMLAudioElement {
@@ -86,6 +211,9 @@ function el(): HTMLAudioElement {
             emit(Event.PlaybackQueueEnded, { track: activeIndex, position: audio?.currentTime ?? 0 });
         });
         audio.addEventListener("error", () => setState(State.Error));
+        // Duration is unknown until metadata lands, so the applet's scrubber can only be published here.
+        audio.addEventListener("loadedmetadata", publishPosition);
+        audio.addEventListener("seeked", publishPosition);
     }
     return audio;
 }
@@ -97,6 +225,7 @@ async function load(index: number, autoplay: boolean) {
     const a = el();
     a.src = track.url;
     a.load();
+    publishMetadata(track);
     emit(Event.PlaybackActiveTrackChanged, { index, track });
     if (autoplay) await a.play().catch(() => setState(State.Error));
 }
@@ -107,8 +236,12 @@ const TrackPlayer = {
      * with an empty queue reports None. Reporting Ready here made mediaManager's play() take its RESUME branch
      * and call play() on an empty queue, so the playlist Play button did nothing on a fresh launch.
      */
-    async setupPlayer() { el(); isSetup = true; setState(State.None); },
-    /** Accepted and ignored — OS transport controls would need the Media Session API. */
+    async setupPlayer() { el(); setupMediaSession(); isSetup = true; setState(State.None); },
+    /**
+     * Accepted and ignored. Transport capabilities are fixed on web — setupMediaSession registers the full
+     * set once — and the only other thing these options carry is the notification's custom like/dislike
+     * buttons, which Media Session has no equivalent for.
+     */
     async updateOptions(_options?: unknown) { },
 
     /**
