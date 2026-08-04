@@ -2,7 +2,7 @@ import { GenericDb } from "../db/GenericDb";
 import TrackPlayer, { Capability, Event, PlaybackState, RemoteSeekEvent, State } from "react-native-track-player";
 import { CreateUserSongRequest, RecentlyPlayedSong, Request, Song, UpdateSongLastPlayedRequest } from "../db/models";
 import DbQueries from "../db/queries";
-import { shouldPromoteOnLike } from "../../tools/promotion";
+import { shouldPromoteOnLike, shouldSkipOnDislike } from "../../tools/promotion";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { STORAGE_KEYS } from "../../constants/storageKeys";
 import { generateRange, generateId } from "../../tools/utils";
@@ -373,8 +373,18 @@ export async function applyLikeStatus(songId: string, likeStatus: LikeStatus) {
     useLikeStatus.getState().setLikeStatus(songId, likeStatus);
 
     // Keep the notification 👍/👎 icons in sync when the change is for the currently-playing song.
-    if (useActiveSong.getState().songId === songId) {
+    const isActiveSong = useActiveSong.getState().songId === songId;
+    if (isActiveSong) {
         await refreshNotificationButtons(likeStatus);
+    }
+
+    // Disliking what is playing moves off it immediately. Deliberately LAST: skip() starts the next song and
+    // refreshes the notification for it, so anything above that still refers to the outgoing song must
+    // already have been written.
+    const playbackState = (await getPlaybackState()).state;
+    const isPlaying = playbackState === State.Playing || playbackState === State.Buffering || playbackState === State.Loading;
+    if (shouldSkipOnDislike(isActiveSong, likeStatus, isPlaying)) {
+        await skip();
     }
 }
 
