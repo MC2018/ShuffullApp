@@ -30,6 +30,7 @@ import m0025 from './0025_add_curator_and_request_payload.sql';
 import m0026 from './0026_add_exploratory_flags.sql';
 import m0027 from './0027_add_request_playlist_id.sql';
 import m0028 from './0028_cheerful_cassandra_nova.sql';
+import m0029 from './0029_overjoyed_betty_ross.sql';
 
   export default {
     journal,
@@ -62,7 +63,8 @@ m0024,
 m0025,
 m0026,
 m0027,
-m0028
+m0028,
+m0029
     }
   }
   
