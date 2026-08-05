@@ -79,7 +79,7 @@ export async function setup(activeDb: GenericDb) {
 // Notification 👍/👎 button icon indices. The withNotificationActionIcons config plugin overrides the fork's
 // built-in icon slots with thumb variants: 0 = thumb-up outline, 1 = thumb-up solid, 2 = thumb-down outline,
 // 3 = thumb-down solid — so each button shows solid when its state is active and outline otherwise.
-function buildPlayerOptions(likeStatus: LikeStatus) {
+function buildPlayerOptions(likeStatus: LikeStatus, canKeep = false) {
     const disliked = likeStatus === LikeStatus.Dislike;
     // Like button mirrors the in-app cycle: neutral = outline thumb (0), Like = solid thumb (1), Love = heart (4).
     const likeIcon = likeStatus === LikeStatus.Love ? 4 : likeStatus === LikeStatus.Like ? 1 : 0;
@@ -98,19 +98,24 @@ function buildPlayerOptions(likeStatus: LikeStatus) {
         // Media3 custom notification buttons (lovegaoshi RNTP fork): always-visible 👍/👎. The like button
         // cycles neutral → Like → Love (icons 0 → 1 → 4) and 👎 toggles dislike (2 ↔ 3), via the
         // RemoteCustomAction handler. (The fork's { uri } icon path doesn't resolve reliably on our stack.)
+        // Keep (bookmark, icon 5) is CONDITIONAL: it only means anything for an un-vetted audition song, and
+        // keeping one clears `exploratory`, so the button disappears as soon as it has been used. Listing it
+        // unconditionally would put a permanent no-op button in the notification and crowd out the transport
+        // controls in the compact view, which only has room for a few.
         customActions: {
-            customActionsList: ["like", "dislike"],
+            customActionsList: canKeep ? ["like", "dislike", "keep"] : ["like", "dislike"],
             like: likeIcon,
             dislike: disliked ? 3 : 2,
+            keep: 5,
         },
     };
 }
 
 // Reflect a song's like state on the notification's 👍/👎 buttons. Safe to call repeatedly; updateOptions
 // re-applies the custom layout. Meaningful only for the active track.
-async function refreshNotificationButtons(likeStatus: LikeStatus) {
+async function refreshNotificationButtons(likeStatus: LikeStatus, canKeep = false) {
     try {
-        await TrackPlayer.updateOptions(buildPlayerOptions(likeStatus));
+        await TrackPlayer.updateOptions(buildPlayerOptions(likeStatus, canKeep));
     } catch {
         // Non-critical: the notification buttons are best-effort.
     }
@@ -153,6 +158,11 @@ async function setupEventListeners() {
             await applyLikeStatus(activeSongId, next);
         } else if (event.customAction === "dislike") {
             await applyLikeStatus(activeSongId, current === LikeStatus.Dislike ? LikeStatus.Neutral : LikeStatus.Dislike);
+        } else if (event.customAction === "keep") {
+            // One-way, and a no-op for anything that isn't an audition song (keepSong guards on that itself).
+            await keepSong(activeSongId);
+            // keepSong clears `exploratory`, so the button has done its job — take it back off the notification.
+            await refreshNotificationButtons(current, false);
         }
     });
     TrackPlayer.addEventListener(Event.PlaybackState, async (state: PlaybackState) => {
@@ -363,7 +373,8 @@ export async function applyLikeStatus(songId: string, likeStatus: LikeStatus) {
     // re-promoting immediately. enqueueSongRetag keeps one pending row per song with stronger-wins, so a
     // Like landing after a queued Keep upgrades that row instead of double-spending.
     const song = await DbQueries.getSong(db, songId);
-    if (song != undefined && shouldPromoteOnLike(song.exploratory, song.tagsStale, likeStatus)) {
+    const promoted = song != undefined && shouldPromoteOnLike(song.exploratory, song.tagsStale, likeStatus);
+    if (promoted) {
         await DbQueries.enqueueSongRetag(db, userId, songId, "strong");
         await DbQueries.markSongPromoted(db, songId);
     }
@@ -375,7 +386,9 @@ export async function applyLikeStatus(songId: string, likeStatus: LikeStatus) {
     // Keep the notification 👍/👎 icons in sync when the change is for the currently-playing song.
     const isActiveSong = useActiveSong.getState().songId === songId;
     if (isActiveSong) {
-        await refreshNotificationButtons(likeStatus);
+        // Liking an audition song promotes it, which clears `exploratory` — so Keep is no longer offered,
+        // and the button has to go in the same refresh rather than lingering until the next track.
+        await refreshNotificationButtons(likeStatus, (song?.exploratory ?? false) && !promoted);
     }
 
     // Disliking what is playing moves off it immediately. Deliberately LAST: skip() starts the next song and
@@ -518,8 +531,9 @@ async function startNewSong(songId: string, recentlyPlayedSong?: RecentlyPlayedS
     await DbQueries.updateUserSongLastPlayed(db, localSessionData.userId, songId, timeSongStarted);
     await DbQueries.addRequests(db, [updateSongLastPlayedRequest]);
 
-    // Reflect the new active song's saved like state on the notification buttons.
-    await refreshNotificationButtons((userSong.likeStatus as LikeStatus) ?? LikeStatus.Neutral);
+    // Reflect the new active song's saved like state on the notification buttons — and offer Keep only when
+    // this one is actually an audition song.
+    await refreshNotificationButtons((userSong.likeStatus as LikeStatus) ?? LikeStatus.Neutral, song.exploratory);
 }
 
 async function getRandomSongId(): Promise<string | undefined> {

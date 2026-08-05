@@ -2,19 +2,23 @@ const { withDangerousMod } = require("@expo/config-plugins");
 const fs = require("fs");
 const path = require("path");
 
-// Supplies the like/dislike notification action icons for the track-player fork's Media3 custom buttons.
+// Supplies the like/dislike/keep notification action icons for the track-player fork's Media3 custom buttons.
 //
 // The fork resolves a custom-action icon from an INTEGER index into a fixed built-in table (0..5). Its
 // alternate { uri: "drawable_name" } path does not resolve on our stack, and an app-level resource override
 // is masked by the fork's cached compiled resources. So we patch the fork's own drawable source files (in
-// node_modules) and clear its build cache, then drive icons from JS by integer index. We override four slots
-// so the buttons can reflect state — outline when inactive, solid when active:
+// node_modules) and clear its build cache, then drive icons from JS by integer index. We override all six
+// slots so the buttons can reflect state — outline when inactive, solid when active:
 //
 //   0 hearte_24px            -> thumb-up   outline  (like,    neutral)
 //   1 heart_24px             -> thumb-up   solid    (like,    Liked)
 //   2 baseline_repeat_24     -> thumb-down outline  (dislike, not disliked)
 //   3 baseline_repeat_one_24 -> thumb-down solid    (dislike, disliked)
 //   4 shuffle_24px           -> heart      solid    (like,    Loved)
+//   5 ifl_24px               -> bookmark   outline  (keep,    audition songs only)
+//
+// Keep needs only ONE icon, unlike its neighbours: it is one-way (there is no un-keep) and keeping clears the
+// song's `exploratory` flag, so the button removes itself rather than switching to a "kept" state.
 //
 // (We never use the fork's playmode/shuffle custom actions, so repurposing these slots is safe.)
 // Runs during `expo prebuild`, so it re-applies after `prebuild --clean` and after any reinstall.
@@ -30,6 +34,9 @@ const THUMB_DOWN_OUTLINE =
   "M19,15V3H23V15H19M15,3A2,2 0 0,1 17,5V15C17,15.55 16.78,16.05 16.41,16.41L9.83,23L8.77,21.94C8.5,21.67 8.33,21.3 8.33,20.88L8.36,20.57L9.31,16H3C1.89,16 1,15.1 1,14V12C1,11.74 1.05,11.5 1.14,11.27L4.16,4.22C4.46,3.5 5.17,3 6,3H15M15,5H5.97L3,12V14H11.78L10.65,19.32L15,14.97V5Z";
 const HEART_SOLID =
   "M12,21.35L10.55,20.03C5.4,15.36 2,12.27 2,8.5C2,5.41 4.42,3 7.5,3C9.24,3 10.91,3.81 12,5.08C13.09,3.81 14.76,3 16.5,3C19.58,3 22,5.41 22,8.5C22,12.27 18.6,15.36 13.45,20.03L12,21.35Z";
+// Matches the in-app KeepControl's bookmark-outline glyph, so the same action reads the same in both places.
+const BOOKMARK_OUTLINE =
+  "M17,3H7A2,2 0 0,0 5,5V21L12,18L19,21V5C19,3.89 18.1,3 17,3M17,18L12,15.82L7,18V5H17V18Z";
 
 const DRAWABLES = {
   hearte_24px: THUMB_UP_OUTLINE, // index 0
@@ -37,6 +44,7 @@ const DRAWABLES = {
   baseline_repeat_24: THUMB_DOWN_OUTLINE, // index 2
   baseline_repeat_one_24: THUMB_DOWN_SOLID, // index 3
   shuffle_24px: HEART_SOLID, // index 4 (Loved)
+  ifl_24px: BOOKMARK_OUTLINE, // index 5 (Keep)
 };
 
 const vector = (pathData) =>
