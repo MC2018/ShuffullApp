@@ -24,6 +24,9 @@ const defaultArt: ImageURISource = require("@/assets/images/default-album-art.jp
 type ArtSource = ImageURISource | { uri: string };
 
 const COMPACT_ART = 56; // thumbnail size when lyrics are open
+// Width of the Keep slot on the likes row: a 32px gap in front of KeepControl's 26px glyph. The gap is the
+// separation that keeps Keep's touch area clear of the dislike button - see the row's comment below.
+const KEEP_SLOT = 32 + 26;
 const OPEN_MS = 250;
 const CLOSE_MS = 190;
 // Snappy decelerate on open (fast out, soft settle); quick accelerate on close.
@@ -208,15 +211,22 @@ export default function NowPlayingScreen() {
                         {/* Keep sits beside the rating control, and ONLY for audition songs (it is a no-op for
                             anything else). Until now it existed solely as a bookmark glyph on audition
                             playlist ROWS, which is unreachable while a song is playing full-screen - the exact
-                            moment you decide whether to keep it, and the only view you get on a phone. */}
+                            moment you decide whether to keep it, and the only view you get on a phone.
+
+                            Both Keep slots are ALWAYS reserved, and the empty left one is what pins like/dislike
+                            dead centre under the transport's play button on EVERY song. Mounting Keep on the
+                            right of a centred row used to slide the pair ~23px left on precisely the songs that
+                            have a Keep button, so the thumbs-down glyph moved out from under the spot muscle
+                            memory had just learned on the previous non-audition song - and the bookmark slid
+                            into it. Since keepSong is one-way, that swap turned a routine mis-tap into an
+                            unrecoverable one, on audition songs, where you rate most. */}
                         <View style={{ marginTop: theme.space.lg, flexDirection: "row", alignItems: "center", justifyContent: "center" }}>
+                            <View style={{ width: KEEP_SLOT }} />
                             <RatingControl songId={details.song.songId} gap={theme.space.xl} />
-                            {details.song.exploratory ? (
-                                <KeepControl
-                                    songId={details.song.songId}
-                                    style={{ marginLeft: theme.space.xl }}
-                                />
-                            ) : null}
+                            {/* flex-end spends the slot as a gap in front of the glyph, not behind it. */}
+                            <View style={{ width: KEEP_SLOT, alignItems: "flex-end" }}>
+                                {details.song.exploratory ? <KeepControl songId={details.song.songId} /> : null}
+                            </View>
                         </View>
                         {/* The lyrics pill ALWAYS occupies its slot, and is merely made invisible when a song
                             has none. Unmounting it shortens this pinned stack, which grows the flex:1 area

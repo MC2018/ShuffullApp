@@ -58,7 +58,12 @@ export default function KeepControl({
         <Pressable
             onPress={onPress}
             disabled={kept}
-            hitSlop={8}
+            // Asymmetric ON PURPOSE: no leftward slop. Keep's left neighbour is the dislike button, and
+            // because keepSong is one-way, a dislike→Keep mis-tap is the one error on this row that cannot be
+            // undone. So the touch area stays generous into the empty space on its right and stops at the
+            // glyph on the side where overshooting is expensive. Tapping the gap does nothing, which is the
+            // correct outcome for an irreversible action.
+            hitSlop={{ top: 8, bottom: 8, right: 8, left: 0 }}
             accessibilityRole="button"
             accessibilityLabel={kept ? "Kept" : "Keep song"}
             accessibilityState={{ selected: kept }}
