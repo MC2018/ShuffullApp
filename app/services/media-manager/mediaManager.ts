@@ -91,19 +91,34 @@ function buildPlayerOptions(likeStatus: LikeStatus, canKeep = false) {
         Capability.SkipToNext,
         Capability.SeekTo,
     ];
+    // The system media panel draws FIVE buttons and no more (measured, One UI 8.5 / Android 16 — a sixth is
+    // dropped in silence). It builds them from the LEGACY PlaybackState: prev/play-pause/next come from the
+    // actions bitmask, the rest from customActions. Media3's slot API does not reach it, so the only way to
+    // free a slot for Keep is to stop advertising SkipToPrevious — which is done for audition songs only.
+    // The command stays in `capabilities`, so headset/Bluetooth/Auto "previous" is unaffected; it is purely
+    // the drawn button that Keep takes over.
+    const notificationTransport = canKeep
+        ? transport.filter(capability => capability !== Capability.SkipToPrevious)
+        : transport;
+
     return {
         capabilities: transport,
         compactCapabilities: transport,
-        notificationCapabilities: transport,
+        notificationCapabilities: notificationTransport,
         // Media3 custom notification buttons (lovegaoshi RNTP fork): always-visible 👍/👎. The like button
         // cycles neutral → Like → Love (icons 0 → 1 → 4) and 👎 toggles dislike (2 ↔ 3), via the
         // RemoteCustomAction handler. (The fork's { uri } icon path doesn't resolve reliably on our stack.)
         // Keep (bookmark, icon 5) is CONDITIONAL: it only means anything for an un-vetted audition song, and
-        // keeping one clears `exploratory`, so the button disappears as soon as it has been used. Listing it
-        // unconditionally would put a permanent no-op button in the notification and crowd out the transport
-        // controls in the compact view, which only has room for a few.
+        // keeping one clears `exploratory`, so the button disappears as soon as it has been used. It occupies
+        // the slot freed above, which is why it lands exactly where "previous" is drawn on a normal song.
         customActions: {
-            customActionsList: canKeep ? ["like", "dislike", "keep"] : ["like", "dislike"],
+            // Order is NOT display order. The panel fills its outer slots from this list as
+            // [1]→leftmost, [0]→second, [2]→rightmost (measured). So "keep, like, dislike" renders as
+            // 👍 🔖 ⏸ ⏭ 👎 — identical to a non-audition song's 👍 ⏮ ⏸ ⏭ 👎 with the bookmark standing exactly
+            // where "previous" was. The thumbs therefore never move between audition and normal songs, which
+            // is the same mis-tap hazard the in-app likes row was fixed for: dislike skips the song and Keep
+            // is one-way, so a swap under muscle memory is expensive.
+            customActionsList: canKeep ? ["keep", "like", "dislike"] : ["like", "dislike"],
             like: likeIcon,
             dislike: disliked ? 3 : 2,
             keep: 5,
