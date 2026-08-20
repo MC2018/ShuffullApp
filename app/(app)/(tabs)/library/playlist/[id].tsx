@@ -85,6 +85,9 @@ export default function PlaylistScreen() {
         // playlist instead of playback simply stopping.
         const scope = new SongFilters();
         scope.setSoleFilter(SongFilterType.Playlist, [playlistId]);
+        // In an audition cohort the follow-on songs should be ones never heard before — picking a track by
+        // hand shouldn't drop you back into repeats once it ends.
+        scope.unheardOnly = playlist?.isExploratory ?? false;
         await MediaManager.playSpecificSong(songDetails.song.songId, scope);
     };
 
@@ -111,6 +114,9 @@ export default function PlaylistScreen() {
         const songFilters = await MediaManager.getSongFilters();
         // TODO: check if filters and list are same: if they are, return early
         songFilters.setSoleFilter(SongFilterType.Playlist, [playlist.playlistId]);
+        // Audition playlists exist to give every track one first listen, so they play unheard songs only —
+        // ordinary playlists keep the normal least-recently-played shuffle.
+        songFilters.unheardOnly = playlist.isExploratory;
         await MediaManager.setSongFilters(songFilters, true);
     };
 

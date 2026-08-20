@@ -36,6 +36,11 @@ export class SongFilters {
     // Energy band [energyMin, energyMax] (1-10); null = no bound. Songs with unknown energy are still included.
     energyMin: number | null = null;
     energyMax: number | null = null;
+    // Audition-only narrowing: restrict the shuffle pool to songs that have NEVER been played, so a cohort
+    // gives every track its first listen before repeating any. Set solely by the audition playlist play paths;
+    // setSoleFilter clears it, so it can never leak from an audition session into an ordinary playlist.
+    // Deliberately NOT part of hasAnyFilter(): on its own it does not define a pool, it only narrows one.
+    unheardOnly = false;
 
     public static fromGenreJam(genreJam: GenreJam, localOnly: boolean): SongFilters {
         const songFilters = new SongFilters();
@@ -52,6 +57,7 @@ export class SongFilters {
     public setSoleFilter(type: SongFilterType, ids: string[]) {
         this.whitelists = emptyWhitelist();
         this.blacklists = emptyWhitelist();
+        this.unheardOnly = false;
 
         switch (type) {
             case SongFilterType.Artist:
@@ -76,6 +82,13 @@ export class SongFilters {
                 this.whitelists.themeIds = ids;
                 break;
         }
+    }
+
+    /** A copy without the audition narrowing — used for the fall-back pass once a cohort is fully heard. */
+    public withoutUnheardOnly(): SongFilters {
+        const copy: SongFilters = Object.assign(Object.create(SongFilters.prototype), this);
+        copy.unheardOnly = false;
+        return copy;
     }
 
     hasAnyFilter(): boolean {

@@ -51,6 +51,14 @@ export async function getFilteredSong(db: GenericDb, songFilters: SongFilters) {
                 -- Dislike = never play again: exclude disliked songs from shuffle (explicit play still allowed).
                 (us.like_status IS NULL OR us.like_status <> 3)
             AND (
+                -- Audition cohorts play only what has never been played. "Never" is last_played <= 0, NOT
+                -- NULL: the server seeds every UserSong with DateTime.MinValue, so a missing row is rare and
+                -- the epoch is what actually separates never-played from played (same rule as hasBeenPlayed).
+                ${songFilters.unheardOnly ? 0 : 1} = 1
+                OR us.last_played IS NULL
+                OR us.last_played <= 0
+            )
+            AND (
                 -- localOnly: see the note above this function.
                 ${songFilters.localOnly ? 0 : 1} = 1
                 OR EXISTS (SELECT 1 FROM downloaded_songs ds WHERE ds.song_id = s.song_id)
@@ -198,7 +206,15 @@ export async function getFilteredSong(db: GenericDb, songFilters: SongFilters) {
 
     // Raw sql => no field mapping, so the row shape is driver-dependent. Column order must match the SELECT
     // above. See _rawRow.ts.
-    return namedRows<FilteredSongs>(rawFilteredSongs, ["songId", "lastPlayed"]);
+    const filteredSongs = namedRows<FilteredSongs>(rawFilteredSongs, ["songId", "lastPlayed"]);
+
+    // A finished cohort has no never-played songs left, and handing back an empty pool would stall playback
+    // instead of ending the audition gracefully. Retry once without the narrowing so the playlist still plays.
+    if (filteredSongs.length === 0 && songFilters.unheardOnly) {
+        return await getFilteredSong(db, songFilters.withoutUnheardOnly());
+    }
+
+    return filteredSongs;
 }
 
 export async function getAllSongDetails(db: GenericDb): Promise<SongDetails[]> {

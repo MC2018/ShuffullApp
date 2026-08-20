@@ -114,4 +114,69 @@ describe("scoped next-song pool", () => {
         const songId = await getRandomSongId(db);
         expect(["s1", "s2", "s3"]).toContain(songId);
     });
+
+    /**
+     * Audition cohorts exist to give every track ONE first listen, so they draw only from never-played songs.
+     * "Never played" has two shapes in this schema: no user_songs row at all, and the row the server seeds
+     * with DateTime.MinValue — a large NEGATIVE epoch, not null and not zero. The old shuffle checked
+     * `lastPlayed != null`, which no seeded row ever satisfies, so the never-played branch never ran.
+     */
+    describe("audition (unheard-only) narrowing", () => {
+        const played = (songId: string, at: number) =>
+            `INSERT INTO user_songs (user_id, song_id, last_played, version, like_status) VALUES ('u','${songId}',${at},0,0)`;
+        const MIN_VALUE = -62135629200000; // C# DateTime.MinValue as ms since epoch — the server's "never".
+
+        it("plays only never-played songs (no user_songs row counts as never)", async () => {
+            (db as any).$client.exec(played("s1", 1750000000000));
+
+            const filters = new SongFilters();
+            filters.setSoleFilter(SongFilterType.Playlist, ["pl-a"]);
+            filters.unheardOnly = true;
+
+            const pool = await getFilteredSong(db, filters);
+            expect(pool.map((x) => x.songId)).toEqual(["s2"]);
+        });
+
+        it("treats a DateTime.MinValue seed as never played, not as played long ago", async () => {
+            (db as any).$client.exec(played("s1", 1750000000000));
+            (db as any).$client.exec(played("s2", MIN_VALUE));
+
+            const filters = new SongFilters();
+            filters.setSoleFilter(SongFilterType.Playlist, ["pl-a"]);
+            filters.unheardOnly = true;
+
+            const pool = await getFilteredSong(db, filters);
+            expect(pool.map((x) => x.songId)).toEqual(["s2"]);
+        });
+
+        it("leaves an ordinary playlist alone — everything stays in the pool", async () => {
+            (db as any).$client.exec(played("s1", 1750000000000));
+
+            const filters = new SongFilters();
+            filters.setSoleFilter(SongFilterType.Playlist, ["pl-a"]);
+
+            const pool = await getFilteredSong(db, filters);
+            expect(pool.map((x) => x.songId).sort()).toEqual(["s1", "s2"]);
+        });
+
+        it("falls back to the whole playlist once the cohort is fully heard, rather than stalling playback", async () => {
+            (db as any).$client.exec(played("s1", 1750000000000));
+            (db as any).$client.exec(played("s2", 1750000001000));
+
+            const filters = new SongFilters();
+            filters.setSoleFilter(SongFilterType.Playlist, ["pl-a"]);
+            filters.unheardOnly = true;
+
+            const pool = await getFilteredSong(db, filters);
+            expect(pool.map((x) => x.songId).sort()).toEqual(["s1", "s2"]);
+        });
+
+        it("is cleared by setSoleFilter, so it cannot leak out of an audition session", () => {
+            const filters = new SongFilters();
+            filters.unheardOnly = true;
+            filters.setSoleFilter(SongFilterType.Playlist, ["pl-b"]);
+
+            expect(filters.unheardOnly).toBe(false);
+        });
+    });
 });
