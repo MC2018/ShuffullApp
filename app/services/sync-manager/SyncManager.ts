@@ -4,13 +4,13 @@ import * as DbModels from "@/app/services/db/models";
 import * as ApiModels from "@/app/services/api/models";
 import { deterministicId, distinctBy, distinctByLast, generateId } from "@/app/tools";
 import { HttpStatusCode } from "axios";
-import { RequestType, getProcessingMethod, ProcessingMethod } from "@/app/enums";
+import { RequestType } from "@/app/enums";
 import { ApiStatusFailureError } from "@/app/services/api/errors";
 import { GenericDb } from "@/app/services/db/GenericDb";
 import { Downloader } from "@/app/services/downloader/Downloader";
 import { STORAGE_KEYS } from "@/app/constants/storageKeys";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { advanceSongCursor, collectNewSongIds, playlistsToFetch, toRetagItems } from "@/app/services/sync-manager/syncLogic";
+import { advanceSongCursor, collectNewSongIds, groupRequestsIntoBatches, partitionRejectedRequests, playlistsToFetch, summarizeRetagFailures, toRetagItems } from "@/app/services/sync-manager/syncLogic";
 
 export class SyncManager {
     db: GenericDb;
@@ -53,40 +53,7 @@ export class SyncManager {
 
         try {
             const unorderedRequests = await DbQueries.getRequests(this.db);
-            const requestBatches: DbModels.Request[][] = [];
-            const onlyOnceRequests: RequestType[] = [];
-            let lastRequestType: RequestType | null = null;
-
-            for (const request of unorderedRequests) {
-                const requestType = request.requestType as RequestType;
-                const processingMethod = getProcessingMethod(requestType);
-
-                switch (processingMethod) {
-                    case ProcessingMethod.OnlyOnce:
-                        if (onlyOnceRequests.includes(requestType)) {
-                            continue;
-                        }
-    
-                        requestBatches.push([request]);
-                        onlyOnceRequests.push(requestType);
-                        break;
-                    case ProcessingMethod.Individual:
-                        requestBatches.push([request]);
-                        break;
-                    case ProcessingMethod.Batch:
-                        if (requestType != lastRequestType) {
-                            requestBatches.push([request]);
-                        } else {
-                            requestBatches[requestBatches.length - 1].push(request);
-                        }
-                        break;
-                    case ProcessingMethod.None:
-                    default:
-                        break;
-                }
-
-                lastRequestType = request.requestType;
-            }
+            const requestBatches = groupRequestsIntoBatches(unorderedRequests);
 
             let endedPrematurely = false;
 
@@ -101,11 +68,18 @@ export class SyncManager {
                     // TODO: move this to DbQueries?
                     await DbQueries.deleteRequests(this.db, requestBatch.map(x => x.requestId));
                 } else if (400 <= statusCode && statusCode <= 499) {
-                    // Client error: retrying won't help, so drop just this batch — but keep processing the
-                    // rest of the queue instead of stalling everything behind it. (A dead-letter store that
-                    // records a reason would be the next step so these aren't silently lost.)
-                    console.warn(`Dropping request batch after ${statusCode} (type ${requestBatch[0]?.requestType}).`);
-                    await DbQueries.deleteRequests(this.db, requestBatch.map(x => x.requestId));
+                    // Client error: replaying the same payload usually won't fix it — but deleting the rows
+                    // outright is how queued work used to vanish with nothing logged. Keep them for a bounded
+                    // window so a transient cause (a stale token, a server-side fix) recovers by itself, and
+                    // abandon only what is too old to be anything but noise. Either way, say so out loud.
+                    const { abandon, keep } = partitionRejectedRequests(requestBatch, new Date());
+                    console.warn(
+                        `[sync] ${statusCode} on ${requestBatch.length} request(s) of type ` +
+                        `${requestBatch[0]?.requestType}: retaining ${keep.length} for retry, ` +
+                        `abandoning ${abandon.length} past the retry window.`);
+                    if (abandon.length) {
+                        await DbQueries.deleteRequests(this.db, abandon.map(x => x.requestId));
+                    }
                 } else if (500 <= statusCode) {
                     console.log(`Cannot access server. Status code: ${statusCode}`);
                     endedPrematurely = true;
@@ -253,7 +227,19 @@ export class SyncManager {
             // enqueue rule and the server's collapse.
             const items = toRetagItems(requests);
             if (items.length) {
-                await this.api.songRetag(items);
+                const response = await this.api.songRetag(items);
+
+                // A 200 only means the POST landed; the per-item outcomes say whether the tagging ran. The
+                // server records the keep BEFORE enriching, so a failure here is outstanding TAG work, not a
+                // lost decision — the song is safe and still matches the server's stale-song query. Nothing
+                // drains that query automatically today, so this warning is the only signal tags are owed.
+                // Discarding this body is what hid months of silent failures.
+                const { songIds, reasons } = summarizeRetagFailures(response?.results);
+                if (songIds.length) {
+                    console.warn(
+                        `[sync] ${songIds.length}/${items.length} re-tag(s) did not enrich: ` +
+                        `${reasons.join("; ")}`);
+                }
             }
             return HttpStatusCode.Ok;
         } catch (e) {
@@ -325,7 +311,7 @@ export class SyncManager {
             // (user_id, song_id) is the primary key, so those duplicates make the whole multi-row INSERT
             // fail, and with it the entire sync: the library stayed empty on any device whose first sync was
             // large enough to paginate (>500 user songs). Collapse them, newest wins.
-            const updatedUserSongs = distinctByLast(fetchedUserSongs, x => `${x.userId} ${x.songId}`);
+            const updatedUserSongs = distinctByLast(fetchedUserSongs, x => `${x.userId}\0${x.songId}`);
 
             // Songs referenced by the updated playlists/user-songs that we don't have locally yet.
             const localSongIds = await DbQueries.getAllSongIds(this.db);
