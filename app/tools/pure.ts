@@ -63,6 +63,25 @@ export function generateRange(x: number): number[] {
     return Array.from({ length: x }, (_, i) => i);
 }
 
+// `== null` is already true for undefined, so the second half of the old condition never fired.
 export function isAnyNullish(...args: any[]): boolean {
-    return args.some(arg => arg == null || arg == undefined);
+    return args.some(arg => arg == null);
+}
+
+/**
+ * Split an array into fixed-size chunks, the last of which may be short.
+ *
+ * SQLite caps a statement at 999 bound parameters, so multi-row INSERTs of a synced page have to go
+ * out in batches rather than as one statement.
+ */
+export function chunk<T>(array: T[], size: number): T[][] {
+    if (size < 1) {
+        throw new Error(`chunk size must be at least 1, got ${size}`);
+    }
+
+    const chunks: T[][] = [];
+    for (let i = 0; i < array.length; i += size) {
+        chunks.push(array.slice(i, i + size));
+    }
+    return chunks;
 }
