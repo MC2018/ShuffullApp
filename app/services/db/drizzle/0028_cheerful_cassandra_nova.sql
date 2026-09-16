@@ -1,0 +1,1 @@
+ALTER TABLE `songs` ADD `tags_stale` integer DEFAULT false NOT NULL;

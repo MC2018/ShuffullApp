@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Shuffull — Style 03 · Pulse</title>
+<style>
+  :root{
+    --bg:#050308; --panel:rgba(255,255,255,.035); --ink:#f6f3ff; --muted:#9a90b8; --faint:#665d82;
+    --line:rgba(140,90,220,.2);
+    --magenta:#ff2bd6; --cyan:#22e7ff; --violet:#9d4bff;
+    --mono:'JetBrains Mono','SF Mono',ui-monospace,Menlo,Consolas,monospace;
+    --sans:ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:var(--sans);color:var(--ink);min-height:100vh;padding:48px 32px 80px;-webkit-font-smoothing:antialiased;
+    background:
+      radial-gradient(900px 500px at 10% 0%, rgba(255,43,214,.12), transparent 55%),
+      radial-gradient(900px 600px at 95% 5%, rgba(34,231,255,.12), transparent 55%),
+      var(--bg)}
+  .page-head{max-width:1200px;margin:0 auto 40px}
+  .eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.3em;text-transform:uppercase;color:var(--cyan)}
+  .page-head h1{font-size:46px;font-weight:900;letter-spacing:.02em;margin:8px 0 8px;text-transform:uppercase;
+    background:linear-gradient(90deg,var(--magenta),var(--cyan));-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;
+    filter:drop-shadow(0 0 18px rgba(255,43,214,.4))}
+  .page-head p{color:var(--muted);max-width:760px;line-height:1.7;font-size:15px}
+  .philo{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px}
+  .philo span{font-family:var(--mono);font-size:11.5px;color:var(--ink);border:1px solid var(--line);padding:7px 12px;border-radius:5px;background:var(--panel)}
+  .nav{position:fixed;top:20px;right:26px;display:flex;gap:8px;z-index:50;font-size:12.5px}
+  .nav a{color:var(--muted);text-decoration:none;padding:7px 12px;border-radius:6px;border:1px solid var(--line);background:rgba(0,0,0,.5);backdrop-filter:blur(8px)}
+  .nav a.cur{color:#06030a;background:linear-gradient(90deg,var(--magenta),var(--cyan));border-color:transparent;font-weight:800}
+
+  .deck{display:flex;gap:34px;flex-wrap:wrap;justify-content:center;max-width:1500px;margin:0 auto}
+  .device{display:flex;flex-direction:column;align-items:center;gap:14px}
+  .cap{font-size:13px;color:var(--muted)}.cap b{color:var(--ink);font-weight:600}
+
+  .phone{width:340px;height:724px;border-radius:42px;position:relative;overflow:hidden;
+    border:1px solid rgba(157,75,255,.3);
+    box-shadow:0 0 60px -10px rgba(157,75,255,.4), 0 40px 80px -30px #000, inset 0 0 0 6px #000;background:#070410}
+  .screen{position:absolute;inset:0;display:flex;flex-direction:column;
+    background-image:linear-gradient(rgba(157,75,255,.05) 1px,transparent 1px),linear-gradient(90deg,rgba(157,75,255,.05) 1px,transparent 1px);
+    background-size:26px 26px}
+  .statusbar{height:34px;display:flex;align-items:center;justify-content:space-between;padding:0 22px;font-family:var(--mono);font-size:11px;color:#cbbdf0}
+  .dots{display:flex;gap:4px}.dots i{width:5px;height:5px;border-radius:50%;background:var(--cyan);display:block;box-shadow:0 0 6px var(--cyan)}
+  .content{flex:1;overflow:hidden;padding:6px 20px 0}
+
+  .art{border-radius:12px;position:relative;overflow:hidden;flex-shrink:0}
+  .art.m1{background:linear-gradient(135deg,#ff2bd6,#9d4bff 55%,#22e7ff)}
+  .art.m2{background:linear-gradient(135deg,#7a18ff,#ff2bd6 60%,#ff8a3d)}
+  .art.m3{background:linear-gradient(135deg,#0bd1ff,#1b6dff 55%,#9d4bff)}
+  .art.m4{background:linear-gradient(135deg,#16f2a6,#22e7ff 55%,#9d4bff)}
+  .art .scan{position:absolute;inset:0;background:repeating-linear-gradient(0deg,rgba(0,0,0,.16) 0 2px,transparent 2px 4px)}
+  .art .glow{position:absolute;inset:0;background:radial-gradient(60% 50% at 30% 20%,rgba(255,255,255,.4),transparent 55%)}
+
+  .mono{font-family:var(--mono)}
+  .label{font-family:var(--mono);font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--cyan)}
+
+  /* HOME */
+  .greet{margin:10px 0 2px}
+  .greet .hi{font-family:var(--mono);font-size:11px;letter-spacing:.16em;color:var(--faint);text-transform:uppercase}
+  .greet h2{font-size:28px;font-weight:900;letter-spacing:-.01em;text-transform:uppercase;margin-top:4px}
+  .greet h2 span{background:linear-gradient(90deg,var(--magenta),var(--cyan));-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+
+  .hero-now{margin-top:14px;border-radius:16px;padding:13px;display:flex;gap:13px;align-items:center;
+    background:var(--panel);border:1px solid var(--line);box-shadow:inset 0 0 30px rgba(157,75,255,.08)}
+  .hero-now .art{width:60px;height:60px}
+  .hero-now .meta{flex:1;min-width:0}
+  .hero-now .t{font-size:15px;font-weight:800;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .hero-now .a{font-size:12px;color:var(--muted)}
+  .iconbtn{width:42px;height:42px;border-radius:11px;display:grid;place-items:center;flex-shrink:0;
+    background:linear-gradient(135deg,var(--magenta),var(--violet));color:#fff;box-shadow:0 0 22px -2px rgba(255,43,214,.6)}
+  .iconbtn svg{width:18px;height:18px}
+
+  .sec-h{display:flex;align-items:center;justify-content:space-between;margin:20px 2px 12px}
+  .sec-h h3{font-family:var(--mono);font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink)}
+  .sec-h a{font-family:var(--mono);font-size:11px;color:var(--faint);text-decoration:none}
+
+  .jam-cta{border-radius:18px;padding:2px;background:linear-gradient(135deg,var(--magenta),var(--cyan));box-shadow:0 0 40px -8px rgba(255,43,214,.5)}
+  .jam-cta .in{border-radius:16px;padding:18px;background:#0a0614}
+  .jam-cta h4{font-size:22px;font-weight:900;text-transform:uppercase;letter-spacing:.01em;margin:4px 0 7px}
+  .jam-cta p{font-size:12px;color:var(--muted);line-height:1.5;max-width:225px}
+  .jam-cta .go{margin-top:14px;display:inline-flex;align-items:center;gap:8px;background:linear-gradient(90deg,var(--magenta),var(--cyan));color:#06030a;font-weight:900;font-size:12px;text-transform:uppercase;letter-spacing:.1em;padding:11px 17px;border-radius:10px}
+  .jam-cta .go svg{width:13px;height:13px}
+
+  .chips{display:flex;gap:10px;overflow:hidden}
+  .jchip{flex-shrink:0;width:118px;border-radius:14px;padding:11px;background:var(--panel);border:1px solid var(--line)}
+  .jchip .sw{height:52px;border-radius:10px;margin-bottom:9px}
+  .jchip .n{font-size:13px;font-weight:800}.jchip .c{font-family:var(--mono);font-size:10px;color:var(--faint);margin-top:2px}
+
+  .mini{margin:0 12px;border-radius:14px;padding:9px 12px;display:flex;align-items:center;gap:11px;background:rgba(10,6,20,.9);border:1px solid var(--line);position:relative;box-shadow:0 0 24px -6px rgba(157,75,255,.5)}
+  .mini .art{width:38px;height:38px;border-radius:9px}
+  .mini .m{flex:1;min-width:0}.mini .m .t{font-size:12.5px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.mini .m .a{font-size:10.5px;color:var(--muted)}
+  .mini .wave{display:flex;align-items:flex-end;gap:2px;height:20px}
+  .mini .wave b{width:3px;background:linear-gradient(var(--cyan),var(--magenta));border-radius:2px;display:block}
+  .mini .pp{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;background:linear-gradient(135deg,var(--magenta),var(--violet));color:#fff}.mini .pp svg{width:15px;height:15px}
+
+  .tabbar{height:62px;display:flex;align-items:center;justify-content:space-around;border-top:1px solid var(--line);background:rgba(7,4,16,.85);backdrop-filter:blur(12px);padding-bottom:6px}
+  .tab{display:flex;flex-direction:column;align-items:center;gap:4px;font-family:var(--mono);font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint)}
+  .tab svg{width:20px;height:20px}.tab.on{color:var(--cyan)}.tab.on svg{filter:drop-shadow(0 0 6px var(--cyan))}
+
+  /* NOW PLAYING */
+  .np .topbar{display:flex;align-items:center;justify-content:space-between;padding:6px 2px 0;color:var(--muted)}
+  .np-art{width:248px;height:248px;align-self:center;margin:16px auto 0;border-radius:18px;box-shadow:0 0 50px -6px rgba(255,43,214,.5),0 0 80px -20px rgba(34,231,255,.5)}
+  .np-title{font-size:23px;font-weight:900;text-align:center;margin-top:20px;text-transform:uppercase;letter-spacing:.01em}
+  .np-artist{font-family:var(--mono);font-size:12px;color:var(--cyan);text-align:center;margin-top:6px;letter-spacing:.08em}
+  .scrub{margin:18px 4px 0}
+  .scrub .wave{display:flex;align-items:center;gap:2px;height:34px}
+  .scrub .wave b{flex:1;border-radius:2px;display:block}
+  .scrub .times{display:flex;justify-content:space-between;font-family:var(--mono);font-size:10.5px;color:var(--faint);margin-top:8px}
+  .transport{display:flex;align-items:center;justify-content:center;gap:26px;margin-top:12px}
+  .transport svg{width:24px;height:24px;color:var(--ink)}
+  .transport .play{width:62px;height:62px;border-radius:18px;display:grid;place-items:center;background:linear-gradient(135deg,var(--magenta),var(--cyan));color:#06030a;box-shadow:0 0 36px -4px rgba(255,43,214,.7)}
+  .transport .play svg{width:26px;height:26px}
+  .likes{display:flex;justify-content:center;gap:9px;margin-top:18px}
+  .like{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:11px;font-weight:700;text-transform:uppercase;color:var(--muted);padding:8px 13px;border-radius:10px;background:var(--panel);border:1px solid var(--line)}
+  .like svg{width:13px;height:13px}
+  .like.on{background:linear-gradient(90deg,rgba(255,43,214,.25),rgba(157,75,255,.2));color:#ffb8ee;border-color:rgba(255,43,214,.5);box-shadow:0 0 18px -4px rgba(255,43,214,.5)}
+  .lyrics{margin-top:18px;text-align:center;display:flex;flex-direction:column;gap:11px}
+  .lyrics .ln{font-size:14px;color:var(--faint);line-height:1.3}
+  .lyrics .ln.cur{font-size:18px;font-weight:900;color:#fff;text-shadow:0 0 16px rgba(34,231,255,.7)}
+  .tagrow{display:flex;gap:7px;justify-content:center;margin-top:16px;flex-wrap:wrap}
+  .tag{font-family:var(--mono);font-size:10px;color:var(--cyan);padding:5px 10px;border-radius:6px;background:var(--panel);border:1px solid var(--line)}
+
+  /* GENRE JAM */
+  .jam-head{margin-top:8px}
+  .jam-head .label{margin-bottom:6px;display:block}
+  .jam-head h2{font-size:26px;font-weight:900;text-transform:uppercase;line-height:1.05}
+  .jam-head h2 span{background:linear-gradient(90deg,var(--magenta),var(--cyan));-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+  .jam-head p{font-size:12px;color:var(--muted);line-height:1.5;margin-top:8px;max-width:255px}
+  .pool{font-family:var(--mono);margin-top:13px;font-size:11px;color:var(--cyan);display:flex;align-items:center;gap:7px}
+  .start{margin-top:15px;width:100%;display:flex;align-items:center;justify-content:center;gap:9px;background:linear-gradient(90deg,var(--magenta),var(--cyan));color:#06030a;font-weight:900;font-size:14px;text-transform:uppercase;letter-spacing:.08em;padding:15px;border-radius:14px;box-shadow:0 0 36px -6px rgba(255,43,214,.6)}
+  .start svg{width:16px;height:16px}
+  .field-h{font-family:var(--mono);font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--faint);margin:22px 2px 11px}
+  .moods{display:flex;flex-wrap:wrap;gap:8px}
+  .mood{font-family:var(--mono);font-size:12px;font-weight:600;text-transform:uppercase;padding:9px 13px;border-radius:9px;background:var(--panel);border:1px solid var(--line);color:var(--muted)}
+  .mood.on{background:linear-gradient(120deg,var(--magenta),var(--violet));color:#fff;border-color:transparent;box-shadow:0 0 18px -4px rgba(255,43,214,.5)}
+  .energy{margin-top:6px}
+  .energy .lab{display:flex;justify-content:space-between;font-family:var(--mono);font-size:10px;color:var(--faint);margin-bottom:9px;text-transform:uppercase}
+  .energy .track{height:6px;border-radius:4px;background:rgba(157,75,255,.16);position:relative}
+  .energy .track i{position:absolute;left:0;height:100%;width:66%;border-radius:4px;background:linear-gradient(90deg,var(--magenta),var(--cyan))}
+  .energy .track i::after{content:"";position:absolute;right:-7px;top:50%;transform:translateY(-50%);width:16px;height:16px;border-radius:5px;background:#fff;box-shadow:0 0 14px rgba(34,231,255,.8)}
+  .inc-row{display:flex;align-items:center;justify-content:space-between;padding:12px 13px;border-radius:12px;background:var(--panel);border:1px solid var(--line);margin-bottom:9px}
+  .inc-row .l{font-size:13px;font-weight:700}
+  .inc-row .l small{display:block;font-family:var(--mono);color:var(--faint);font-size:10px;font-weight:400;margin-top:3px}
+  .pillset{display:flex;gap:6px}
+  .mini-pill{font-family:var(--mono);font-size:10px;padding:4px 8px;border-radius:6px;font-weight:700}
+  .mini-pill.inc{background:rgba(34,231,255,.16);color:var(--cyan);border:1px solid rgba(34,231,255,.4)}
+  .mini-pill.exc{background:rgba(255,43,214,.16);color:#ff9be8;border:1px solid rgba(255,43,214,.4)}
+  .mini-pill.add{color:var(--muted);border:1px dashed var(--line)}
+
+  /* LIBRARY */
+  .seg{display:flex;gap:6px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:4px;margin-top:14px}
+  .seg div{flex:1;text-align:center;font-family:var(--mono);font-size:11px;text-transform:uppercase;font-weight:600;color:var(--muted);padding:8px;border-radius:8px}
+  .seg div.on{background:linear-gradient(90deg,var(--magenta),var(--violet));color:#fff}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:13px;margin-top:16px}
+  .card .sw{aspect-ratio:1;border-radius:13px;position:relative;overflow:hidden}
+  .card .n{font-size:13px;font-weight:800;margin-top:8px}.card .c{font-family:var(--mono);font-size:10px;color:var(--faint);margin-top:2px}
+</style>
+</head>
+<body>
+  <div class="nav">
+    <a href="style-01-aurora.html">Aurora</a>
+    <a href="style-02-nocturne.html">Nocturne</a>
+    <a class="cur" href="style-03-pulse.html">Pulse</a>
+    <a href="style-04-slate.html">Slate</a>
+    <a href="style-05-velvet.html">Velvet</a>
+  </div>
+
+  <div class="page-head">
+    <div class="eyebrow">Style 03</div>
+    <h1>Pulse</h1>
+    <p>Music as raw energy. True-black canvas with a faint tech grid, electric magenta→cyan gradients, neon glow, monospace metadata, and live waveform motifs in place of plain progress bars. The loudest, most kinetic option — built for the nights you want the app to feel like the music sounds.</p>
+    <div class="philo"><span>Neon / synthwave</span><span>Glow &amp; waveforms</span><span>Mono metadata</span><span>High energy</span></div>
+  </div>
+
+  <div class="deck">
+
+    <!-- HOME -->
+    <div class="device">
+      <div class="phone"><div class="screen">
+        <div class="statusbar"><span>9:41</span><span class="dots"><i></i><i></i><i></i></span></div>
+        <div class="content">
+          <div class="greet"><div class="hi">// tue · session_07</div><h2>WELCOME BACK, <span>MAX</span></h2></div>
+          <div class="hero-now">
+            <div class="art m2"><div class="scan"></div><div class="glow"></div></div>
+            <div class="meta"><div class="label">▶ Resume</div><div class="t">Midnight City</div><div class="a">M83</div></div>
+            <div class="iconbtn"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></div>
+          </div>
+          <div class="sec-h"><h3>// start_jam</h3></div>
+          <div class="jam-cta"><div class="in">
+            <div class="label">Genre Jam</div>
+            <h4>Start a Jam</h4>
+            <p>Your whole library — dislikes dropped, Loved tracks boosted. Zero playlists.</p>
+            <div class="go">Launch <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></div>
+          </div></div>
+          <div class="sec-h"><h3>// your_jams</h3><a>all →</a></div>
+          <div class="chips">
+            <div class="jchip"><div class="sw art m1"></div><div class="n">Late Night</div><div class="c">~640</div></div>
+            <div class="jchip"><div class="sw art m4"></div><div class="n">Workout</div><div class="c">~430</div></div>
+            <div class="jchip"><div class="sw art m3"></div><div class="n">Focus</div><div class="c">~1.2k</div></div>
+          </div>
+        </div>
+        <div class="mini">
+          <div class="art m2"></div><div class="m"><div class="t">Midnight City</div><div class="a">M83</div></div>
+          <div class="wave"><b style="height:8px"></b><b style="height:16px"></b><b style="height:11px"></b><b style="height:19px"></b><b style="height:7px"></b></div>
+          <div class="pp"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg></div>
+        </div>
+        <div class="tabbar">
+          <div class="tab on"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3l9 8h-3v9h-4v-6h-4v6H6v-9H3z"/></svg>Home</div>
+          <div class="tab"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 6h16v2H4zm0 5h16v2H4zm0 5h10v2H4z"/></svg>Library</div>
+          <div class="tab"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3v10.55A4 4 0 1014 17V7h4V3z"/></svg>Songs</div>
+        </div>
+      </div></div>
+      <div class="cap"><b>Home</b> · neon grid, waveform mini-player</div>
+    </div>
+
+    <!-- NOW PLAYING -->
+    <div class="device">
+      <div class="phone"><div class="screen">
+        <div class="statusbar"><span>9:41</span><span class="dots"><i></i><i></i><i></i></span></div>
+        <div class="content np">
+          <div class="topbar"><svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M7 10l5 5 5-5z"/></svg><span class="label">JAM · LATE_NIGHT</span><svg viewBox="0 0 24 24" width="19" height="19" fill="currentColor"><path d="M12 8a2 2 0 100-4 2 2 0 000 4zm0 6a2 2 0 100-4 2 2 0 000 4zm0 6a2 2 0 100-4 2 2 0 000 4z"/></svg></div>
+          <div class="np-art art m2"><div class="scan"></div><div class="glow"></div></div>
+          <div class="np-title">Midnight City</div>
+          <div class="np-artist">M83 // HURRY_UP_WERE_DREAMING</div>
+          <div class="scrub">
+            <div class="wave">
+              <b style="height:40%;background:var(--cyan)"></b><b style="height:70%;background:var(--cyan)"></b><b style="height:55%;background:var(--cyan)"></b><b style="height:90%;background:var(--cyan)"></b><b style="height:60%;background:var(--cyan)"></b><b style="height:80%;background:var(--magenta)"></b><b style="height:30%;background:var(--magenta)"></b><b style="height:50%;background:rgba(157,75,255,.4)"></b><b style="height:75%;background:rgba(157,75,255,.4)"></b><b style="height:35%;background:rgba(157,75,255,.4)"></b><b style="height:60%;background:rgba(157,75,255,.4)"></b><b style="height:45%;background:rgba(157,75,255,.4)"></b><b style="height:80%;background:rgba(157,75,255,.4)"></b><b style="height:25%;background:rgba(157,75,255,.4)"></b>
+            </div>
+            <div class="times"><span>1:42</span><span>4:03</span></div>
+          </div>
+          <div class="transport">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zM9 12l9 6V6z"/></svg>
+            <div class="play"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg></div>
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 6h2v12h-2zM15 12L6 6v12z"/></svg>
+          </div>
+          <div class="likes">
+            <div class="like"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7-4.5-9.5-8A5 5 0 0112 6a5 5 0 019.5 7c-2.5 3.5-9.5 8-9.5 8z"/></svg>Like</div>
+            <div class="like on"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21s-7-4.5-9.5-8A5 5 0 0112 6a5 5 0 019.5 7c-2.5 3.5-9.5 8-9.5 8z"/></svg>Love</div>
+            <div class="like"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg>Nope</div>
+          </div>
+          <div class="lyrics">
+            <div class="ln">Waiting for a ride in the dark</div>
+            <div class="ln cur">The city is my church</div>
+            <div class="ln">It wraps me in its blinding twilight</div>
+          </div>
+          <div class="tagrow"><span class="tag">synthpop</span><span class="tag">2010s</span><span class="tag">en</span><span class="tag">120bpm</span></div>
+        </div>
+      </div></div>
+      <div class="cap"><b>Now Playing</b> · waveform scrubber, glow</div>
+    </div>
+
+    <!-- GENRE JAM -->
+    <div class="device">
+      <div class="phone"><div class="screen">
+        <div class="statusbar"><span>9:41</span><span class="dots"><i></i><i></i><i></i></span></div>
+        <div class="content">
+          <div class="jam-head">
+            <span class="label">Genre Jam</span>
+            <h2>BUILD A <span>JAM</span></h2>
+            <p>Whole library. Dislikes dropped. Loved tracks weighted up. No playlist.</p>
+            <div class="pool"><svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor"><circle cx="12" cy="12" r="9"/></svg>pool ≈ 2,140 tracks</div>
+            <div class="start"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>Launch Jam</div>
+          </div>
+          <div class="field-h">// mood</div>
+          <div class="moods"><span class="mood on">chill</span><span class="mood">hype</span><span class="mood on">dreamy</span><span class="mood">focus</span><span class="mood">dark</span></div>
+          <div class="field-h">// energy</div>
+          <div class="energy"><div class="lab"><span>mellow</span><span>driving</span></div><div class="track"><i></i></div></div>
+          <div class="field-h">// include &amp; exclude</div>
+          <div class="inc-row"><div class="l">Genres<small>synthwave, indie · -country</small></div><div class="pillset"><span class="mini-pill inc">+2</span><span class="mini-pill exc">-1</span></div></div>
+          <div class="inc-row"><div class="l">Artists<small>none</small></div><div class="pillset"><span class="mini-pill add">+add</span></div></div>
+          <div class="inc-row"><div class="l">Decades<small>2010s</small></div><div class="pillset"><span class="mini-pill inc">+1</span></div></div>
+          <div class="inc-row"><div class="l">Languages<small>en, jp</small></div><div class="pillset"><span class="mini-pill inc">+2</span></div></div>
+        </div>
+        <div class="tabbar">
+          <div class="tab on"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3l9 8h-3v9h-4v-6h-4v6H6v-9H3z"/></svg>Home</div>
+          <div class="tab"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 6h16v2H4zm0 5h16v2H4zm0 5h10v2H4z"/></svg>Library</div>
+          <div class="tab"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3v10.55A4 4 0 1014 17V7h4V3z"/></svg>Songs</div>
+        </div>
+      </div></div>
+      <div class="cap"><b>Genre Jam</b> · terminal-styled controls</div>
+    </div>
+
+    <!-- LIBRARY -->
+    <div class="device">
+      <div class="phone"><div class="screen">
+        <div class="statusbar"><span>9:41</span><span class="dots"><i></i><i></i><i></i></span></div>
+        <div class="content">
+          <div class="greet"><h2 style="font-size:26px;margin-top:8px">LIBRARY</h2></div>
+          <div class="seg"><div class="on">playlists</div><div>jams</div><div>downloads</div></div>
+          <div class="grid">
+            <div class="card"><div class="sw art m1"><div class="scan"></div></div><div class="n">Liked Songs</div><div class="c">312 trk</div></div>
+            <div class="card"><div class="sw art m2"><div class="scan"></div></div><div class="n">Night Drive</div><div class="c">88 trk</div></div>
+            <div class="card"><div class="sw art m4"><div class="scan"></div></div><div class="n">Coffee Shop</div><div class="c">54 trk</div></div>
+            <div class="card"><div class="sw art m3"><div class="scan"></div></div><div class="n">Deep Cuts</div><div class="c">127 trk</div></div>
+          </div>
+        </div>
+        <div class="mini">
+          <div class="art m2"></div><div class="m"><div class="t">Midnight City</div><div class="a">M83</div></div>
+          <div class="wave"><b style="height:8px"></b><b style="height:16px"></b><b style="height:11px"></b><b style="height:19px"></b><b style="height:7px"></b></div>
+          <div class="pp"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg></div>
+        </div>
+        <div class="tabbar">
+          <div class="tab"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3l9 8h-3v9h-4v-6h-4v6H6v-9H3z"/></svg>Home</div>
+          <div class="tab on"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 6h16v2H4zm0 5h16v2H4zm0 5h10v2H4z"/></svg>Library</div>
+          <div class="tab"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3v10.55A4 4 0 1014 17V7h4V3z"/></svg>Songs</div>
+        </div>
+      </div></div>
+      <div class="cap"><b>Library</b> · neon tiles</div>
+    </div>
+
+  </div>
+</body>
+</html>

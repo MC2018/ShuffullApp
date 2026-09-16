@@ -1,19 +1,21 @@
-import { ExpoSQLiteDatabase } from "drizzle-orm/expo-sqlite";
+import { GenericDb } from "../db/GenericDb";
 import TrackPlayer, { Capability, Event, PlaybackState, RemoteSeekEvent, State } from "react-native-track-player";
-import { CreateUserSongRequest, RecentlyPlayedSong, Song, UpdateSongLastPlayedRequest } from "../db/models";
+import { CreateUserSongRequest, RecentlyPlayedSong, Request, Song, UpdateSongLastPlayedRequest } from "../db/models";
 import DbQueries from "../db/queries";
+import { shouldPromoteOnLike, shouldSkipOnDislike } from "../../tools/promotion";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { STORAGE_KEYS } from "../../constants/storageKeys";
 import { generateRange, generateId } from "../../tools/utils";
-import { RequestType } from "../../enums";
+import { RequestType, LikeStatus } from "../../enums";
 import { getPlaybackState } from "react-native-track-player/lib/src/trackPlayer";
 import { Downloader } from "../downloader/Downloader";
 import { create } from "zustand";
 import path from "path-browserify";
 import { SongFilters } from "../../types/SongFilters";
+import { selectNextSong } from "../../tools/shuffle";
 
 let queue: string[] = [];
-let db: ExpoSQLiteDatabase;
+let db: GenericDb;
 let trackPlayerInitialized = false;
 
 interface ActiveSongState {
@@ -51,7 +53,19 @@ export const useActiveSong = create<ActiveSongState>((set) => ({
     setSongId: (id) => set({ songId: id }),
 }));
 
-export async function setup(activeDb: ExpoSQLiteDatabase) {
+interface LikeStatusState {
+    // Reactive mirror of per-song like state so the in-app rating UI updates no matter where a change
+    // originates — the in-app control or the notification's 👍/👎 buttons. applyLikeStatus is the only writer.
+    statuses: Record<string, LikeStatus>;
+    setLikeStatus: (songId: string, status: LikeStatus) => void;
+}
+
+export const useLikeStatus = create<LikeStatusState>((set) => ({
+    statuses: {},
+    setLikeStatus: (songId, status) => set((s) => ({ statuses: { ...s.statuses, [songId]: status } })),
+}));
+
+export async function setup(activeDb: GenericDb) {
     db = activeDb;
     initTrackPlayer();
 
@@ -62,38 +76,74 @@ export async function setup(activeDb: ExpoSQLiteDatabase) {
     }
 }
 
+// Notification 👍/👎 button icon indices. The withNotificationActionIcons config plugin overrides the fork's
+// built-in icon slots with thumb variants: 0 = thumb-up outline, 1 = thumb-up solid, 2 = thumb-down outline,
+// 3 = thumb-down solid — so each button shows solid when its state is active and outline otherwise.
+function buildPlayerOptions(likeStatus: LikeStatus, canKeep = false) {
+    const disliked = likeStatus === LikeStatus.Dislike;
+    // Like button mirrors the in-app cycle: neutral = outline thumb (0), Like = solid thumb (1), Love = heart (4).
+    const likeIcon = likeStatus === LikeStatus.Love ? 4 : likeStatus === LikeStatus.Like ? 1 : 0;
+    const transport = [
+        Capability.Play,
+        Capability.Pause,
+        Capability.SkipToPrevious,
+        Capability.Skip,
+        Capability.SkipToNext,
+        Capability.SeekTo,
+    ];
+    // The system media panel draws FIVE buttons and no more (measured, One UI 8.5 / Android 16 — a sixth is
+    // dropped in silence). It builds them from the LEGACY PlaybackState: prev/play-pause/next come from the
+    // actions bitmask, the rest from customActions. Media3's slot API does not reach it, so the only way to
+    // free a slot for Keep is to stop advertising SkipToPrevious — which is done for audition songs only.
+    // The command stays in `capabilities`, so headset/Bluetooth/Auto "previous" is unaffected; it is purely
+    // the drawn button that Keep takes over.
+    const notificationTransport = canKeep
+        ? transport.filter(capability => capability !== Capability.SkipToPrevious)
+        : transport;
+
+    return {
+        capabilities: transport,
+        compactCapabilities: transport,
+        notificationCapabilities: notificationTransport,
+        // Media3 custom notification buttons (lovegaoshi RNTP fork): always-visible 👍/👎. The like button
+        // cycles neutral → Like → Love (icons 0 → 1 → 4) and 👎 toggles dislike (2 ↔ 3), via the
+        // RemoteCustomAction handler. (The fork's { uri } icon path doesn't resolve reliably on our stack.)
+        // Keep (bookmark, icon 5) is CONDITIONAL: it only means anything for an un-vetted audition song, and
+        // keeping one clears `exploratory`, so the button disappears as soon as it has been used. It occupies
+        // the slot freed above, which is why it lands exactly where "previous" is drawn on a normal song.
+        customActions: {
+            // Order is NOT display order. The panel fills its outer slots from this list as
+            // [1]→leftmost, [0]→second, [2]→rightmost (measured). So "keep, like, dislike" renders as
+            // 👍 🔖 ⏸ ⏭ 👎 — identical to a non-audition song's 👍 ⏮ ⏸ ⏭ 👎 with the bookmark standing exactly
+            // where "previous" was. The thumbs therefore never move between audition and normal songs, which
+            // is the same mis-tap hazard the in-app likes row was fixed for: dislike skips the song and Keep
+            // is one-way, so a swap under muscle memory is expensive.
+            customActionsList: canKeep ? ["keep", "like", "dislike"] : ["like", "dislike"],
+            like: likeIcon,
+            dislike: disliked ? 3 : 2,
+            keep: 5,
+        },
+    };
+}
+
+// Reflect a song's like state on the notification's 👍/👎 buttons. Safe to call repeatedly; updateOptions
+// re-applies the custom layout. Meaningful only for the active track.
+async function refreshNotificationButtons(likeStatus: LikeStatus, canKeep = false) {
+    try {
+        await TrackPlayer.updateOptions(buildPlayerOptions(likeStatus, canKeep));
+    } catch {
+        // Non-critical: the notification buttons are best-effort.
+    }
+}
+
 async function initTrackPlayer() {
     try {
         await TrackPlayer.getActiveTrack(); // error if not set up
     } catch {
         TrackPlayer.registerPlaybackService(() => setupEventListeners);
         await TrackPlayer.setupPlayer(); // TODO: ensure safety for this to be run when app is in foreground
-        await TrackPlayer.updateOptions({
-            capabilities: [
-                Capability.Play,
-                Capability.Pause,
-                Capability.SkipToPrevious,
-                Capability.Skip,
-                Capability.SkipToNext,
-                Capability.SeekTo
-            ],
-            compactCapabilities: [
-                Capability.Play,
-                Capability.Pause,
-                Capability.SkipToPrevious,
-                Capability.Skip,
-                Capability.SkipToNext,
-                Capability.SeekTo
-            ],
-            notificationCapabilities: [
-                Capability.Play,
-                Capability.Pause,
-                Capability.SkipToPrevious,
-                Capability.Skip,
-                Capability.SkipToNext,
-                Capability.SeekTo
-            ],
-        });
+        // Start with both buttons in the neutral (outline) state; refreshed once a song becomes active.
+        await TrackPlayer.updateOptions(buildPlayerOptions(LikeStatus.Neutral));
     }
 
     trackPlayerInitialized = true;
@@ -105,6 +155,31 @@ async function setupEventListeners() {
     TrackPlayer.addEventListener(Event.RemoteNext, async () => await skip());
     TrackPlayer.addEventListener(Event.RemotePrevious, async () => await previous());
     TrackPlayer.addEventListener(Event.RemoteSeek, async (event: RemoteSeekEvent) => await seekTo(event.position));
+    // Notification 👍/👎 custom buttons for the active song (Android). 👍 cycles Neutral → Like → Love →
+    // Neutral (mirroring the in-app RatingControl); 👎 toggles Dislike ↔ Neutral.
+    TrackPlayer.addEventListener(Event.RemoteCustomAction, async (event) => {
+        const activeSongId = useActiveSong.getState().songId;
+        if (activeSongId == undefined) {
+            return;
+        }
+        const sessionData = await DbQueries.getActiveLocalSessionData(db);
+        if (!sessionData) {
+            return;
+        }
+        const current = ((await DbQueries.getUserSong(db, sessionData.userId, activeSongId))?.likeStatus as LikeStatus) ?? LikeStatus.Neutral;
+        if (event.customAction === "like") {
+            const next =
+                current === LikeStatus.Like ? LikeStatus.Love : current === LikeStatus.Love ? LikeStatus.Neutral : LikeStatus.Like;
+            await applyLikeStatus(activeSongId, next);
+        } else if (event.customAction === "dislike") {
+            await applyLikeStatus(activeSongId, current === LikeStatus.Dislike ? LikeStatus.Neutral : LikeStatus.Dislike);
+        } else if (event.customAction === "keep") {
+            // One-way, and a no-op for anything that isn't an audition song (keepSong guards on that itself).
+            await keepSong(activeSongId);
+            // keepSong clears `exploratory`, so the button has done its job — take it back off the notification.
+            await refreshNotificationButtons(current, false);
+        }
+    });
     TrackPlayer.addEventListener(Event.PlaybackState, async (state: PlaybackState) => {
         if (state.state != State.Ended) {
             return;
@@ -117,7 +192,19 @@ async function setupEventListeners() {
 export async function play() {
     const playbackState = (await getPlaybackState()).state;
 
-    if (playbackState == State.Paused || playbackState == State.Ready) {
+    // "Resume" only means something if a track is actually LOADED. Without this check the branch below depends
+    // on the player distinguishing None from Ready exactly right, and a Ready-but-empty player swallowed the
+    // call: TrackPlayer.play() on an empty queue does nothing, which is how the playlist Play button came to
+    // silently do nothing on desktop. getActiveTrack throws on an uninitialised player, so treat that as
+    // "nothing loaded" rather than letting it escape.
+    let hasTrack = false;
+    try {
+        hasTrack = (await TrackPlayer.getActiveTrack()) != undefined;
+    } catch {
+        hasTrack = false;
+    }
+
+    if (hasTrack && (playbackState == State.Paused || playbackState == State.Ready)) {
         await TrackPlayer.play();
     } else if (playbackState == State.None) {
         const currentlyPlayingSong = await getCurrentlyPlayingSong();
@@ -132,9 +219,31 @@ export async function play() {
     }
 }
 
-export async function playSpecificSong(songId: string) {
-    await setSongFilters(new SongFilters(), true);
-    startNewSong(songId);
+/**
+ * Plays a song the user picked out of a list, and sets the SCOPE that playback continues in once it ends.
+ *
+ * `scope` is the context the song was picked from — a playlist, an artist, the downloads list. Passing it is
+ * what keeps the music going: when a song finishes, `skip()` finds the next one through the current filters,
+ * so a caller that leaves the filters empty gets shuffle over the whole library, and one that scopes them
+ * gets the next song from that same list. Previously this ALWAYS cleared the filters, so tapping any song
+ * anywhere played exactly that song and then stopped dead.
+ */
+export async function playSpecificSong(songId: string, scope?: SongFilters) {
+    // Activating the song that's already current must never restart it: resume if paused, otherwise leave it
+    // playing (don't disturb the existing queue/scope). A different song plays fresh from the start.
+    if (useActiveSong.getState().songId === songId) {
+        if ((await getPlaybackState()).state !== State.Playing) {
+            await play();
+        }
+        return;
+    }
+
+    // Deliberately NOT setSongFilters(..., clearAndPlay: true): that starts a RANDOM song from the new scope,
+    // which would race the song the user actually tapped. Set the scope, reset the queue/history to it, then
+    // start the chosen song.
+    await setSongFilters(scope ?? new SongFilters());
+    await clear();
+    await startNewSong(songId);
 }
 
 export async function pause() {
@@ -250,6 +359,84 @@ export async function seekTo(seconds: number) {
     await TrackPlayer.seekTo(seconds);
 }
 
+// Single source of truth for applying a like/dislike/love: persist locally and queue the sync push. Shared by
+// the in-app RatingControl and the notification's RemoteCustomAction (👍/👎) handler.
+export async function applyLikeStatus(songId: string, likeStatus: LikeStatus) {
+    const localSessionData = await DbQueries.getActiveLocalSessionData(db);
+    if (!localSessionData) {
+        return;
+    }
+
+    const userId = localSessionData.userId;
+    await DbQueries.setUserSongLikeStatus(db, userId, songId, likeStatus);
+
+    const requests: Request[] = [
+        {
+            requestId: generateId(),
+            timeRequested: new Date(),
+            requestType: RequestType.SetSongLikeStatus,
+            userId,
+            songId,
+            likeStatus,
+        },
+    ];
+
+    await DbQueries.addRequests(db, requests);
+
+    // Liking an audition song — or a weak-tagged (Standard-tier / kept) one — is its "promote" signal:
+    // enqueue a STRONG re-tag and drop the flags locally so it leaves the audition view / stops
+    // re-promoting immediately. enqueueSongRetag keeps one pending row per song with stronger-wins, so a
+    // Like landing after a queued Keep upgrades that row instead of double-spending.
+    const song = await DbQueries.getSong(db, songId);
+    const promoted = song != undefined && shouldPromoteOnLike(song.exploratory, song.tagsStale, likeStatus);
+    if (promoted) {
+        await DbQueries.enqueueSongRetag(db, userId, songId, "strong");
+        await DbQueries.markSongPromoted(db, songId);
+    }
+
+    // Mirror into the reactive store so any mounted RatingControl for this song updates, regardless of where
+    // the change originated (in-app control or the notification's 👍/👎 buttons).
+    useLikeStatus.getState().setLikeStatus(songId, likeStatus);
+
+    // Keep the notification 👍/👎 icons in sync when the change is for the currently-playing song.
+    const isActiveSong = useActiveSong.getState().songId === songId;
+    if (isActiveSong) {
+        // Liking an audition song promotes it, which clears `exploratory` — so Keep is no longer offered,
+        // and the button has to go in the same refresh rather than lingering until the next track.
+        await refreshNotificationButtons(likeStatus, (song?.exploratory ?? false) && !promoted);
+    }
+
+    // Disliking what is playing moves off it immediately. Deliberately LAST: skip() starts the next song and
+    // refreshes the notification for it, so anything above that still refers to the outgoing song must
+    // already have been written.
+    const playbackState = (await getPlaybackState()).state;
+    const isPlaying = playbackState === State.Playing || playbackState === State.Buffering || playbackState === State.Loading;
+    if (shouldSkipOnDislike(isActiveSong, likeStatus, isPlaying)) {
+        await skip();
+    }
+}
+
+/**
+ * KEEPS an audition song without liking it: "this can stay, but don't spend premium AI on it." Enqueues a
+ * WEAK-model re-tag (the budget tier) and optimistically clears the audition state — with tagsStale set, so
+ * the song remains upgradeable: a later like enqueues strong, and if the Keep is still waiting to sync, the
+ * outbox's stronger-wins rule upgrades that pending row in place. No-op for non-audition songs.
+ */
+export async function keepSong(songId: string) {
+    const localSessionData = await DbQueries.getActiveLocalSessionData(db);
+    if (!localSessionData) {
+        return;
+    }
+
+    const song = await DbQueries.getSong(db, songId);
+    if (song == undefined || !song.exploratory) {
+        return;
+    }
+
+    await DbQueries.enqueueSongRetag(db, localSessionData.userId, songId, "weak");
+    await DbQueries.markSongKept(db, songId);
+}
+
 async function startNewSong(songId: string, recentlyPlayedSong?: RecentlyPlayedSong) {
     const localSessionData = await DbQueries.getActiveLocalSessionData(db);
     const songWithArtist = await DbQueries.fetchSongDetails(db, songId);
@@ -283,12 +470,24 @@ async function startNewSong(songId: string, recentlyPlayedSong?: RecentlyPlayedS
         songUri = await generateUrl(song, false);
     }
 
+    // Album art for the lock-screen / media-notification. Without an `artwork` on the track, Media3 has
+    // nothing to render, which is why the notification showed no icon. Prefer the already-downloaded local
+    // file (same resolution the Song Info screen uses), fall back to the server URL when it isn't on disk.
+    let artworkUri: string;
+    const localArtUri = Downloader.generateLocalAlbumArtUri(song);
+    if (await Downloader.fileExists(localArtUri)) {
+        artworkUri = localArtUri;
+    } else {
+        artworkUri = await Downloader.generateServerAlbumArtUrl(song);
+    }
+
     await clearSong();
     await TrackPlayer.add([{
         id: songId,
         url: songUri,
         title: song.name,
-        artist: songWithArtist.artists.length > 0 ? songWithArtist.artists.map(x => x.name).join(", ") : "Unknown Artist"
+        artist: songWithArtist.artists.length > 0 ? songWithArtist.artists.map(x => x.name).join(", ") : "Unknown Artist",
+        artwork: artworkUri,
     }]);
     await TrackPlayer.play();
 
@@ -300,7 +499,10 @@ async function startNewSong(songId: string, recentlyPlayedSong?: RecentlyPlayedS
     if (recentlyPlayedSongFound) {
         const timestampSeconds = recentlyPlayedSong?.timestampSeconds ?? 0;
         await TrackPlayer.seekTo(timestampSeconds);
-        await DbQueries.setRecentlyPlayedSongTimestampSeconds(db, recentlyPlayedSong?.recentlyPlayedSongId!, timestampSeconds);
+        // markCurrent, not the progress writer: every marker was just cleared above, and only a genuine
+        // start/resume may set one. The progress writer deliberately cannot, so a late tick from the song that
+        // just finished can't resurrect it as "current" and get itself played twice.
+        await DbQueries.markRecentlyPlayedSongCurrent(db, recentlyPlayedSong?.recentlyPlayedSongId!, timestampSeconds);
     } else {
         await DbQueries.addRecentlyPlayedSong(db, {
             songId: songId,
@@ -326,7 +528,8 @@ async function startNewSong(songId: string, recentlyPlayedSong?: RecentlyPlayedS
             userId: newUserSongRequest.userId,
             songId: newUserSongRequest.songId,
             lastPlayed: newUserSongRequest.timeRequested,
-            version: newUserSongRequest.timeRequested
+            version: newUserSongRequest.timeRequested,
+            likeStatus: LikeStatus.Neutral
         };
         await DbQueries.addUserSong(db, userSong);
         await DbQueries.addRequests(db, [newUserSongRequest]);
@@ -342,6 +545,10 @@ async function startNewSong(songId: string, recentlyPlayedSong?: RecentlyPlayedS
     };
     await DbQueries.updateUserSongLastPlayed(db, localSessionData.userId, songId, timeSongStarted);
     await DbQueries.addRequests(db, [updateSongLastPlayedRequest]);
+
+    // Reflect the new active song's saved like state on the notification buttons — and offer Keep only when
+    // this one is actually an audition song.
+    await refreshNotificationButtons((userSong.likeStatus as LikeStatus) ?? LikeStatus.Neutral, song.exploratory);
 }
 
 async function getRandomSongId(): Promise<string | undefined> {
@@ -350,21 +557,20 @@ async function getRandomSongId(): Promise<string | undefined> {
 
     if (songFilters.hasAnyFilter()) {
         const filteredSongs = await DbQueries.getFilteredSong(db, songFilters);
-        
+
         if (!filteredSongs.length) {
             return undefined;
         }
 
-        const percentage = 0.3;
-        const percentageUpperBoundIndex = filteredSongs.length * percentage;
-        const nullUpperBoundIndex = filteredSongs.findIndex(x => x.lastPlayed != null) ?? 0;
-        const upperBoundIndex = Math.max(percentageUpperBoundIndex, nullUpperBoundIndex);
-        const randomSongIndex = Math.floor(upperBoundIndex * Math.random());
-
-        songId = filteredSongs[randomSongIndex].songId;
+        // getFilteredSong orders by last_played ASC, so the song that just finished is at the END and the
+        // selection window off the front cannot reach it. See shuffle.ts - it is extracted so that property
+        // can actually be tested.
+        songId = selectNextSong(filteredSongs);
     } else {
-        // Use case: when you select a specific song to play, the next song to play will be nothing
-        songId = undefined;
+        // No scope set => shuffle the whole library rather than stopping. This used to return undefined, which
+        // made playback halt after a single song whenever the filters happened to be empty — the same dead end
+        // reached from any list screen, since those cleared the filters on the way in.
+        songId = await DbQueries.getRandomSongId(db);
     }
 
     return songId;

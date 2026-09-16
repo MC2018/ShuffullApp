@@ -1,12 +1,10 @@
 import React from "react";
-import { Navigator } from "../../../tools";
+import { router } from "expo-router";
 import SongCollectionSelector from "./SongCollectionSelector";
-import { useNavigation } from "@react-navigation/native";
 
 export default function LocalDownloadsSelector() {
-    const navigation = useNavigation();
     const handleSelected = async () => {
-        Navigator.toLocalDownloads(navigation);
+        router.push("/library/downloads");
     };
 
     return <SongCollectionSelector

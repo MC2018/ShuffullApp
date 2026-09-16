@@ -13,7 +13,8 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.mc2018.shuffullapp"
     },
     "android": {
       "adaptiveIcon": {
@@ -24,11 +25,14 @@
     },
     "web": {
       "bundler": "metro",
-      "output": "static",
+      "output": "single",
       "favicon": "./assets/images/favicon.png"
     },
     "plugins": [
-      "expo-router"
+      "expo-router",
+      "expo-font",
+      "expo-asset",
+      "./plugins/withNotificationActionIcons"
     ],
     "experiments": {
       "typedRoutes": true

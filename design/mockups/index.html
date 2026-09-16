@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Shuffull — App Redesign · Style Drafts</title>
+<style>
+  :root{
+    --bg:#06060a; --ink:#f3f3f8; --muted:#9a9aae; --faint:#666680; --line:rgba(255,255,255,.09);
+    --sans:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:var(--sans);background:
+      radial-gradient(900px 600px at 10% -5%, rgba(124,108,255,.10), transparent 55%),
+      radial-gradient(900px 600px at 95% 0%, rgba(79,214,232,.08), transparent 55%),
+      var(--bg);color:var(--ink);min-height:100vh;padding:60px 32px 90px;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1140px;margin:0 auto}
+  .eyebrow{font-size:12px;letter-spacing:.34em;text-transform:uppercase;color:#7c6cff;font-weight:600}
+  h1{font-size:46px;font-weight:900;letter-spacing:-.03em;margin:10px 0 14px}
+  .lede{color:var(--muted);font-size:16px;line-height:1.7;max-width:760px}
+  .lede b{color:var(--ink);font-weight:600}
+
+  .note{margin-top:26px;border:1px solid var(--line);border-radius:16px;padding:18px 22px;background:rgba(255,255,255,.025)}
+  .note p{font-size:13.5px;color:var(--muted);line-height:1.65}
+  .note b{color:#9fe9d8;font-weight:600}
+
+  .fam{margin-top:46px}
+  .fam-h{display:flex;align-items:baseline;gap:14px;margin-bottom:4px}
+  .fam-h h2{font-size:24px;font-weight:800;letter-spacing:-.01em}
+  .fam-h .meta{font-size:12.5px;color:var(--faint)}
+  .fam-sub{font-size:13.5px;color:var(--muted);line-height:1.6;max-width:760px;margin-bottom:20px}
+
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(248px,1fr));gap:16px}
+  .card{display:block;text-decoration:none;color:inherit;border:1px solid var(--line);border-radius:18px;overflow:hidden;
+    background:rgba(255,255,255,.025);transition:transform .14s ease,border-color .14s ease}
+  .card:hover{transform:translateY(-4px);border-color:rgba(255,255,255,.24)}
+  .card.orig{border-color:rgba(124,108,255,.35)}
+  .swatch{height:104px;position:relative;display:flex;align-items:flex-end;padding:12px}
+  .swatch .num{font-size:11px;font-weight:700;letter-spacing:.12em;color:rgba(255,255,255,.9);text-transform:uppercase}
+  .badge{position:absolute;top:10px;right:10px;font-size:9.5px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;
+    background:rgba(0,0,0,.45);color:#fff;padding:4px 8px;border-radius:999px;backdrop-filter:blur(6px)}
+  .body{padding:13px 15px 16px}
+  .body h3{font-size:16px;font-weight:800;letter-spacing:-.01em}
+  .body .tag{font-size:11.5px;color:var(--faint);margin-top:3px;font-weight:600}
+  .body p{font-size:12px;color:var(--muted);line-height:1.55;margin-top:9px}
+
+  /* swatches — Aurora family */
+  .a-orig{background:radial-gradient(120% 100% at 10% 0%,rgba(94,234,212,.5),transparent 55%),radial-gradient(120% 100% at 90% 30%,rgba(167,139,250,.55),transparent 55%),#0a0a11}
+  .a-dust{background:radial-gradient(120% 100% at 12% 0%,rgba(227,168,87,.42),transparent 58%),#0e0c0a}
+  .a-sage{background:radial-gradient(120% 100% at 12% 0%,rgba(136,181,154,.42),transparent 58%),#0c0f0d}
+  .a-oxblood{background:radial-gradient(120% 100% at 12% 0%,rgba(194,91,84,.42),transparent 58%),#0d0b0c}
+  /* Slate family */
+  .s-orig{background:linear-gradient(135deg,#1a1d21,#2c3036);position:relative}
+  .s-orig::after{content:"";position:absolute;left:12px;bottom:36px;width:42px;height:4px;background:#3d8bff;border-radius:2px}
+  .s-signal{background:linear-gradient(120deg,#163a3a,#2f6fb0 70%,#5fa8e0)}
+  .s-clay{background:linear-gradient(120deg,#3a3320,#a85638 70%,#dd9168)}
+  .s-tide{background:linear-gradient(120deg,#0a1012,#1f7a80 70%,#54c2c8)}
+  /* Velvet family */
+  .v-orig{background:radial-gradient(120% 100% at 15% 0%,rgba(124,108,255,.6),transparent 55%),radial-gradient(120% 100% at 85% 20%,rgba(255,122,217,.5),transparent 55%),radial-gradient(120% 100% at 50% 100%,rgba(79,214,232,.4),transparent 55%),#0c0920}
+  .v-indigo{background:radial-gradient(120% 100% at 18% 0%,rgba(107,108,255,.6),transparent 58%),radial-gradient(120% 100% at 86% 30%,rgba(90,100,230,.45),transparent 58%),#0b0a1c}
+  .v-plum{background:radial-gradient(120% 100% at 18% 0%,rgba(154,92,255,.6),transparent 58%),radial-gradient(120% 100% at 86% 30%,rgba(255,122,176,.5),transparent 58%),#160a1e}
+  .v-mist{background:radial-gradient(120% 100% at 18% 0%,rgba(91,155,208,.55),transparent 58%),radial-gradient(120% 100% at 86% 30%,rgba(95,182,192,.45),transparent 58%),#0b181c}
+
+  .also{margin-top:46px;padding-top:30px;border-top:1px solid var(--line)}
+  .also h2{font-size:18px;font-weight:800;color:var(--muted)}
+  .also p{font-size:13px;color:var(--faint);line-height:1.6;margin:6px 0 18px;max-width:700px}
+  .also .grid{grid-template-columns:repeat(auto-fill,minmax(248px,1fr))}
+  .n-noct{background:radial-gradient(120% 100% at 80% 0%,rgba(224,177,94,.35),transparent 55%),#16130d}
+  .n-pulse{background:radial-gradient(120% 100% at 0% 0%,rgba(255,43,214,.5),transparent 55%),radial-gradient(120% 100% at 100% 30%,rgba(34,231,255,.5),transparent 55%),#070410}
+
+  .foot{margin-top:46px;color:var(--faint);font-size:13px;line-height:1.7}
+  .foot code{background:rgba(255,255,255,.06);padding:2px 7px;border-radius:6px;font-size:12px;color:#cfcfe0}
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="eyebrow">Shuffull · App Redesign</div>
+    <h1>Style drafts — round 2</h1>
+    <p class="lede">You liked <b>Aurora (01)</b>, <b>Slate (04)</b>, and <b>Velvet (05)</b>. Each now has its original plus <b>three variations</b> that take the same idea somewhere a little more intentional and less generic. Open any card — each is a self-contained mock of the four core screens (Home, Now&nbsp;Playing, Genre&nbsp;Jam, Library).</p>
+
+    <div class="note">
+      <p><b>What changed across the variations.</b> The duotone “rainbow” chrome and neon glow are pulled back in favor of curated, single-direction palettes — that was the main “AI-ey” tell. <b>Slate</b> gets real color (colored album art + a second accent) while staying dense and utilitarian. <b>Velvet</b> keeps the frosted-glass depth but each variation holds to one controlled palette instead of indigo+pink+aqua at once.</p>
+    </div>
+
+    <!-- ===================== AURORA ===================== -->
+    <div class="fam">
+      <div class="fam-h"><h2>Aurora</h2><span class="meta">album-art-forward · ambient color-bleed</span></div>
+      <p class="fam-sub">The artwork tints each screen. The variations swap the living teal→violet accent for a single curated hue, flatten the glow, and calm the canvas.</p>
+      <div class="grid">
+        <a class="card orig" href="style-01-aurora.html"><div class="swatch a-orig"><span class="badge">Original</span><span class="num">01 · Aurora</span></div>
+          <div class="body"><h3>Aurora</h3><div class="tag">Teal→violet, glowing</div><p>The original: dynamic duotone accent and soft neon bleed.</p></div></a>
+        <a class="card" href="style-01a-dust.html"><div class="swatch a-dust"><span class="num">01a · Dust</span></div>
+          <div class="body"><h3>Dust</h3><div class="tag">Warm caramel · low-glow</div><p>Warm-neutral canvas, one caramel accent, flat chrome.</p></div></a>
+        <a class="card" href="style-01b-sage.html"><div class="swatch a-sage"><span class="num">01b · Sage</span></div>
+          <div class="body"><h3>Sage</h3><div class="tag">Cool green-grey · calm</div><p>Desaturated sage, organic and quiet, no gradients on chrome.</p></div></a>
+        <a class="card" href="style-01c-oxblood.html"><div class="swatch a-oxblood"><span class="num">01c · Oxblood</span></div>
+          <div class="body"><h3>Oxblood</h3><div class="tag">Charcoal · deep wine accent</div><p>The editorial, grown-up reading — flat, crisp, restrained.</p></div></a>
+      </div>
+    </div>
+
+    <!-- ===================== SLATE ===================== -->
+    <div class="fam">
+      <div class="fam-h"><h2>Slate</h2><span class="meta">high-contrast utilitarian · dense</span></div>
+      <p class="fam-sub">Function-first and information-dense. The variations add the color you asked for — real album art and a second accent — without loosening the grid.</p>
+      <div class="grid">
+        <a class="card orig" href="style-04-slate.html"><div class="swatch s-orig"><span class="badge">Original</span><span class="num">04 · Slate</span></div>
+          <div class="body"><h3>Slate</h3><div class="tag">Mono + one blue</div><p>The original: near-monochrome, one electric-blue accent.</p></div></a>
+        <a class="card" href="style-04a-signal.html"><div class="swatch s-signal"><span class="num">04a · Signal</span></div>
+          <div class="body"><h3>Signal</h3><div class="tag">Colored art + teal jams</div><p>Real-color album art, blue active, teal reserved for jams.</p></div></a>
+        <a class="card" href="style-04b-clay.html"><div class="swatch s-clay"><span class="num">04b · Clay</span></div>
+          <div class="body"><h3>Clay</h3><div class="tag">Cool nav, warm actions</div><p>Blue navigation, terracotta for anything you play or start.</p></div></a>
+        <a class="card" href="style-04c-tide.html"><div class="swatch s-tide"><span class="num">04c · Tide</span></div>
+          <div class="body"><h3>Tide</h3><div class="tag">Teal base + amber pop</div><p>Cool teal-tinted base, teal accent, a single amber jam pop.</p></div></a>
+      </div>
+    </div>
+
+    <!-- ===================== VELVET ===================== -->
+    <div class="fam">
+      <div class="fam-h"><h2>Velvet</h2><span class="meta">glass / depth · frosted material</span></div>
+      <p class="fam-sub">Frosted panels floating over a colored backdrop. The variations each hold to one controlled palette so the material reads as intentional, not iridescent.</p>
+      <div class="grid">
+        <a class="card orig" href="style-05-velvet.html"><div class="swatch v-orig"><span class="badge">Original</span><span class="num">05 · Velvet</span></div>
+          <div class="body"><h3>Velvet</h3><div class="tag">Indigo + pink + aqua</div><p>The original: three hues at once across the glass.</p></div></a>
+        <a class="card" href="style-05a-indigo.html"><div class="swatch v-indigo"><span class="num">05a · Indigo</span></div>
+          <div class="body"><h3>Indigo</h3><div class="tag">Monochrome indigo</div><p>One hue through backdrop, glass, and art. Tonal, controlled.</p></div></a>
+        <a class="card" href="style-05b-plum.html"><div class="swatch v-plum"><span class="num">05b · Plum</span></div>
+          <div class="body"><h3>Plum</h3><div class="tag">Plum + rose only</div><p>Two adjacent warm hues, tightly held. Moody, sophisticated.</p></div></a>
+        <a class="card" href="style-05c-mist.html"><div class="swatch v-mist"><span class="num">05c · Mist</span></div>
+          <div class="body"><h3>Mist</h3><div class="tag">Cool slate + teal</div><p>Desaturated and restrained — the quietest glass reading.</p></div></a>
+      </div>
+    </div>
+
+    <!-- ===================== ALSO EXPLORED ===================== -->
+    <div class="also">
+      <h2>Also still here</h2>
+      <p>The two directions you didn’t pick, kept for reference.</p>
+      <div class="grid">
+        <a class="card" href="style-02-nocturne.html"><div class="swatch n-noct"><span class="num">02 · Nocturne</span></div>
+          <div class="body"><h3>Nocturne</h3><div class="tag">Editorial warm-dark · serif</div><p>Cream + gold, italic serif, thin rules. A listening journal.</p></div></a>
+        <a class="card" href="style-03-pulse.html"><div class="swatch n-pulse"><span class="num">03 · Pulse</span></div>
+          <div class="body"><h3>Pulse</h3><div class="tag">Neon / synthwave</div><p>Glow, waveforms, mono metadata. The highest-energy option.</p></div></a>
+      </div>
+    </div>
+
+    <div class="foot">
+      Open <code>design/mockups/index.html</code> in any browser. Every file is standalone — no build step, no assets, no network. Album art is gradient placeholders; copy and song data are illustrative. Mix-and-match is on the table too (e.g. Aurora’s art-bleed with Slate’s density).
+    </div>
+  </div>
+</body>
+</html>

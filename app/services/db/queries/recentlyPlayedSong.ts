@@ -3,8 +3,25 @@ import { RecentlyPlayedSong } from "../models";
 import { recentlyPlayedSongTable } from "../schema";
 import { eq, gt, lt, ExtractTablesWithRelations, inArray, sql, isNotNull, and, desc, asc, or } from "drizzle-orm";
 
+/**
+ * The song playing right now: the history row still carrying a timestamp, NEWEST first, one row.
+ *
+ * "Currently playing" is stored as "timestamp_seconds is not null" - a singleton this table cannot enforce.
+ * Two writers touch it: startNewSong clears every marker then inserts the new row, while SongProgressSync
+ * writes the position every second using a row id it read several awaits earlier. A progress write that lands
+ * just after a track change therefore re-marks the song that already finished, and two rows claim to be current.
+ *
+ * This used to take result[0] of an UNORDERED query, which in that state returned the finished song. skip()
+ * then asked "what was played after that?", got the song already playing, and played it a second time in a row.
+ * Ordering by lastPlayed makes the newest marker authoritative, so a stale one is harmless instead of a repeat.
+ */
 export async function getCurrentlyPlayingSong(db: GenericDb): Promise<RecentlyPlayedSong | undefined> {
-    const result = await db.select().from(recentlyPlayedSongTable).where(isNotNull(recentlyPlayedSongTable.timestampSeconds));
+    const result = await db
+        .select()
+        .from(recentlyPlayedSongTable)
+        .where(isNotNull(recentlyPlayedSongTable.timestampSeconds))
+        .orderBy(desc(recentlyPlayedSongTable.lastPlayed))
+        .limit(1);
 
     if (!result.length) {
         return undefined;
@@ -29,7 +46,34 @@ export async function resetRecentlyPlayedSongTimestamps(db: GenericDb): Promise<
     }).where(isNotNull(recentlyPlayedSongTable.timestampSeconds));
 }
 
+/**
+ * Records playback POSITION on the song already playing.
+ *
+ * Deliberately cannot make a row current: it only updates one whose marker is already set. SongProgressSync
+ * reads the current row and writes its position several awaits later - an eternity on the async desktop
+ * driver - so without this a write arriving after a track change would re-mark the finished song as current
+ * and get it played again. startNewSong clears every marker before starting the next song, so a superseded
+ * row is null by then and the stale write correctly does nothing.
+ *
+ * Starting or resuming a song uses <see cref="markRecentlyPlayedSongCurrent"/> instead, because that legitimately
+ * needs to set the marker.
+ */
 export async function setRecentlyPlayedSongTimestampSeconds(db: GenericDb, recentlyPlayedSongId: string, timestampSeconds: number): Promise<void> {
+    await db.update(recentlyPlayedSongTable).set({
+        timestampSeconds: timestampSeconds
+    }).where(and(
+        eq(recentlyPlayedSongTable.recentlyPlayedSongId, recentlyPlayedSongId),
+        isNotNull(recentlyPlayedSongTable.timestampSeconds)
+    ));
+}
+
+/**
+ * Makes an existing history row the current song, at the given position - the resume path (previous(), or
+ * restoring what was playing at startup). Unguarded on purpose: startNewSong clears all markers first, so this
+ * is the call that legitimately sets one. Progress ticks must NOT use it, or a late tick would resurrect a
+ * song that has already finished.
+ */
+export async function markRecentlyPlayedSongCurrent(db: GenericDb, recentlyPlayedSongId: string, timestampSeconds: number): Promise<void> {
     await db.update(recentlyPlayedSongTable).set({
         timestampSeconds: timestampSeconds
     }).where(eq(recentlyPlayedSongTable.recentlyPlayedSongId, recentlyPlayedSongId));

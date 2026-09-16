@@ -1,28 +1,9 @@
-import * as FileSystem from "expo-file-system";
+import * as FileSystem from "expo-file-system/legacy";
 import { shaHash } from "./hasher";
-import { monotonicFactory } from "ulid";
 
-export function distinctBy<T, K>(array: T[], keySelector: (item: T) => K): T[] {
-    const seen = new Set<K>();
-    return array.filter(item => {
-        const key = keySelector(item);
-        if (seen.has(key)) {
-            return false;
-        }
-        seen.add(key);
-        return true;
-    });
-}
-
-// TODO: Math.random() is not cryptographically secure
-export function generateId(): string {
-    const ulid = monotonicFactory(() => Math.random());
-    return ulid();
-}
-
-export function generateRange(x: number): number[] {
-    return Array.from({ length: x }, (_, i) => i);
-}
+// Dependency-free helpers live in ./pure so they can be unit-tested without this file's native imports.
+// Re-exported here so every existing `./utils` / `@/app/tools` import keeps resolving unchanged.
+export { distinctBy, distinctByLast, deterministicId, generateRange, isAnyNullish, generateId } from "./pure";
 
 function getFileNameFromUri(uri: string): string | null {
     if (!uri) {
@@ -53,7 +34,3 @@ export async function verifyFileIntegrity(uri: string) {
 }
 
 export const sleep = (time: number) => new Promise((resolve) => setTimeout(() => resolve(null), time));
-
-export function isAnyNullish(...args: any[]): boolean {
-    return args.some(arg => arg == null || arg == undefined);
-}

@@ -4,6 +4,7 @@ import { downloadQueueTable } from "../schema";
 import { eq, gt, lt, ExtractTablesWithRelations, inArray, sql, isNotNull, and, desc, asc, or } from "drizzle-orm";
 import { DownloadQueue } from "../models";
 import { DownloadPriority } from "../types";
+import { chunkRows } from "./_chunk";
 
 // TODO: I may want to add a way to change priority
 export async function addToDownloadQueue(db: GenericDb, songIds: string[], priority: DownloadPriority): Promise<void> {
@@ -11,11 +12,16 @@ export async function addToDownloadQueue(db: GenericDb, songIds: string[], prior
         return;
     }
 
-    await db.insert(downloadQueueTable).values(songIds.map(x => ({
+    // "Download all" can enqueue the whole library at once, so this is chunked too (see _chunk.ts).
+    const rows = songIds.map(x => ({
         downloadQueueId: generateId(),
         songId: x,
         priority: priority
-    }))).onConflictDoNothing();
+    }));
+
+    for (const rowChunk of chunkRows(rows)) {
+        await db.insert(downloadQueueTable).values(rowChunk).onConflictDoNothing();
+    }
 }
 
 export async function getFromDownloadQueue(db: GenericDb): Promise<DownloadQueue | undefined> {

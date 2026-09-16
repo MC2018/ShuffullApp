@@ -1,6 +1,5 @@
-import { ExpoSQLiteDatabase } from "drizzle-orm/expo-sqlite";
 import DbQueries from "../db/queries";
-import * as FileSystem from "expo-file-system";
+import * as FileSystem from "expo-file-system/legacy";
 import { verifyFileIntegrity } from "../../tools/utils";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { STORAGE_KEYS } from "../../constants/storageKeys";
@@ -21,8 +20,9 @@ const albumArtFolder = path.join(FileSystem.documentDirectory, "albumart");
 export class Downloader {
     downloading = false;
     paused = true;
-    db: ExpoSQLiteDatabase;
-    timerId: NodeJS.Timeout;
+    // Matches the constructor, which was already driver-agnostic — the field just hadn't kept up.
+    db: GenericDb;
+    timerId: ReturnType<typeof setInterval>;
 
     constructor(db: GenericDb) {
         this.db = db;
@@ -179,6 +179,18 @@ export class Downloader {
     
     public static generateLocalSongUri(song: Song) {
         return path.join(musicFolder, Downloader.generateSongFileName(song));
+    }
+
+    // Removes a song's local audio + album-art files (keyed by fileHash). Best-effort and idempotent — pass the
+    // OLD song record after its server fileHash changed so the now-orphaned files are cleaned up; missing files
+    // are a no-op. Does not touch the DB (the caller clears the downloaded flag).
+    public static async deleteLocalSongFiles(song: Song) {
+        try {
+            await FileSystem.deleteAsync(Downloader.generateLocalSongUri(song), { idempotent: true });
+            await FileSystem.deleteAsync(Downloader.generateLocalAlbumArtUri(song), { idempotent: true });
+        } catch (e) {
+            console.warn(`Failed to delete local files for replaced song ${song.songId}:`, e);
+        }
     }
 
     public static generateLocalAlbumArtUri(song: Song) {

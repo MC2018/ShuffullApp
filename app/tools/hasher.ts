@@ -18,7 +18,7 @@ export async function argon2Hash(input: string) {
 }
 
 export async function shaHash(bytes: Uint8Array) {
-    const digest = await Crypto.digest(Crypto.CryptoDigestAlgorithm.SHA256, bytes);
+    const digest = await Crypto.digest(Crypto.CryptoDigestAlgorithm.SHA256, bytes as Uint8Array<ArrayBuffer>);
     const rawHash = new Uint8Array(digest);
     return Array.from(rawHash).map(byte => byte.toString(16).padStart(2, "0")).join("");
 }

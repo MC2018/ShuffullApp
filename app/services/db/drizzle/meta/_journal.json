@@ -141,6 +141,76 @@
       "when": 1749392420866,
       "tag": "0019_readd_tables_with_string_ids",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "6",
+      "when": 1782210611791,
+      "tag": "0020_add_song_lyrics_bpm",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1782271083231,
+      "tag": "0021_drop_song_lyrics_offset",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "6",
+      "when": 1782272093657,
+      "tag": "0022_add_like_status",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "6",
+      "when": 1782372537213,
+      "tag": "0023_add_energy_mood",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "6",
+      "when": 1782373272940,
+      "tag": "0024_add_energy_max",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "6",
+      "when": 1782614200130,
+      "tag": "0025_add_curator_and_request_payload",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "6",
+      "when": 1783388535209,
+      "tag": "0026_add_exploratory_flags",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "6",
+      "when": 1783388790829,
+      "tag": "0027_add_request_playlist_id",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "6",
+      "when": 1784643751408,
+      "tag": "0028_cheerful_cassandra_nova",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "6",
+      "when": 1785850855343,
+      "tag": "0029_overjoyed_betty_ross",
+      "breakpoints": true
     }
   ]
 }

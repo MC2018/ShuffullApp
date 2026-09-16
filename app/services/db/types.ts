@@ -6,6 +6,8 @@ export type WhitelistSetting = {
     genreIds: string[],
     timePeriodIds: string[],
     languageIds: string[],
+    moodIds: string[],
+    themeIds: string[],
 };
 
 export enum DownloadPriority {

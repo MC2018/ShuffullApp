@@ -7,21 +7,25 @@ interface DownloaderProviderProps {
 };
 
 const DownloaderContext = createContext<Downloader | null>(null);
-let downloader: Downloader | null = null;
 
 export default function DownloaderProvider({ children }: DownloaderProviderProps) {
     const db = useDb();
+    // Publish the Downloader through state (not a module-level variable) so the context value
+    // actually updates once the instance is created in the effect. The old module-variable approach
+    // left the context frozen at null unless a parent re-render happened to republish it — the former
+    // god-component re-rendered constantly so it worked by accident, but the static root layout never
+    // re-renders, so useDownloader() stayed null and every download silently no-op'd.
+    const [downloader, setDownloader] = useState<Downloader | null>(null);
 
     useEffect(() => {
-        if (downloader == null) {
-            downloader = new Downloader(db);
-        }
+        const instance = new Downloader(db);
+        setDownloader(instance);
 
         return () => {
-            downloader?.dispose();
-            downloader = null;
+            instance.dispose();
+            setDownloader(null);
         };
-    }, []);
+    }, [db]);
 
     return <DownloaderContext.Provider value={downloader}>{children}</DownloaderContext.Provider>
 };

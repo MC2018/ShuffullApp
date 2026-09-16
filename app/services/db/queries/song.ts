@@ -1,15 +1,29 @@
 import { SongFilters } from "@/app/types/SongFilters";
 import { GenericDb } from "../GenericDb";
-import { Artist, GenreJam, Song } from "../models";
-import { artistTable, downloadedSongTable, genreJamTable, playlistSongTable, playlistTable, songArtistTable, songTable, userSongTable } from "../schema";
+import { Artist, GenreJam, Song, UpdateSongMetadataPayload } from "../models";
+import { artistTable, downloadedSongTable, genreJamTable, playlistSongTable, playlistTable, songArtistTable, songTable, songTagTable, tagTable, userSongTable } from "../schema";
 import { eq, gt, lt, ExtractTablesWithRelations, inArray, sql, isNotNull, and, desc, asc, or } from "drizzle-orm";
 import { SongDetails } from "../types";
+// Import the dependency-free helper directly (not via @/app/tools, which re-exports React-Native-bound utils)
+// so this query module stays importable from the Vitest (node) test harness.
+import { deterministicId } from "@/app/tools/pure";
+import { chunkIds, chunkRows } from "./_chunk";
+import { namedRows } from "./_rawRow";
 
 type FilteredSongs = {
     songId: string,
     lastPlayed?: number,
 };
 
+/**
+ * The candidate pool the player draws the next song from.
+ *
+ * Note on the interpolations below: a placeholder in a drizzle `sql` template BINDS A PARAMETER — it does not
+ * splice SQL text. Every condition here therefore interpolates NUMBERS and compares them (`0 = 1` / `1 = 1`),
+ * never a SQL fragment. localOnly used to interpolate the literal string "EXISTS (SELECT ...)", which arrived
+ * as a bound text value; SQLite coerces that to 0 in a boolean context, so the whole WHERE went false and the
+ * filter silently matched NOTHING. Nothing errored — the pool was just empty, and playback stopped.
+ */
 export async function getFilteredSong(db: GenericDb, songFilters: SongFilters) {
     const whitelistArtists = JSON.stringify(songFilters.whitelists.artistIds);
     const whitelistPlaylists = JSON.stringify(songFilters.whitelists.playlistIds);
@@ -21,16 +35,34 @@ export async function getFilteredSong(db: GenericDb, songFilters: SongFilters) {
     const blacklistGenres = JSON.stringify(songFilters.blacklists.genreIds);
     const blacklistLanguages = JSON.stringify(songFilters.blacklists.languageIds);
     const blacklistTimePeriods = JSON.stringify(songFilters.blacklists.timePeriodIds);
+    const whitelistMoods = JSON.stringify(songFilters.whitelists.moodIds ?? []);
+    const blacklistMoods = JSON.stringify(songFilters.blacklists.moodIds ?? []);
+    const whitelistThemes = JSON.stringify(songFilters.whitelists.themeIds ?? []);
+    const blacklistThemes = JSON.stringify(songFilters.blacklists.themeIds ?? []);
     const whitelistsEmpty = !songFilters.hasAnyWhitelistFilter();
     const blacklistsEmpty = !songFilters.hasAnyBlacklistFilter();
 
-    const filteredSongs = db.all<FilteredSongs>(sql`
+    const rawFilteredSongs = await db.all<FilteredSongs>(sql`
         WITH FilteredSongs AS (
             SELECT s.song_id, us.last_played
             FROM songs s
             LEFT JOIN user_songs us ON s.song_id = us.song_id
             WHERE
-                ${songFilters.localOnly ? "EXISTS (SELECT 1 FROM downloaded_songs ds WHERE ds.song_id = s.song_id)" : "1 = 1"}
+                -- Dislike = never play again: exclude disliked songs from shuffle (explicit play still allowed).
+                (us.like_status IS NULL OR us.like_status <> 3)
+            AND (
+                -- Audition cohorts play only what has never been played. "Never" is last_played <= 0, NOT
+                -- NULL: the server seeds every UserSong with DateTime.MinValue, so a missing row is rare and
+                -- the epoch is what actually separates never-played from played (same rule as hasBeenPlayed).
+                ${songFilters.unheardOnly ? 0 : 1} = 1
+                OR us.last_played IS NULL
+                OR us.last_played <= 0
+            )
+            AND (
+                -- localOnly: see the note above this function.
+                ${songFilters.localOnly ? 0 : 1} = 1
+                OR EXISTS (SELECT 1 FROM downloaded_songs ds WHERE ds.song_id = s.song_id)
+            )
             AND (
                 ${whitelistsEmpty ? 1 : 0} = 1 OR
                 (
@@ -80,6 +112,22 @@ export async function getFilteredSong(db: GenericDb, songFilters: SongFilters) {
                             SELECT value FROM json_each(${whitelistLanguages})
                         )
                     ))
+                    AND (${whitelistMoods} = '[]' OR EXISTS (
+                        SELECT 1
+                        FROM song_tags st
+                        WHERE st.song_id = s.song_id
+                        AND st.tag_id IN (
+                            SELECT value FROM json_each(${whitelistMoods})
+                        )
+                    ))
+                    AND (${whitelistThemes} = '[]' OR EXISTS (
+                        SELECT 1
+                        FROM song_tags st
+                        WHERE st.song_id = s.song_id
+                        AND st.tag_id IN (
+                            SELECT value FROM json_each(${whitelistThemes})
+                        )
+                    ))
                 )
             )
             AND (
@@ -124,6 +172,29 @@ export async function getFilteredSong(db: GenericDb, songFilters: SongFilters) {
                             SELECT value FROM json_each(${blacklistTimePeriods})
                         )
                     )
+                    OR EXISTS (
+                        SELECT 1
+                        FROM song_tags st
+                        WHERE st.song_id = s.song_id
+                        AND st.tag_id IN (
+                            SELECT value FROM json_each(${blacklistMoods})
+                        )
+                    )
+                    OR EXISTS (
+                        SELECT 1
+                        FROM song_tags st
+                        WHERE st.song_id = s.song_id
+                        AND st.tag_id IN (
+                            SELECT value FROM json_each(${blacklistThemes})
+                        )
+                    )
+                )
+            )
+            AND (
+                s.energy IS NULL
+                OR (
+                    (${songFilters.energyMin == null ? 1 : 0} = 1 OR s.energy >= ${songFilters.energyMin ?? 0})
+                    AND (${songFilters.energyMax == null ? 1 : 0} = 1 OR s.energy <= ${songFilters.energyMax ?? 10})
                 )
             )
             ORDER BY us.last_played ASC
@@ -132,6 +203,16 @@ export async function getFilteredSong(db: GenericDb, songFilters: SongFilters) {
         FROM FilteredSongs
         LIMIT 500
     `);
+
+    // Raw sql => no field mapping, so the row shape is driver-dependent. Column order must match the SELECT
+    // above. See _rawRow.ts.
+    const filteredSongs = namedRows<FilteredSongs>(rawFilteredSongs, ["songId", "lastPlayed"]);
+
+    // A finished cohort has no never-played songs left, and handing back an empty pool would stall playback
+    // instead of ending the audition gracefully. Retry once without the narrowing so the playlist still plays.
+    if (filteredSongs.length === 0 && songFilters.unheardOnly) {
+        return await getFilteredSong(db, songFilters.withoutUnheardOnly());
+    }
 
     return filteredSongs;
 }
@@ -211,6 +292,57 @@ export async function getSongDetailsByPlaylist(db: GenericDb, playlistId: string
     return result;
 }
 
+export async function getSongDetailsByArtist(db: GenericDb, artistId: string): Promise<SongDetails[]> {
+    // The songs credited to this artist...
+    const songIdRows = await db
+        .selectDistinct({ songId: songArtistTable.songId })
+        .from(songArtistTable)
+        .where(eq(songArtistTable.artistId, artistId));
+    const songIds = songIdRows.map((r) => r.songId);
+
+    if (songIds.length === 0) {
+        return [];
+    }
+
+    // ...re-joined to ALL their artists, so each SongDetails carries its full credit (a song can have several).
+    const rawData = await db
+        .selectDistinct({
+            song: songTable,
+            artist: artistTable
+        })
+        .from(songTable)
+        .where(inArray(songTable.songId, songIds))
+        .leftJoin(songArtistTable, eq(songTable.songId, songArtistTable.songId))
+        .leftJoin(artistTable, eq(songArtistTable.artistId, artistTable.artistId))
+        .orderBy(asc(songTable.songId));
+
+    const result: SongDetails[] = [];
+    let nextSongDetails: SongDetails | undefined = undefined;
+
+    for (let i = 0; i < rawData.length; i++) {
+        if (nextSongDetails == undefined || rawData[i].song.songId != nextSongDetails.song.songId) {
+            nextSongDetails = {
+                song: rawData[i].song,
+                artists: []
+            };
+        }
+
+        const artist = rawData[i].artist;
+
+        if (artist != null) {
+            nextSongDetails.artists.push(artist);
+        }
+
+        if (i + 1 >= rawData.length || rawData[i + 1].song.songId != nextSongDetails.song.songId) {
+            result.push(nextSongDetails);
+        }
+    }
+
+    // Assembly needs songId ordering; present alphabetically.
+    result.sort((a, b) => a.song.name.localeCompare(b.song.name));
+    return result;
+}
+
 // TODO: this is duplicated code from above, try to remove in the future
 export async function getDownloadedSongDetails(db: GenericDb): Promise<SongDetails[]> {
     const result: SongDetails[] = [];
@@ -256,6 +388,14 @@ export async function getSongsByPlaylist(db: GenericDb, playlistId: string): Pro
             fileExtension: songTable.fileExtension,
             fileHash: songTable.fileHash,
             name: songTable.name,
+            syncedLyrics: songTable.syncedLyrics,
+            plainLyrics: songTable.plainLyrics,
+            lyricsInstrumental: songTable.lyricsInstrumental,
+            lyricsSource: songTable.lyricsSource,
+            bpm: songTable.bpm,
+            energy: songTable.energy,
+            exploratory: songTable.exploratory,
+            tagsStale: songTable.tagsStale,
             artist: {
                 artistId: artistTable.artistId,
                 name: artistTable.name
@@ -272,8 +412,13 @@ export async function updateSongs(db: GenericDb, songs: Song[]): Promise<void> {
         return;
     }
 
-    await db.delete(songTable).where(inArray(songTable.songId, songs.map(x => x.songId)));
-    await db.insert(songTable).values(songs);
+    for (const idChunk of chunkIds(songs.map(x => x.songId))) {
+        await db.delete(songTable).where(inArray(songTable.songId, idChunk));
+    }
+
+    for (const rowChunk of chunkRows(songs)) {
+        await db.insert(songTable).values(rowChunk);
+    }
 }
 
 export async function getRandomSongId(db: GenericDb): Promise<string | undefined> {
@@ -361,6 +506,14 @@ export async function fetchSongDetails(db: GenericDb, songId: string): Promise<S
             name: songTable.name,
             fileHash: songTable.fileHash,
             fileExtension: songTable.fileExtension,
+            syncedLyrics: songTable.syncedLyrics,
+            plainLyrics: songTable.plainLyrics,
+            lyricsInstrumental: songTable.lyricsInstrumental,
+            lyricsSource: songTable.lyricsSource,
+            bpm: songTable.bpm,
+            energy: songTable.energy,
+            exploratory: songTable.exploratory,
+            tagsStale: songTable.tagsStale,
             artist: {
                 artistId: artistTable.artistId,
                 name: artistTable.name
@@ -409,4 +562,71 @@ export async function getSong(db: GenericDb, songId: string): Promise<Song | und
 
 export async function getAllSongIds(db: GenericDb): Promise<string[]> {
     return (await db.select({ songId: songTable.songId }).from(songTable)).map(x => x.songId);
+}
+
+// Optimistic local promote: clear the audition + stale-tags flags right away so the song drops out of the
+// audition view and can't re-promote while the queued re-tag reaches the server (the next sync re-pulls the
+// enriched song either way).
+export async function markSongPromoted(db: GenericDb, songId: string): Promise<void> {
+    await db.update(songTable).set({ exploratory: false, tagsStale: false }).where(eq(songTable.songId, songId));
+}
+
+// Optimistic local mark for a KEEP (weak-model re-tag queued): the song leaves the audition state now, but
+// its tags will be WEAK — tagsStale is set so a later like still promotes it to strong (the outbox's
+// stronger-wins rule upgrades the pending row if the like lands before the sync flushes).
+export async function markSongKept(db: GenericDb, songId: string): Promise<void> {
+    await db.update(songTable).set({ exploratory: false, tagsStale: true }).where(eq(songTable.songId, songId));
+}
+
+// Optimistic local apply of a curator's metadata edit, so the UI reflects it immediately (the same edit is
+// also queued to the server via the outbox; the next sync reconciles from the authoritative record).
+// Artist ids are deterministic-by-name (matching the sync), so reusing/creating them here never diverges
+// from what the server-driven sync rebuilds. Tags are only re-linked when we already hold a matching
+// (name, type) tag locally — a brand-new tag is created server-side and pulled in by the next sync, so we
+// avoid fabricating a local id that wouldn't match the server's.
+export async function applySongMetadataEdit(db: GenericDb, songId: string, payload: UpdateSongMetadataPayload): Promise<void> {
+    await db.update(songTable)
+        .set({ name: payload.name, bpm: payload.bpm, energy: payload.energy })
+        .where(eq(songTable.songId, songId));
+
+    await db.delete(songArtistTable).where(eq(songArtistTable.songId, songId));
+    const seenArtist = new Set<string>();
+    for (const rawName of payload.artists) {
+        const name = rawName.trim();
+        if (name.length === 0 || seenArtist.has(name)) {
+            continue;
+        }
+        seenArtist.add(name);
+        const artistId = deterministicId("artist", name);
+        await db.insert(artistTable).values({ artistId, name }).onConflictDoUpdate({
+            target: artistTable.artistId,
+            set: { name: sql`excluded.name` }
+        });
+        await db.insert(songArtistTable).values({
+            songArtistId: deterministicId("song-artist", songId, artistId),
+            songId,
+            artistId
+        }).onConflictDoNothing();
+    }
+
+    await db.delete(songTagTable).where(eq(songTagTable.songId, songId));
+    const localTags = await db.select().from(tagTable);
+    const seenTag = new Set<string>();
+    for (const tag of payload.tags) {
+        const name = tag.name.trim();
+        const key = `${tag.type}:${name}`;
+        if (name.length === 0 || seenTag.has(key)) {
+            continue;
+        }
+        seenTag.add(key);
+        const match = localTags.find(localTag => localTag.name === name && localTag.type === tag.type);
+        if (match == null) {
+            continue;
+        }
+        await db.insert(songTagTable).values({
+            songTagId: deterministicId("song-tag", songId, match.tagId),
+            songId,
+            tagId: match.tagId
+        }).onConflictDoNothing();
+    }
 }

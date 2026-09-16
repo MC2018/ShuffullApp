@@ -21,6 +21,16 @@ import m0016 from './0016_add_genre_jam.sql';
 import m0017 from './0017_add_tag_type.sql';
 import m0018 from './0018_soft_reset_tables.sql';
 import m0019 from './0019_readd_tables_with_string_ids.sql';
+import m0020 from './0020_add_song_lyrics_bpm.sql';
+import m0021 from './0021_drop_song_lyrics_offset.sql';
+import m0022 from './0022_add_like_status.sql';
+import m0023 from './0023_add_energy_mood.sql';
+import m0024 from './0024_add_energy_max.sql';
+import m0025 from './0025_add_curator_and_request_payload.sql';
+import m0026 from './0026_add_exploratory_flags.sql';
+import m0027 from './0027_add_request_playlist_id.sql';
+import m0028 from './0028_cheerful_cassandra_nova.sql';
+import m0029 from './0029_overjoyed_betty_ross.sql';
 
   export default {
     journal,
@@ -44,7 +54,17 @@ m0015,
 m0016,
 m0017,
 m0018,
-m0019
+m0019,
+m0020,
+m0021,
+m0022,
+m0023,
+m0024,
+m0025,
+m0026,
+m0027,
+m0028,
+m0029
     }
   }
   

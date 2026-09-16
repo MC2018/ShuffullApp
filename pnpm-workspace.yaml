@@ -1,0 +1,18 @@
+# Workspace file. Today this repo is a single package (the Expo app at the root); the packages list
+# below is where apps/* and packages/* get added as the web/desktop restructure lands.
+
+# Hoisted layout: a flat, real node_modules like npm produces. React Native/Expo tooling (Metro,
+# autolinking) assumes hoisting; pnpm's default isolated layout leaves peers like @react-navigation/*
+# unreachable. NOTE: must live here — pnpm 11 ignores node-linker in .npmrc.
+nodeLinker: hoisted
+
+packages:
+  - "."
+
+# pnpm 11 runs dependency install/build scripts only for allowlisted packages.
+# esbuild downloads its platform binary (vitest needs it); better-sqlite3 compiles its native addon;
+# unrs-resolver fetches its resolver binary (eslint import plugin).
+allowBuilds:
+  esbuild: true
+  better-sqlite3: true
+  unrs-resolver: true
