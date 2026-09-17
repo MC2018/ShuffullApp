@@ -141,3 +141,58 @@ describe("shuffle window", () => {
         }
     });
 });
+
+/**
+ * The pool query and this module have to agree on what "never played" means, and for a long time they did not.
+ * The server seeds every UserSong with DateTime.MinValue -- a large NEGATIVE epoch -- so the SQL treats
+ * `last_played <= 0` as never. This module tested `lastPlayed != null`, which reads a seeded row as PLAYED.
+ *
+ * That gap was invisible while rows were never missing. When the server deleted a batch of UserSongs, the only
+ * nulls left in the pool were exactly the deleted songs, so the never-played window collapsed onto them and
+ * every single pick came from the dead set.
+ */
+describe("never-played detection matches the pool query", () => {
+    const MIN_VALUE = -62135629200000; // C# DateTime.MinValue as ms since epoch.
+
+    it("counts a DateTime.MinValue seed as never played, not as played long ago", () => {
+        const candidates: ShuffleCandidate[] = [
+            { songId: "seeded-a", lastPlayed: MIN_VALUE },
+            { songId: "seeded-b", lastPlayed: MIN_VALUE },
+            { songId: "played", lastPlayed: 1_750_000_000_000 },
+        ];
+
+        // Both seeded rows are never-played, so the window is those two and can't reach the played tail.
+        expect(shuffleWindowSize(candidates)).toBe(2);
+    });
+
+    it("counts a missing row (null) as never played too", () => {
+        const candidates: ShuffleCandidate[] = [
+            { songId: "missing", lastPlayed: null },
+            { songId: "seeded", lastPlayed: MIN_VALUE },
+            { songId: "played", lastPlayed: 1_750_000_000_000 },
+        ];
+
+        expect(shuffleWindowSize(candidates)).toBe(2);
+    });
+
+    it("does not let a handful of missing rows monopolise a pool of seeded ones", () => {
+        // The live failure: 157 rows the server had deleted sat in front of 3169 seeded ones. Under the old
+        // null-only test the window was exactly those 157 deleted songs.
+        const candidates: ShuffleCandidate[] = [
+            ...Array.from({ length: 157 }, (_, i) => ({ songId: `missing-${i}`, lastPlayed: null })),
+            ...Array.from({ length: 343 }, (_, i) => ({ songId: `seeded-${i}`, lastPlayed: MIN_VALUE })),
+        ];
+
+        // All 500 are never-played, so selection spans the pool instead of just the deleted prefix.
+        expect(shuffleWindowSize(candidates)).toBe(500);
+    });
+
+    it("accepts Date values as well as epoch numbers", () => {
+        const candidates: ShuffleCandidate[] = [
+            { songId: "seeded", lastPlayed: new Date(MIN_VALUE) },
+            { songId: "played", lastPlayed: new Date(1_750_000_000_000) },
+        ];
+
+        expect(shuffleWindowSize(candidates)).toBe(1);
+    });
+});

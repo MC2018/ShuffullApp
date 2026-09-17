@@ -22,6 +22,25 @@ export interface ShuffleCandidate {
 }
 
 /**
+ * "Never played" exactly as the pool query defines it. The server seeds every UserSong with DateTime.MinValue,
+ * which arrives as a large NEGATIVE epoch, so `<= 0` -- not null-ness -- is what separates never from ever; a
+ * missing row (null) counts as never too.
+ *
+ * These two definitions used to disagree: this module tested `lastPlayed != null`, so an epoch-seeded row read
+ * as PLAYED while the SQL counted it as never. That was harmless only while missing rows were rare. Once the
+ * server deleted a batch of UserSongs, the ONLY nulls left were exactly those songs, and the never-played
+ * window collapsed onto them -- every pick came from the deleted set.
+ */
+function hasBeenPlayed(candidate: ShuffleCandidate): boolean {
+    const lastPlayed = candidate.lastPlayed;
+    if (lastPlayed == null) {
+        return false;
+    }
+
+    return (lastPlayed instanceof Date ? lastPlayed.getTime() : lastPlayed) > 0;
+}
+
+/**
  * Size of the selection window, in items off the front of the pool. Always at least 1 (so a pool of any size
  * yields something) and never the whole pool once anything has been played (so the just-played tail is
  * excluded).
@@ -35,7 +54,7 @@ export function shuffleWindowSize(candidates: readonly ShuffleCandidate[]): numb
     // never been played. findIndex returns -1 when it finds none - meaning nothing has been played at all, so
     // every song is a never-played one. (The old inline code wrote `?? 0` here, which does not catch -1 at all
     // since -1 is not nullish; it only survived because Math.max discarded the value.)
-    const firstPlayedIndex = candidates.findIndex((c) => c.lastPlayed != null);
+    const firstPlayedIndex = candidates.findIndex(hasBeenPlayed);
     const anythingPlayed = firstPlayedIndex !== -1;
     const neverPlayedCount = anythingPlayed ? firstPlayedIndex : candidates.length;
 

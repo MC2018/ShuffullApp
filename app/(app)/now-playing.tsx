@@ -3,7 +3,7 @@ import { Animated, Easing, ImageURISource, LayoutChangeEvent, Pressable, useWind
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { useActiveSong } from "@/app/services/media-manager/mediaManager";
+import { useActiveSong, usePlaybackIssue } from "@/app/services/media-manager/mediaManager";
 import { useDb } from "@/app/services/db/DbProvider";
 import DbQueries from "@/app/services/db/queries";
 import { SongDetails } from "@/app/services/db/types";
@@ -27,6 +27,15 @@ const COMPACT_ART = 56; // thumbnail size when lyrics are open
 // Width of the Keep slot on the likes row: a 32px gap in front of KeepControl's 26px glyph. The gap is the
 // separation that keeps Keep's touch area clear of the dislike button - see the row's comment below.
 const KEEP_SLOT = 32 + 26;
+// What the header says instead of "Now Playing" while the player is stalled. The player now WAITS on a song
+// it cannot reach rather than skipping past it, which is correct but indistinguishable from a hang unless it
+// says so — silence is what made the original skipping so confusing.
+const PLAYBACK_ISSUE_LABEL: Record<string, string> = {
+    reconnecting: "Reconnecting…",
+    offline: "Waiting for connection",
+    unplayable: "Playback stopped",
+};
+
 const OPEN_MS = 250;
 const CLOSE_MS = 190;
 // Snappy decelerate on open (fast out, soft settle); quick accelerate on close.
@@ -44,6 +53,7 @@ export default function NowPlayingScreen() {
     const { width } = useWindowDimensions();
     const artSize = Math.min(width - 96, 300);
     const { songId } = useActiveSong();
+    const { issue } = usePlaybackIssue();
     const [details, setDetails] = useState<SongDetails | null>(null);
     const [art, setArt] = useState<ArtSource>(defaultArt);
 
@@ -126,8 +136,11 @@ export default function NowPlayingScreen() {
         <Screen>
             <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: theme.space.sm }}>
                 <IconButton name="chevron-down" size={26} color={theme.color.textMuted} onPress={() => router.back()} accessibilityLabel="Close" />
-                <Text variant="micro" color="textMuted">
-                    Now Playing
+                {/* Deliberately the SAME slot as "Now Playing" rather than a banner of its own: this screen
+                    reserves layout instead of mounting and unmounting, so that anything appearing cannot
+                    shift the art and title. */}
+                <Text variant="micro" color={issue ? "accent" : "textMuted"}>
+                    {issue ? PLAYBACK_ISSUE_LABEL[issue.kind] : "Now Playing"}
                 </Text>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: theme.space.sm }}>
                     {details ? <SongDownloadControl song={details.song} /> : null}
