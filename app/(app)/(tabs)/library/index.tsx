@@ -12,6 +12,8 @@ import { AlbumArt, Divider, IconButton, ListRow, Screen, SectionHeader, Text } f
 import { useTheme } from "@/app/theme";
 import { LikeStatus } from "@/app/enums";
 import { auditionProgress, deriveAuditionRowState } from "@/app/tools/audition";
+import { useDownloadStatusView } from "@/app/components/downloading/useDownloadStatusView";
+import { describeDownloadsRow } from "@/app/tools/downloadStatus";
 
 export default function LibraryScreen() {
     const [playlists, setPlaylists] = React.useState<Playlist[]>([]);
@@ -21,6 +23,16 @@ export default function LibraryScreen() {
     const userId = useCurrentUser();
     const db = useDb();
     const theme = useTheme();
+    // The Downloads row doubles as the ambient "is anything downloading?" indicator, so it tracks the
+    // Downloader live instead of saying "Saved offline" forever.
+    const { status: downloadStatus, currentName: downloadingName } = useDownloadStatusView();
+    const [downloadedCount, setDownloadedCount] = React.useState(0);
+    const loadDownloadedCount = useCallback(async () => {
+        setDownloadedCount(await DbQueries.countDownloadedSongs(db));
+    }, [db]);
+    React.useEffect(() => {
+        loadDownloadedCount();
+    }, [loadDownloadedCount, downloadStatus.completedCount]);
 
     const loadPlaylists = useCallback(async () => {
         const loaded = await DbQueries.getPlaylists(db, userId);
@@ -53,7 +65,8 @@ export default function LibraryScreen() {
             loadPlaylists();
             loadJams();
             loadRole();
-        }, [loadPlaylists, loadJams, loadRole]),
+            loadDownloadedCount();
+        }, [loadPlaylists, loadJams, loadRole, loadDownloadedCount]),
     );
 
     const confirmDelete = (jam: GenreJam) => {
@@ -86,11 +99,15 @@ export default function LibraryScreen() {
                 <ScrollView showsVerticalScrollIndicator={false}>
                     <ListRow
                         title="Downloads"
-                        subtitle="Saved offline"
+                        subtitle={describeDownloadsRow(downloadStatus, downloadedCount, downloadingName)}
                         onPress={() => router.push("/library/downloads")}
                         left={
-                            <View style={{ width: 48, height: 48, borderRadius: theme.radius.md, backgroundColor: theme.color.surfaceAlt, alignItems: "center", justifyContent: "center" }}>
-                                <Ionicons name="download-outline" size={22} color={theme.color.textMuted} />
+                            <View style={{ width: 48, height: 48, borderRadius: theme.radius.md, backgroundColor: downloadStatus.phase === "downloading" ? theme.color.accentWash : theme.color.surfaceAlt, alignItems: "center", justifyContent: "center" }}>
+                                <Ionicons
+                                    name={downloadStatus.phase === "paused" ? "pause-circle-outline" : "download-outline"}
+                                    size={22}
+                                    color={downloadStatus.phase === "downloading" ? theme.color.accent : theme.color.textMuted}
+                                />
                             </View>
                         }
                         right={chevron}

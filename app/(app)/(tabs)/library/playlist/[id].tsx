@@ -25,6 +25,8 @@ export default function PlaylistScreen() {
     const [songStates, setSongStates] = useState<Record<string, AuditionRowState>>({});
     const [search, setSearch] = useState("");
     const [unheardOnly, setUnheardOnly] = useState(false);
+    // Feedback for the Download button, which used to be fire-and-forget. Reset when the playlist changes.
+    const [downloadLabel, setDownloadLabel] = useState<string | null>(null);
     const db = useDb();
     const downloader = useDownloader();
 
@@ -32,6 +34,7 @@ export default function PlaylistScreen() {
         if (playlistId == undefined) {
             return;
         }
+        setDownloadLabel(null);
         (async () => {
             const dbPlaylist = await DbQueries.getPlaylist(db, playlistId);
             if (dbPlaylist == undefined) {
@@ -107,7 +110,13 @@ export default function PlaylistScreen() {
     }
 
     const downloadPlaylist = async () => {
-        await downloader?.addPlaylistToDownloadQueue(playlist.playlistId, DownloadPriority.Medium);
+        if (!downloader) {
+            return;
+        }
+        const result = await downloader.addPlaylistToDownloadQueue(playlist.playlistId, DownloadPriority.Medium);
+        // Say what happened on the button itself: it's the thing that was just tapped, and the Downloads
+        // screen (Library › Downloads) is where progress lives.
+        setDownloadLabel(result.queued > 0 ? `Queued ${result.queued}` : "All saved");
     };
 
     const playPlaylist = async () => {
@@ -163,7 +172,13 @@ export default function PlaylistScreen() {
                 </Text>
                 <View style={{ flexDirection: "row", gap: theme.space.sm, marginBottom: theme.space.md }}>
                     <Button label="Play" icon="play" onPress={playPlaylist} style={{ flex: 1 }} />
-                    <Button label="Download" icon="download-outline" variant="ghost" onPress={downloadPlaylist} style={{ flex: 1 }} />
+                    <Button
+                        label={downloadLabel ?? "Download"}
+                        icon={downloadLabel ? "checkmark" : "download-outline"}
+                        variant="ghost"
+                        onPress={downloadPlaylist}
+                        style={{ flex: 1 }}
+                    />
                     <Button label="Delete" icon="trash-outline" variant="ghost" onPress={confirmDelete} />
                 </View>
                 <View style={{ flexDirection: "row", gap: theme.space.sm, alignItems: "center", marginBottom: theme.space.md }}>

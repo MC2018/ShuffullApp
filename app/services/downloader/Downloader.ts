@@ -3,11 +3,13 @@ import * as FileSystem from "expo-file-system/legacy";
 import { verifyFileIntegrity } from "../../tools/utils";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { STORAGE_KEYS } from "../../constants/storageKeys";
-import { getNetworkStateAsync, NetworkStateType } from "expo-network";
+import { addNetworkStateListener, getNetworkStateAsync, NetworkState } from "expo-network";
 import { GenericDb } from "../db/GenericDb";
 import path from "path-browserify";
 import { Song } from "../db/models";
 import { DownloadPriority } from "../db/types";
+import { useDownloadStatus } from "./downloadStatus";
+import { derivePhase, isDownloadNetwork } from "../../tools/downloadStatus";
 
 if (FileSystem.documentDirectory == null) {
     throw new Error("documentDirectory is null");
@@ -19,10 +21,16 @@ const albumArtFolder = path.join(FileSystem.documentDirectory, "albumart");
 
 export class Downloader {
     downloading = false;
+    // Starts true so the timer cannot fire before the persisted value is read; the constructor flips it.
     paused = true;
     // Matches the constructor, which was already driver-agnostic — the field just hadn't kept up.
     db: GenericDb;
     timerId: ReturnType<typeof setInterval>;
+    // Last network state seen, from the listener (instant) or the polled read (each attempt). Only used
+    // to publish the phase - the download itself always re-reads before starting.
+    private network: NetworkState | undefined;
+    private networkSubscription: { remove: () => void } | undefined;
+    private songInFlight: string | undefined;
 
     constructor(db: GenericDb) {
         this.db = db;
@@ -32,9 +40,23 @@ export class Downloader {
             if (!this.downloading && !this.paused) {
                 await this.downloadNext();
             }
+            // Even when nothing runs, keep the published phase honest (queue count, network).
+            await this.publishStatus();
         }, 2000);
-        this.paused = false;
-    
+
+        // Pause is a user decision, so it survives restarts (see CLAUDE.md "durability before enrichment"
+        // - same principle at a smaller scale: the choice lives in storage, not in whatever the loop last did).
+        (async () => {
+            this.paused = (await AsyncStorage.getItem(STORAGE_KEYS.DOWNLOADS_PAUSED)) === "1";
+            await this.publishStatus();
+        })();
+
+        // Surface "waiting for Wi-Fi" the moment the network changes rather than on the next tick.
+        this.networkSubscription = addNetworkStateListener((state) => {
+            this.network = state;
+            void this.publishStatus();
+        });
+
         // Ensure directories exist
         (async () => {
             await FileSystem.makeDirectoryAsync(tempFolder, { intermediates: true });
@@ -47,14 +69,79 @@ export class Downloader {
     public dispose() {
         this.paused = true;
         clearInterval(this.timerId);
+        this.networkSubscription?.remove();
+    }
+
+    /** Stops starting NEW downloads. A song already in flight is allowed to finish (they are single files). */
+    public async pause() {
+        this.paused = true;
+        await AsyncStorage.setItem(STORAGE_KEYS.DOWNLOADS_PAUSED, "1");
+        await this.publishStatus();
+    }
+
+    public async resume() {
+        this.paused = false;
+        await AsyncStorage.setItem(STORAGE_KEYS.DOWNLOADS_PAUSED, "0");
+        await this.publishStatus();
+        // Don't make the user wait out the timer to see it start.
+        void this.downloadNext();
+    }
+
+    public async removeFromQueue(songId: string) {
+        await DbQueries.removeFromDownloadQueue(this.db, songId);
+        await this.publishStatus();
+    }
+
+    public async clearQueue() {
+        await DbQueries.removeAllFromDownloadQueue(this.db);
+        await this.publishStatus();
+    }
+
+    /**
+     * Recomputes the observable status from the queue, the loop's own flags and the last network state.
+     * Cheap (one COUNT), and the only writer of the store apart from the in-flight progress callback.
+     */
+    private async publishStatus() {
+        try {
+            const queuedCount = await DbQueries.countDownloadQueue(this.db);
+            if (this.network == undefined) {
+                this.network = await getNetworkStateAsync();
+            }
+            const phase = derivePhase({
+                paused: this.paused,
+                downloading: this.downloading,
+                queuedCount,
+                network: { isInternetReachable: this.network.isInternetReachable === true, type: this.network.type },
+            });
+            const current = useDownloadStatus.getState().status.current;
+            useDownloadStatus.getState().setStatus({
+                phase,
+                queuedCount,
+                // Keep the progress the callback wrote; only clear it once nothing is in flight.
+                current: this.songInFlight ? (current?.songId === this.songInFlight ? current : { songId: this.songInFlight, progress: 0 }) : undefined,
+            });
+        } catch (e) {
+            console.warn("[downloader] failed to publish status", e);
+        }
+    }
+
+    private publishProgress(songId: string, progress: number) {
+        const current = useDownloadStatus.getState().status.current;
+        // Throttle to whole-percent changes so a large file doesn't re-render the screen hundreds of times.
+        if (current?.songId === songId && Math.round(current.progress * 100) === Math.round(progress * 100)) {
+            return;
+        }
+        useDownloadStatus.getState().setStatus({ current: { songId, progress } });
     }
 
     public async addSongToDownloadQueue(songId: string, priority: DownloadPriority) {
         await DbQueries.addToDownloadQueue(this.db, [songId], priority);
+        await this.publishStatus();
     }
 
     // TODO: this could be optimized to prevent spam-presses
-    async addPlaylistToDownloadQueue(playlistId: string, priority: DownloadPriority) {
+    /** Returns what happened so the button can say so: how many were queued vs. already on disk. */
+    async addPlaylistToDownloadQueue(playlistId: string, priority: DownloadPriority): Promise<{ queued: number; alreadyDownloaded: number }> {
         let songs = await DbQueries.getSongsByPlaylist(this.db, playlistId);
         const existingSongs: string[] = [];
 
@@ -68,6 +155,8 @@ export class Downloader {
     
         songs = songs.filter(x => !existingSongs.includes(x.songId));
         await DbQueries.addToDownloadQueue(this.db, songs.map(x => x.songId), priority);
+        await this.publishStatus();
+        return { queued: songs.length, alreadyDownloaded: existingSongs.length };
     }
 
     public static async fileExists(uri: string) {
@@ -95,9 +184,12 @@ export class Downloader {
                 return;
             }
     
+            // Re-read rather than trust the listener: this is the gate that spends the user's data.
+            // Allowlist (Wi-Fi / Ethernet), not "anything but cellular" - see tools/downloadStatus.ts.
             const networkState = await getNetworkStateAsync();
-    
-            if (!networkState.isInternetReachable || networkState.type == NetworkStateType.CELLULAR) {
+            this.network = networkState;
+
+            if (!networkState.isInternetReachable || !isDownloadNetwork(networkState.type)) {
                 return;
             }
 
@@ -116,11 +208,21 @@ export class Downloader {
             }
 
             // Download song
+            this.songInFlight = song.songId;
+            this.publishProgress(song.songId, 0);
+            await this.publishStatus();
             const songFileName = Downloader.generateSongFileName(song);
             const songDownloadedPath = path.join(tempFolder, songFileName);
             const songDownloadResumable = FileSystem.createDownloadResumable(
                 path.join(hostAddress, "music", songFileName),
-                songDownloadedPath);
+                songDownloadedPath,
+                {},
+                ({ totalBytesWritten, totalBytesExpectedToWrite }) => {
+                    if (totalBytesExpectedToWrite > 0) {
+                        this.publishProgress(song.songId, totalBytesWritten / totalBytesExpectedToWrite);
+                    }
+                },
+            );
             const downloadedSongFile = await songDownloadResumable.downloadAsync();
     
             if (downloadedSongFile == undefined) {
@@ -162,10 +264,13 @@ export class Downloader {
             });
             await DbQueries.addDownloadedSong(this.db, song.songId);
             await DbQueries.removeFromDownloadQueue(this.db, song.songId);
+            useDownloadStatus.getState().setStatus({ completedCount: useDownloadStatus.getState().status.completedCount + 1 });
         } catch (e) {
             console.error(e);
         } finally {
             this.downloading = false;
+            this.songInFlight = undefined;
+            await this.publishStatus();
         }
     }
 
