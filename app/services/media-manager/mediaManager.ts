@@ -13,10 +13,39 @@ import { create } from "zustand";
 import path from "path-browserify";
 import { SongFilters } from "../../types/SongFilters";
 import { selectNextSong } from "../../tools/shuffle";
+import { addNetworkStateListener } from "expo-network";
+import {
+    classifyPlaybackError,
+    decidePlaybackRecovery,
+    PlaybackErrorLike,
+} from "../../tools/playbackFailure";
 
 let queue: string[] = [];
 let db: GenericDb;
 let trackPlayerInitialized = false;
+// ── failure recovery ─────────────────────────────────────────────────────────────────────────────────────
+// A track that fails to load is NOT automatically a track worth skipping - see tools/playbackFailure.ts for
+// why the two mistakes here are not symmetric. This module holds the state that decision needs; the decision
+// itself is pure and lives there so it can be tested.
+
+// Whether the track currently handed to the player came off local storage rather than the network. The
+// strongest signal available for classifying a failure, and worth more than any error code: a file already on
+// disk cannot fail because the connection did.
+let activeSourceIsLocal = false;
+// Failed attempts at the CURRENT track since it last played. Cleared whenever a track starts or plays.
+let trackRetryAttempts = 0;
+// Songs skipped in a row for being unplayable. Bounds skip-on-error so a batch deleted server-side (or a
+// device with nothing downloaded) cannot walk the whole library. Anything that actually plays clears it.
+let consecutiveFailedSkips = 0;
+// The song the player is stalled on, waiting out a fault that looks environmental. Set for as long as we are
+// prepared to resume it - INCLUDING after the retry timer has given up, because connectivity returning is
+// still a good reason to carry on, and that can happen long after the last scheduled attempt.
+let stalledSongId: string | undefined;
+// Cancellation token for a scheduled retry. Every track change and every user action bumps it, so a timer
+// that fires late cannot restart a song the user has already moved on from.
+let recoveryEpoch = 0;
+let retryTimer: ReturnType<typeof setTimeout> | undefined;
+let networkRecoverySubscribed = false;
 
 interface ActiveSongState {
     songId: string | undefined;
@@ -63,6 +92,28 @@ interface LikeStatusState {
 export const useLikeStatus = create<LikeStatusState>((set) => ({
     statuses: {},
     setLikeStatus: (songId, status) => set((s) => ({ statuses: { ...s.statuses, [songId]: status } })),
+}));
+
+/**
+ * Why playback is not making progress, so the UI can say so.
+ *
+ * The incident this came from was silent: songs advanced on their own, with nothing on screen to explain it.
+ * Waiting on the same song is the right behaviour, but waiting INVISIBLY just looks broken - it is the same
+ * complaint in a different shape. Undefined means playback is healthy.
+ */
+export type PlaybackIssue = {
+    kind: "reconnecting" | "offline" | "unplayable";
+    songId: string | undefined;
+};
+
+interface PlaybackIssueState {
+    issue: PlaybackIssue | undefined;
+    setIssue: (issue: PlaybackIssue | undefined) => void;
+}
+
+export const usePlaybackIssue = create<PlaybackIssueState>((set) => ({
+    issue: undefined,
+    setIssue: (issue) => set({ issue }),
 }));
 
 export async function setup(activeDb: GenericDb) {
@@ -181,15 +232,190 @@ async function setupEventListeners() {
         }
     });
     TrackPlayer.addEventListener(Event.PlaybackState, async (state: PlaybackState) => {
+        // A track reaching the speakers is the only proof that BOTH the source and the path to it are good, so
+        // it is what clears every failure budget. Without this, an unplayable stretch of the library would
+        // permanently disable skip-on-error.
+        if (state.state == State.Playing) {
+            consecutiveFailedSkips = 0;
+            clearStall();
+            return;
+        }
+
         if (state.state != State.Ended) {
             return;
         }
 
         await skip();
     });
+    // A track that FAILS to load lands in State.Error, not State.Ended, so the handler above never fires and
+    // playback just stops dead with nothing logged -- which is how a song deleted server-side, a dropped
+    // network and a corrupt file all presented.
+    TrackPlayer.addEventListener(Event.PlaybackError, async (error) => await handlePlaybackFailure(error));
+    subscribeToNetworkRecovery();
+}
+
+/**
+ * Normalises the error event into the { code, message } pair the classifier wants.
+ *
+ * Android emits exactly that. iOS does NOT: `handleAudioPlayerFailed` sends `{ error: <localizedDescription> }`
+ * with no code at all, and the code only reaches JS through the PLAYBACK STATE payload
+ * (`getPlaybackStateErrorKeyValues`). Reading it back from there is the difference between classifying an iOS
+ * "not connected to the internet" correctly and lumping every iOS failure into unknown.
+ */
+async function describePlaybackError(raw: unknown): Promise<PlaybackErrorLike> {
+    const event = (raw ?? {}) as { code?: string; message?: string; error?: unknown };
+    const eventMessage = event.message ?? (typeof event.error === "string" ? event.error : undefined);
+
+    if (typeof event.code === "string" && event.code.length > 0) {
+        return { code: event.code, message: eventMessage };
+    }
+
+    try {
+        const state = await getPlaybackState() as { error?: { code?: string; message?: string } };
+        if (state.error?.code) {
+            return { code: state.error.code, message: state.error.message ?? eventMessage };
+        }
+    } catch {
+        // Player unavailable - fall through to whatever the event itself carried.
+    }
+
+    return { code: undefined, message: eventMessage };
+}
+
+async function handlePlaybackFailure(raw: unknown) {
+    // Supersede any retry already queued for this track: this failure is the newer information.
+    cancelScheduledRetry();
+
+    const songId = useActiveSong.getState().songId;
+    const error = await describePlaybackError(raw);
+    const kind = classifyPlaybackError(error, { isLocalSource: activeSourceIsLocal });
+    const recovery = decidePlaybackRecovery({
+        kind,
+        attempt: trackRetryAttempts,
+        consecutiveSkips: consecutiveFailedSkips,
+    });
+
+    console.warn(
+        `[player] ${kind} playback failure on song ${songId} ` +
+        `(code=${error.code ?? "none"}, source=${activeSourceIsLocal ? "local" : "stream"}, ` +
+        `attempt=${trackRetryAttempts}) -> ${recovery.action}: ${error.message ?? "no message"}`);
+
+    if (recovery.action === "retry") {
+        trackRetryAttempts++;
+        stalledSongId = songId;
+        usePlaybackIssue.getState().setIssue({ kind: "reconnecting", songId });
+        scheduleRetry(recovery.delayMs);
+        return;
+    }
+
+    if (recovery.action === "skip") {
+        consecutiveFailedSkips++;
+        clearStall();
+        await skip(false);
+        return;
+    }
+
+    if (recovery.reason === "offline") {
+        // The timer gives up; the recovery does not. stalledSongId stays set, so the network coming back
+        // resumes THIS song - which is the whole point of never having skipped it.
+        stalledSongId = songId;
+        console.warn("[player] still unreachable - waiting for the connection to come back before retrying.");
+        usePlaybackIssue.getState().setIssue({ kind: "offline", songId });
+        return;
+    }
+
+    console.warn(
+        "[player] too many unplayable songs in a row - stopping rather than skipping further. " +
+        "Playback resumes on the next explicit play/skip.");
+    stalledSongId = undefined;
+    usePlaybackIssue.getState().setIssue({ kind: "unplayable", songId });
+}
+
+/** Drops any queued retry and invalidates in-flight ones. Every track change and user action goes through it. */
+function cancelScheduledRetry() {
+    recoveryEpoch++;
+
+    if (retryTimer != undefined) {
+        clearTimeout(retryTimer);
+        retryTimer = undefined;
+    }
+}
+
+/** Back to healthy: nothing pending, no stall, nothing for the UI to report. */
+function clearStall() {
+    cancelScheduledRetry();
+    trackRetryAttempts = 0;
+    stalledSongId = undefined;
+    usePlaybackIssue.getState().setIssue(undefined);
+}
+
+function scheduleRetry(delayMs: number) {
+    const epoch = recoveryEpoch;
+    retryTimer = setTimeout(async () => {
+        retryTimer = undefined;
+
+        if (epoch !== recoveryEpoch) {
+            return;
+        }
+
+        await retryCurrentTrack();
+    }, delayMs);
+}
+
+/**
+ * Re-prepares the track ALREADY loaded, rather than starting a new one.
+ *
+ * That distinction is the fix. `startNewSong` stamps `user_songs.last_played` and queues an
+ * `UpdateSongLastPlayed` to the server, so routing recovery through it would record a song as played every
+ * time the connection wobbled. `TrackPlayer.retry()` is `player.prepare()` on the existing item: it resumes
+ * from the same position and writes nothing.
+ */
+async function retryCurrentTrack() {
+    try {
+        await TrackPlayer.retry();
+        await TrackPlayer.play();
+    } catch (error) {
+        console.warn("[player] could not restart the stalled track:", error);
+    }
+}
+
+/**
+ * Resumes a stalled song the moment the device has a connection again, instead of waiting out the rest of the
+ * backoff - or, once the retry budget is spent, instead of not resuming at all. This is what makes walking
+ * back into signal recover on its own.
+ */
+function subscribeToNetworkRecovery() {
+    if (networkRecoverySubscribed) {
+        return;
+    }
+
+    networkRecoverySubscribed = true;
+    addNetworkStateListener(({ isInternetReachable }) => {
+        if (isInternetReachable !== true || stalledSongId == undefined) {
+            return;
+        }
+
+        console.info(`[player] connection is back - resuming song ${stalledSongId}.`);
+        cancelScheduledRetry();
+        // A fresh budget: the reason the old one ran out has demonstrably changed.
+        trackRetryAttempts = 0;
+        usePlaybackIssue.getState().setIssue({ kind: "reconnecting", songId: stalledSongId });
+        void retryCurrentTrack();
+    });
+}
+
+/**
+ * Called by everything the USER initiates. A person pressing play, next or previous is new information, and
+ * it must not inherit a budget that some earlier outage exhausted - otherwise the player stays wedged after
+ * the cause is long gone.
+ */
+function beginUserInitiatedPlayback() {
+    consecutiveFailedSkips = 0;
+    clearStall();
 }
 
 export async function play() {
+    beginUserInitiatedPlayback();
     const playbackState = (await getPlaybackState()).state;
 
     // "Resume" only means something if a track is actually LOADED. Without this check the branch below depends
@@ -202,6 +428,15 @@ export async function play() {
         hasTrack = (await TrackPlayer.getActiveTrack()) != undefined;
     } catch {
         hasTrack = false;
+    }
+
+    // Pressing play on a track that FAILED means "try that again", not "give up on it". Without this branch
+    // State.Error falls through to the else below and skips - so the one gesture a user makes to recover from
+    // a stall was the gesture that lost them the song, which is the same mistake the error handler used to
+    // make automatically.
+    if (hasTrack && playbackState == State.Error) {
+        await retryCurrentTrack();
+        return;
     }
 
     if (hasTrack && (playbackState == State.Paused || playbackState == State.Ready)) {
@@ -229,6 +464,8 @@ export async function play() {
  * anywhere played exactly that song and then stopped dead.
  */
 export async function playSpecificSong(songId: string, scope?: SongFilters) {
+    beginUserInitiatedPlayback();
+
     // Activating the song that's already current must never restart it: resume if paused, otherwise leave it
     // playing (don't disturb the existing queue/scope). A different song plays fresh from the start.
     if (useActiveSong.getState().songId === songId) {
@@ -247,10 +484,24 @@ export async function playSpecificSong(songId: string, scope?: SongFilters) {
 }
 
 export async function pause() {
+    // Disarms recovery. A retry queued for a stalled song would otherwise fire seconds later and start audio
+    // the user has just stopped - and so would the network-came-back listener, at any point afterwards.
+    // Pausing is a decision to stop waiting; play() re-prepares the same track rather than skipping it.
+    clearStall();
     await TrackPlayer.pause();
 }
 
-export async function skip() {
+/**
+ * `userInitiated` defaults to true because almost every caller is a person or a finished song, and both
+ * legitimately reset the failure budgets. The ONE caller that passes false is the error-recovery path, which
+ * is stepping over an unplayable song: letting that reset the budget would defeat the bound it is counted
+ * against and let a bad stretch of the library run away again.
+ */
+export async function skip(userInitiated: boolean = true) {
+    if (userInitiated) {
+        beginUserInitiatedPlayback();
+    }
+
     let recentlyPlayedSong: RecentlyPlayedSong | undefined;
     let songId: string | undefined;
 
@@ -287,6 +538,7 @@ export async function skip() {
 }
 
 export async function previous() {
+    beginUserInitiatedPlayback();
     const recentlyPlayedSong = await DbQueries.checkForLastRecentlyPlayedSong(db);
 
     if (recentlyPlayedSong != undefined) {
@@ -326,6 +578,8 @@ export async function clear() {
         return;
     }
 
+    // Before anything else: a retry armed for the song being cleared would otherwise fire into an empty player.
+    clearStall();
     clearQueue();
     await clearSong();
     await clearRecentlyPlayed();
@@ -464,8 +718,13 @@ async function startNewSong(songId: string, recentlyPlayedSong?: RecentlyPlayedS
         }
     }
 
-    if (await Downloader.fileExists(Downloader.generateLocalSongUri(song))) {
-        songUri = Downloader.generateLocalSongUri(song);
+    const localSongUri = Downloader.generateLocalSongUri(song);
+    // Remembered, not just branched on: only a STREAMED track can fail for a network reason, so this is what
+    // stops a corrupt local file from being waited out as though the connection were at fault.
+    activeSourceIsLocal = await Downloader.fileExists(localSongUri);
+
+    if (activeSourceIsLocal) {
+        songUri = localSongUri;
     } else {
         songUri = await generateUrl(song, false);
     }
@@ -480,6 +739,10 @@ async function startNewSong(songId: string, recentlyPlayedSong?: RecentlyPlayedS
     } else {
         artworkUri = await Downloader.generateServerAlbumArtUrl(song);
     }
+
+    // A different track supersedes any recovery in flight for the previous one - including a retry timer that
+    // has not fired yet, which would otherwise restart the song the player has just moved off.
+    clearStall();
 
     await clearSong();
     await TrackPlayer.add([{

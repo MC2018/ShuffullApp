@@ -179,4 +179,106 @@ describe("scoped next-song pool", () => {
             expect(filters.unheardOnly).toBe(false);
         });
     });
+
+    /**
+     * An unrated song cannot be shown to fall inside a requested energy band, so it must not match one. The
+     * original condition led with `s.energy IS NULL OR ...`, which short-circuited the band entirely: an energy
+     * jam admitted every untagged song, and because those sort first under ORDER BY last_played ASC the 500-row
+     * pool ended up holding nothing but unknown-energy songs.
+     */
+    describe("energy band", () => {
+        beforeEach(() => {
+            // s1..s3 from makeDb have no energy; these two are the only rated songs.
+            (db as any).$client.exec(`
+                INSERT INTO songs (song_id, file_extension, file_hash, name, energy) VALUES
+                    ('e5','mp3','h5','Energy Five',5),
+                    ('e9','mp3','h9','Energy Nine',9)`);
+        });
+
+        it("excludes unknown-energy songs once a band is set", async () => {
+            const filters = new SongFilters();
+            filters.energyMin = 4;
+            filters.energyMax = 6;
+
+            const pool = await getFilteredSong(db, filters);
+            expect(pool.map((x) => x.songId)).toEqual(["e5"]);
+        });
+
+        it("excludes unknown-energy songs when only a lower bound is set", async () => {
+            const filters = new SongFilters();
+            filters.energyMin = 4;
+
+            const pool = await getFilteredSong(db, filters);
+            expect(pool.map((x) => x.songId).sort()).toEqual(["e5", "e9"]);
+        });
+
+        it("excludes unknown-energy songs when only an upper bound is set", async () => {
+            const filters = new SongFilters();
+            filters.energyMax = 6;
+
+            const pool = await getFilteredSong(db, filters);
+            expect(pool.map((x) => x.songId)).toEqual(["e5"]);
+        });
+
+        it("keeps unknown-energy songs eligible while no bound is set", async () => {
+            const filters = new SongFilters();
+
+            const pool = await getFilteredSong(db, filters);
+            expect(pool.map((x) => x.songId).sort()).toEqual(["e5", "e9", "s1", "s2", "s3"]);
+        });
+    });
+
+    /**
+     * Audition songs are unvetted and carry no tags, so in general shuffle they match every tag-less filter and
+     * crowd out the real library -- on one device 377 of a 500-song pool were audition tracks. They must stay
+     * reachable through the playlist scope every audition play path sets, and nowhere else.
+     */
+    describe("audition songs outside their cohort", () => {
+        beforeEach(() => {
+            (db as any).$client.exec(`
+                INSERT INTO songs (song_id, file_extension, file_hash, name, exploratory, energy)
+                    VALUES ('x1','mp3','hx','Audition Track',1,5);
+                INSERT INTO playlist_songs (playlist_song_id, playlist_id, song_id) VALUES ('psx','pl-x','x1');
+                INSERT INTO song_tags (song_tag_id, song_id, tag_id) VALUES ('stx','x1','g1')`);
+        });
+
+        it("are excluded from an unscoped shuffle", async () => {
+            const pool = await getFilteredSong(db, new SongFilters());
+            expect(pool.map((x) => x.songId)).not.toContain("x1");
+        });
+
+        it("are excluded from a genre scope, even when they carry that tag", async () => {
+            const filters = new SongFilters();
+            filters.setSoleFilter(SongFilterType.Genre, ["g1"]);
+
+            const pool = await getFilteredSong(db, filters);
+            expect(pool.map((x) => x.songId)).not.toContain("x1");
+        });
+
+        it("are excluded from an energy band they would otherwise match", async () => {
+            const filters = new SongFilters();
+            filters.energyMin = 4;
+            filters.energyMax = 6;
+
+            const pool = await getFilteredSong(db, filters);
+            expect(pool.map((x) => x.songId)).not.toContain("x1");
+        });
+
+        it("remain playable when scoped to their audition playlist", async () => {
+            const filters = new SongFilters();
+            filters.setSoleFilter(SongFilterType.Playlist, ["pl-x"]);
+
+            const pool = await getFilteredSong(db, filters);
+            expect(pool.map((x) => x.songId)).toEqual(["x1"]);
+        });
+
+        it("still play under the audition cohort's unheard-only narrowing", async () => {
+            const filters = new SongFilters();
+            filters.setSoleFilter(SongFilterType.Playlist, ["pl-x"]);
+            filters.unheardOnly = true;
+
+            const pool = await getFilteredSong(db, filters);
+            expect(pool.map((x) => x.songId)).toEqual(["x1"]);
+        });
+    });
 });

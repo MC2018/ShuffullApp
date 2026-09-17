@@ -33,6 +33,7 @@ export enum State {
 
 export enum Event {
     PlaybackState = "playback-state",
+    PlaybackError = "playback-error",
     PlaybackActiveTrackChanged = "playback-active-track-changed",
     PlaybackQueueEnded = "playback-queue-ended",
     RemotePlay = "remote-play",
@@ -53,6 +54,7 @@ export enum Capability {
 }
 
 export type PlaybackState = { state: State };
+export type PlaybackErrorEvent = { code: string; message: string };
 export type RemoteSeekEvent = { position: number };
 export type Track = { url: string; title?: string; artist?: string; artwork?: string; [k: string]: unknown };
 
@@ -198,6 +200,27 @@ function publishPosition() {
     }
 }
 
+/**
+ * Maps the element's MediaError onto the code vocabulary `tools/playbackFailure.ts` classifies.
+ *
+ * Emitting this at all is the point: desktop has no PlaybackError event of its own, so mediaManager's
+ * recovery listener was registered against `undefined` and could never fire - and desktop is the platform
+ * MOST exposed to it, because Downloader.web caches nothing, so every single track streams.
+ *
+ * SRC_NOT_SUPPORTED is deliberately not called permanent. Chromium reports it both for a source the server
+ * refused to hand over and for one it genuinely cannot decode, so the honest code is one the classifier
+ * treats as unknown - retried a couple of times, and only then skipped.
+ */
+function describeMediaError(error: MediaError | null): PlaybackErrorEvent {
+    switch (error?.code) {
+        case 1: return { code: "web-aborted", message: error.message || "Playback was aborted" };
+        case 2: return { code: "web-network", message: error.message || "A network error interrupted playback" };
+        case 3: return { code: "web-decode", message: error.message || "The media could not be decoded" };
+        case 4: return { code: "web-src-not-supported", message: error.message || "The source could not be loaded" };
+        default: return { code: "web-unknown", message: error?.message || "Playback failed" };
+    }
+}
+
 function el(): HTMLAudioElement {
     if (!audio) {
         audio = new Audio();
@@ -210,7 +233,10 @@ function el(): HTMLAudioElement {
             // The manager listens for this to advance the queue, exactly as it does natively.
             emit(Event.PlaybackQueueEnded, { track: activeIndex, position: audio?.currentTime ?? 0 });
         });
-        audio.addEventListener("error", () => setState(State.Error));
+        audio.addEventListener("error", () => {
+            setState(State.Error);
+            emit(Event.PlaybackError, describeMediaError(el().error));
+        });
         // Duration is unknown until metadata lands, so the applet's scrubber can only be published here.
         audio.addEventListener("loadedmetadata", publishPosition);
         audio.addEventListener("seeked", publishPosition);
@@ -227,6 +253,9 @@ async function load(index: number, autoplay: boolean) {
     a.load();
     publishMetadata(track);
     emit(Event.PlaybackActiveTrackChanged, { index, track });
+    // A rejected play() is deliberately NOT reported as a playback error: it means the browser refused the
+    // gesture (autoplay policy), not that the source failed. A source that genuinely fails also fires the
+    // element's `error` event, which is where PlaybackError comes from.
     if (autoplay) await a.play().catch(() => setState(State.Error));
 }
 
@@ -301,6 +330,36 @@ const TrackPlayer = {
         await el().play().catch(() => setState(State.Error));
     },
     async pause() { el().pause(); },
+
+    /**
+     * RNTP's recovery hook: re-prepare the item that failed, from where it failed. Natively this is
+     * `player.prepare()`; here it is a reload of the same src, with the position restored once metadata is
+     * back (currentTime cannot be set before then). mediaManager calls this instead of starting a new song
+     * precisely because it must not write play history for a track that never played.
+     */
+    async retry() {
+        const a = el();
+        if (!a.src) {
+            return;
+        }
+
+        const position = a.currentTime || 0;
+        a.load();
+
+        if (position > 0) {
+            const restore = () => {
+                a.removeEventListener("loadedmetadata", restore);
+                try {
+                    a.currentTime = position;
+                } catch {
+                    // Source shorter than the saved position; starting over is the sane fallback.
+                }
+            };
+            a.addEventListener("loadedmetadata", restore);
+        }
+
+        await a.play().catch(() => setState(State.Error));
+    },
     /**
      * Does NOT emit Event.RemoteSeek. In RNTP the Remote* events are INPUT - "the OS/lock-screen asked us to
      * do this" - not notifications that it happened. mediaManager listens for RemoteSeek and responds by

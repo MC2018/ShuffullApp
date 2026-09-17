@@ -33,7 +33,9 @@ export class SongFilters {
     localOnly = false;
     whitelists: WhitelistSetting = emptyWhitelist();
     blacklists: WhitelistSetting = emptyWhitelist();
-    // Energy band [energyMin, energyMax] (1-10); null = no bound. Songs with unknown energy are still included.
+    // Energy band [energyMin, energyMax] (1-10); null = no bound. A song with unknown (null) energy matches
+    // only while BOTH bounds are null -- setting either one excludes it, since an unrated song cannot be shown
+    // to fall in the band.
     energyMin: number | null = null;
     energyMax: number | null = null;
     // Audition-only narrowing: restrict the shuffle pool to songs that have NEVER been played, so a cohort

@@ -214,7 +214,8 @@ export const genreJamTable = sqliteTable("genre_jam", {
     name: text("name").notNull(),
     whitelists: text("whitelists", { mode: "json" }).$type<WhitelistSetting>().notNull(),
     blacklists: text("blacklists", { mode: "json" }).$type<WhitelistSetting>().notNull(),
-    // Energy band [energyMin, energyMax] (1-10); null = any. Songs with unknown energy are still included.
+    // Energy band [energyMin, energyMax] (1-10); null = any. A song with unknown (null) energy is excluded
+    // once either bound is set -- see getFilteredSong.
     // Stored as explicit min/max so moving to a fully custom range later is a trivial change.
     energyMin: integer("energy_min"),
     energyMax: integer("energy_max"),
