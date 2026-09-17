@@ -9,4 +9,6 @@ export const STORAGE_KEYS = {
     // ISO timestamp cursor for incremental refresh of already-synced songs (GET /api/v1/songs/changed).
     // Seeded at the first sync so we never re-page the whole library; advanced to the newest Version seen.
     SONG_SYNC_CURSOR: "SONG_SYNC_CURSOR",
+    // "1" while the user has paused background downloads. A user decision, so it outlives the process.
+    DOWNLOADS_PAUSED: "DOWNLOADS_PAUSED",
 }

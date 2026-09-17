@@ -191,11 +191,21 @@ export async function getFilteredSong(db: GenericDb, songFilters: SongFilters) {
                 )
             )
             AND (
-                s.energy IS NULL
-                OR (
-                    (${songFilters.energyMin == null ? 1 : 0} = 1 OR s.energy >= ${songFilters.energyMin ?? 0})
-                    AND (${songFilters.energyMax == null ? 1 : 0} = 1 OR s.energy <= ${songFilters.energyMax ?? 10})
-                )
+                -- With no band set, energy is not a filter and unknown-energy songs stay eligible. Once a bound
+                -- IS set, unknown energy is a NON-match rather than a free pass. The old form led with
+                -- a bare "s.energy IS NULL OR ...", which short-circuited the whole condition, so an energy jam matched
+                -- every untagged song in the library; combined with ORDER BY last_played ASC + LIMIT 500 the
+                -- pool then contained NOTHING BUT unknown-energy songs -- the exact opposite of the filter.
+                (${songFilters.energyMin == null ? 1 : 0} = 1 OR (s.energy IS NOT NULL AND s.energy >= ${songFilters.energyMin ?? 0}))
+                AND (${songFilters.energyMax == null ? 1 : 0} = 1 OR (s.energy IS NOT NULL AND s.energy <= ${songFilters.energyMax ?? 10}))
+            )
+            AND (
+                -- Audition songs are unvetted imports that belong to their own cohort playlist, and carry no
+                -- tags at all -- so in general shuffle they match every tag-less filter and crowd out the real
+                -- library. Every audition play path scopes by playlist (setSoleFilter(Playlist, ...)), so a
+                -- playlist whitelist is precisely where they must stay eligible, and nowhere else.
+                s.exploratory = 0
+                OR ${(songFilters.whitelists.playlistIds?.length ?? 0) > 0 ? 1 : 0} = 1
             )
             ORDER BY us.last_played ASC
         )
@@ -381,29 +391,16 @@ export async function getDownloadedSongDetails(db: GenericDb): Promise<SongDetai
     return result;
 }
 
+// The songs of ONE playlist, one row each. Until 2026-09-17 this had no WHERE and a per-artist join, so
+// "Download playlist" quietly enqueued the whole library (thousands of rows) - and with the queue invisible
+// nobody could tell. Its only caller is the Downloader, which needs Song rows, not artists.
 export async function getSongsByPlaylist(db: GenericDb, playlistId: string): Promise<Song[]> {
     return await db
-        .select({
-            songId: songTable.songId,
-            fileExtension: songTable.fileExtension,
-            fileHash: songTable.fileHash,
-            name: songTable.name,
-            syncedLyrics: songTable.syncedLyrics,
-            plainLyrics: songTable.plainLyrics,
-            lyricsInstrumental: songTable.lyricsInstrumental,
-            lyricsSource: songTable.lyricsSource,
-            bpm: songTable.bpm,
-            energy: songTable.energy,
-            exploratory: songTable.exploratory,
-            tagsStale: songTable.tagsStale,
-            artist: {
-                artistId: artistTable.artistId,
-                name: artistTable.name
-            }
-        })
-        .from(songTable)
-        .leftJoin(songArtistTable, eq(songTable.songId, songArtistTable.songId))
-        .leftJoin(artistTable, eq(songArtistTable.artistId, artistTable.artistId));
+        .select({ song: songTable })
+        .from(playlistSongTable)
+        .innerJoin(songTable, eq(songTable.songId, playlistSongTable.songId))
+        .where(eq(playlistSongTable.playlistId, playlistId))
+        .then(rows => rows.map(r => r.song));
 }
 
 

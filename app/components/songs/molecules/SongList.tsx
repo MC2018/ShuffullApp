@@ -19,13 +19,19 @@ interface SongListProps {
     // row treatment: unheard = accent dot ("needs its chance"), heard/disliked = dimmed (dies with the
     // cohort), kept = bookmark glyph, liked = heart glyph. Absent = plain rows, as everywhere else.
     auditionStates?: Record<string, AuditionRowState>;
+    // Scrolls with the list (the Downloads screen puts its status card + queue above the saved songs).
+    ListHeaderComponent?: React.ComponentProps<typeof FlatList>["ListHeaderComponent"];
+    ListEmptyComponent?: React.ComponentProps<typeof FlatList>["ListEmptyComponent"];
 }
 
-export function SongList({ songs, onSelectSong, onShowInfo, onKeepSong, auditionStates }: SongListProps) {
+export function SongList({ songs, onSelectSong, onShowInfo, onKeepSong, auditionStates, ListHeaderComponent, ListEmptyComponent }: SongListProps) {
     const theme = useTheme();
     return (
         <FlatList
             data={songs}
+            ListHeaderComponent={ListHeaderComponent}
+            ListEmptyComponent={ListEmptyComponent}
+            keyboardShouldPersistTaps="handled"
             keyExtractor={(item) => item.song.songId}
             showsVerticalScrollIndicator={false}
             renderItem={({ item }) => {

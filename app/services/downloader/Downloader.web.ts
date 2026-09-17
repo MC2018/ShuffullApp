@@ -3,6 +3,7 @@ import { STORAGE_KEYS } from "../../constants/storageKeys";
 import { GenericDb } from "../db/GenericDb";
 import { Song } from "../db/models";
 import { DownloadPriority } from "../db/types";
+import { useDownloadStatus } from "./downloadStatus";
 
 /**
  * Web/desktop build of the Downloader. Metro picks this over `Downloader.ts` for the web platform.
@@ -28,6 +29,8 @@ export class Downloader {
 
     constructor(db: GenericDb) {
         this.db = db;
+        // The shared Downloads screen reads this; say honestly that there is nothing to manage here.
+        useDownloadStatus.getState().setStatus({ phase: "unsupported", queuedCount: 0, current: undefined });
     }
 
     public dispose() { }
@@ -35,7 +38,17 @@ export class Downloader {
     /** No local store to queue into — accepted and ignored so the UI stays usable. */
     public async addSongToDownloadQueue(_songId: string, _priority: DownloadPriority) { }
 
-    public async addPlaylistToDownloadQueue(_playlistId: string, _priority: DownloadPriority) { }
+    public async addPlaylistToDownloadQueue(_playlistId: string, _priority: DownloadPriority): Promise<{ queued: number; alreadyDownloaded: number }> {
+        return { queued: 0, alreadyDownloaded: 0 };
+    }
+
+    public async pause() { }
+
+    public async resume() { }
+
+    public async removeFromQueue(_songId: string) { }
+
+    public async clearQueue() { }
 
     public async downloadNext() { }
 
