@@ -38,6 +38,10 @@ const HEART_SOLID =
 const BOOKMARK_OUTLINE =
   "M17,3H7A2,2 0 0,0 5,5V21L12,18L19,21V5C19,3.89 18.1,3 17,3M17,18L12,15.82L7,18V5H17V18Z";
 
+// Status-bar icon for the download foreground-service notification (services/background/foregroundService.ts).
+// Small icons must be monochrome; the launcher mipmap the library defaults to renders as a blank disc.
+const DOWNLOAD = "M5,20H19V18H5V20ZM19,9H15V3H9V9H5L12,16L19,9Z";
+
 const DRAWABLES = {
   hearte_24px: THUMB_UP_OUTLINE, // index 0
   heart_24px: THUMB_UP_SOLID, // index 1
@@ -45,6 +49,11 @@ const DRAWABLES = {
   baseline_repeat_one_24: THUMB_DOWN_SOLID, // index 3
   shuffle_24px: HEART_SOLID, // index 4 (Loved)
   ifl_24px: BOOKMARK_OUTLINE, // index 5 (Keep)
+};
+
+// App-only (not a fork slot): written to the app's res so it survives `prebuild --clean`.
+const APP_DRAWABLES = {
+  ic_stat_download: DOWNLOAD,
 };
 
 const vector = (pathData) =>
@@ -59,9 +68,9 @@ const vector = (pathData) =>
 </vector>
 `;
 
-function writeDrawables(dir) {
+function writeDrawables(dir, drawables = DRAWABLES) {
   if (!fs.existsSync(dir)) return;
-  for (const [name, pathData] of Object.entries(DRAWABLES)) {
+  for (const [name, pathData] of Object.entries(drawables)) {
     fs.writeFileSync(path.join(dir, `${name}.xml`), vector(pathData));
   }
 }
@@ -81,6 +90,7 @@ module.exports = function withNotificationActionIcons(config) {
       );
       fs.mkdirSync(appDrawableDir, { recursive: true });
       writeDrawables(appDrawableDir);
+      writeDrawables(appDrawableDir, APP_DRAWABLES);
 
       // 2) The fork's own res inside node_modules (the reliable patch — library ships thumbs directly).
       const forkAndroid = path.join(

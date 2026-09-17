@@ -5,6 +5,10 @@ import {
     describeDownloadsRow,
     isDownloadNetwork,
     DownloadStatus,
+    shouldHoldForegroundService,
+    describeDownloadNotification,
+    retryDelayMs,
+    WIFI_ONLY_NOTE,
 } from "@/app/tools/downloadStatus";
 
 // Why an allowlist: the old gate was `type != CELLULAR`. On Android 10+ a VPN over LTE reports CELLULAR only
@@ -99,5 +103,58 @@ describe("describeDownloadsRow", () => {
         expect(describeDownloadsRow(status({ phase: "paused", queuedCount: 3 }), 10)).toBe("Paused · 3 queued");
         expect(describeDownloadsRow(status({ phase: "waiting-for-wifi", queuedCount: 3 }), 10)).toBe("Waiting for Wi-Fi · 3 queued");
         expect(describeDownloadsRow(status({ phase: "offline", queuedCount: 3 }), 10)).toBe("Offline · 3 queued");
+    });
+});
+
+describe("shouldHoldForegroundService", () => {
+    it("holds while there is queued work, even if the network is currently blocking it", () => {
+        // The hold is what keeps the process alive to hear the Wi-Fi-back event; the phase can be
+        // waiting-for-wifi or offline and the answer is still yes.
+        expect(shouldHoldForegroundService({ paused: false, downloading: false, queuedCount: 3 })).toBe(true);
+        expect(shouldHoldForegroundService({ paused: false, downloading: true, queuedCount: 1 })).toBe(true);
+    });
+
+    it("releases once the queue is empty", () => {
+        expect(shouldHoldForegroundService({ paused: false, downloading: false, queuedCount: 0 })).toBe(false);
+    });
+
+    it("releases on pause, but only after the in-flight song has landed", () => {
+        expect(shouldHoldForegroundService({ paused: true, downloading: true, queuedCount: 4 })).toBe(true);
+        expect(shouldHoldForegroundService({ paused: true, downloading: false, queuedCount: 4 })).toBe(false);
+    });
+});
+
+describe("describeDownloadNotification", () => {
+    const base: DownloadStatus = { phase: "downloading", queuedCount: 12, completedCount: 0 };
+
+    it("mirrors the status card and adds a determinate bar at the whole percent", () => {
+        const n = describeDownloadNotification({ ...base, current: { songId: "s", progress: 0.426 } }, "Freestyle");
+        expect(n.title).toBe("Downloading 12 songs");
+        expect(n.text).toBe("Freestyle · 43%");
+        expect(n.progress).toEqual({ max: 100, value: 43 });
+    });
+
+    it("is indeterminate before the first byte", () => {
+        const n = describeDownloadNotification(base, undefined);
+        expect(n.text).toBe("Starting…");
+        expect(n.progress).toEqual({ max: 100, value: 0, indeterminate: true });
+    });
+
+    it("has no bar while waiting, and states the policy so the shade explains itself", () => {
+        const n = describeDownloadNotification({ ...base, phase: "waiting-for-wifi" }, undefined);
+        expect(n.title).toBe("Waiting for Wi-Fi · 12 queued");
+        expect(n.text).toBe(WIFI_ONLY_NOTE);
+        expect(n.progress).toBeUndefined();
+    });
+});
+
+describe("retryDelayMs", () => {
+    it("doubles from 2 s and caps at a minute", () => {
+        expect(retryDelayMs(0)).toBe(0);
+        expect(retryDelayMs(1)).toBe(2000);
+        expect(retryDelayMs(2)).toBe(4000);
+        expect(retryDelayMs(5)).toBe(32000);
+        expect(retryDelayMs(6)).toBe(60000);
+        expect(retryDelayMs(50)).toBe(60000);
     });
 });
