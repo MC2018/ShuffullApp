@@ -1,5 +1,5 @@
 import { GenericDb } from "../db/GenericDb";
-import TrackPlayer, { Capability, Event, PlaybackState, RemoteSeekEvent, State } from "react-native-track-player";
+import TrackPlayer, { Capability, Event, PlaybackState, RemoteSeekEvent, State, usePlaybackState } from "react-native-track-player";
 import { CreateUserSongRequest, RecentlyPlayedSong, Request, Song, UpdateSongLastPlayedRequest } from "../db/models";
 import DbQueries from "../db/queries";
 import { shouldPromoteOnLike, shouldSkipOnDislike } from "../../tools/promotion";
@@ -32,6 +32,13 @@ let trackPlayerInitialized = false;
 // strongest signal available for classifying a failure, and worth more than any error code: a file already on
 // disk cannot fail because the connection did.
 let activeSourceIsLocal = false;
+// The URL the current track is streaming from, when it is not local. Probed after an inconclusive failure to
+// learn the HTTP status the error event does not carry.
+let activeStreamUrl: string | undefined;
+// The user has paused, and nothing automatic may start audio again until they press play. Recovery used to
+// override this: a retry already in flight, or the next failure event, would restart or skip the song seconds
+// after the user had stopped it, which made a stall impossible to get out of without closing the app.
+let userPaused = false;
 // Failed attempts at the CURRENT track since it last played. Cleared whenever a track starts or plays.
 let trackRetryAttempts = 0;
 // Songs skipped in a row for being unplayable. Bounds skip-on-error so a batch deleted server-side (or a
@@ -288,7 +295,28 @@ async function handlePlaybackFailure(raw: unknown) {
 
     const songId = useActiveSong.getState().songId;
     const error = await describePlaybackError(raw);
-    const kind = classifyPlaybackError(error, { isLocalSource: activeSourceIsLocal });
+    let kind = classifyPlaybackError(error, { isLocalSource: activeSourceIsLocal });
+    let probedStatus: number | "unreachable" | undefined;
+
+    if (kind === "unknown" && activeStreamUrl != undefined) {
+        const epoch = recoveryEpoch;
+        probedStatus = await probeStreamStatus(activeStreamUrl);
+
+        // The probe can take seconds. A skip or a new song in that window has made this failure stale, and
+        // acting on it would retry or skip the song the user has just moved to.
+        if (epoch !== recoveryEpoch) {
+            return;
+        }
+
+        kind = classifyPlaybackError(error, { isLocalSource: activeSourceIsLocal, probedStatus });
+    }
+
+    if (userPaused) {
+        // Recorded, not acted on. The user has stopped playback; retrying or skipping now would override that.
+        console.warn(`[player] ${kind} playback failure on song ${songId} while paused - leaving it paused.`);
+        return;
+    }
+
     const recovery = decidePlaybackRecovery({
         kind,
         attempt: trackRetryAttempts,
@@ -298,6 +326,7 @@ async function handlePlaybackFailure(raw: unknown) {
     console.warn(
         `[player] ${kind} playback failure on song ${songId} ` +
         `(code=${error.code ?? "none"}, source=${activeSourceIsLocal ? "local" : "stream"}, ` +
+        `probe=${probedStatus ?? "none"}, ` +
         `attempt=${trackRetryAttempts}) -> ${recovery.action}: ${error.message ?? "no message"}`);
 
     if (recovery.action === "retry") {
@@ -329,6 +358,27 @@ async function handlePlaybackFailure(raw: unknown) {
         "Playback resumes on the next explicit play/skip.");
     stalledSongId = undefined;
     usePlaybackIssue.getState().setIssue({ kind: "unplayable", songId });
+}
+
+const PROBE_TIMEOUT_MS = 8_000;
+
+/**
+ * Asks the stream URL directly what the player could not tell us. A HEAD is enough: the static file handler
+ * answers it with the same status a GET would get, and Cloudflare answers it with the same 530 when the tunnel
+ * is down. Never throws - not getting an answer at all is itself the answer.
+ */
+async function probeStreamStatus(url: string): Promise<number | "unreachable"> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS);
+
+    try {
+        const response = await fetch(url, { method: "HEAD", signal: controller.signal });
+        return response.status;
+    } catch {
+        return "unreachable";
+    } finally {
+        clearTimeout(timeout);
+    }
 }
 
 /** Drops any queued retry and invalidates in-flight ones. Every track change and user action goes through it. */
@@ -371,8 +421,17 @@ function scheduleRetry(delayMs: number) {
  * from the same position and writes nothing.
  */
 async function retryCurrentTrack() {
+    const epoch = recoveryEpoch;
+
     try {
         await TrackPlayer.retry();
+
+        // A pause landing while retry() was in flight has already cancelled this recovery; starting audio now
+        // would undo it.
+        if (epoch !== recoveryEpoch || userPaused) {
+            return;
+        }
+
         await TrackPlayer.play();
     } catch (error) {
         console.warn("[player] could not restart the stalled track:", error);
@@ -410,6 +469,7 @@ function subscribeToNetworkRecovery() {
  * the cause is long gone.
  */
 function beginUserInitiatedPlayback() {
+    userPaused = false;
     consecutiveFailedSkips = 0;
     clearStall();
 }
@@ -439,7 +499,10 @@ export async function play() {
         return;
     }
 
-    if (hasTrack && (playbackState == State.Paused || playbackState == State.Ready)) {
+    // Loading and Buffering are a track already on its way, not a reason to move on. They used to fall through
+    // to the skip below, so pressing the button on a song that was stuck loading skipped it.
+    if (hasTrack && (playbackState == State.Paused || playbackState == State.Ready || playbackState == State.Playing
+        || playbackState == State.Loading || playbackState == State.Buffering)) {
         await TrackPlayer.play();
     } else if (playbackState == State.None) {
         const currentlyPlayingSong = await getCurrentlyPlayingSong();
@@ -483,7 +546,35 @@ export async function playSpecificSong(songId: string, scope?: SongFilters) {
     await startNewSong(songId);
 }
 
+/**
+ * Whether the play/pause control should read as "pause": audio is playing or on its way. That includes a stall
+ * the player is still retrying - from the user's side it is trying to play, and the one thing they need from
+ * the button then is to make it stop. The old toggles checked for State.Playing alone, so during a stall the
+ * pause button called play(), which skipped the song.
+ */
+export function isPlaybackActive(state: State | undefined, issue: PlaybackIssue | undefined): boolean {
+    return state == State.Playing || state == State.Buffering || state == State.Loading || issue?.kind == "reconnecting";
+}
+
+/** Live `isPlaybackActive`, for drawing the play/pause glyph from the same rule `togglePlayback` acts on. */
+export function useIsPlaybackActive(): boolean {
+    const { state } = usePlaybackState();
+    const { issue } = usePlaybackIssue();
+    return isPlaybackActive(state, issue);
+}
+
+export async function togglePlayback() {
+    const state = (await getPlaybackState()).state;
+
+    if (isPlaybackActive(state, usePlaybackIssue.getState().issue)) {
+        await pause();
+    } else {
+        await play();
+    }
+}
+
 export async function pause() {
+    userPaused = true;
     // Disarms recovery. A retry queued for a stalled song would otherwise fire seconds later and start audio
     // the user has just stopped - and so would the network-came-back listener, at any point afterwards.
     // Pausing is a decision to stop waiting; play() re-prepares the same track rather than skipping it.
@@ -728,6 +819,8 @@ async function startNewSong(songId: string, recentlyPlayedSong?: RecentlyPlayedS
     } else {
         songUri = await generateUrl(song, false);
     }
+
+    activeStreamUrl = activeSourceIsLocal ? undefined : songUri;
 
     // Album art for the lock-screen / media-notification. Without an `artwork` on the track, Media3 has
     // nothing to render, which is why the notification showed no icon. Prefer the already-downloaded local

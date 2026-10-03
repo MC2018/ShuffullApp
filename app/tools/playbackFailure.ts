@@ -87,9 +87,13 @@ export function isRetryableHttpStatus(status: number): boolean {
 
 /**
  * `android-io-bad-http-status` covers both halves of the split on its own: a 404 from a song deleted
- * server-side and a 502 from the Cloudflare tunnel restarting arrive under the identical code. media3 puts the
- * number in the message (`InvalidResponseCodeException` is constructed as `"Response code: " + code`), so the
- * message is the only place the distinction exists.
+ * server-side and a 530 from the Cloudflare tunnel being down arrive under the identical code.
+ *
+ * media3 does put the number in a message (`InvalidResponseCodeException` is `"Response code: " + code`), but
+ * that is the CAUSE's message. The fork forwards `PlaybackException.message`, which for every source error is
+ * the literal `"Source error"` (ExoPlaybackException.deriveMessage, media3 1.9.0), so on Android this parse
+ * finds nothing and the status has to be probed for instead - see `ClassifyOptions.probedStatus`. Kept for any
+ * platform or future fork that does pass the cause through.
  */
 function extractHttpStatus(message: string | null | undefined): number | undefined {
     const match = /response code:\s*(\d{3})/i.exec(message ?? "");
@@ -105,16 +109,42 @@ export interface ClassifyOptions {
      * stall playback on a song that will never load, which is the failure mode the skip existed to prevent.
      */
     isLocalSource?: boolean;
+    /**
+     * What the stream URL answered when asked directly, after the player failed on it: an HTTP status, or
+     * `"unreachable"` if the request never got a response at all.
+     *
+     * Consulted only when the error itself is inconclusive. It is the answer the player's error event withholds
+     * (see `extractHttpStatus`), and without it a tunnel outage reads as "unknown" - which retried twice, ~3s,
+     * then skipped, burning one song every few seconds for as long as the outage lasted.
+     */
+    probedStatus?: number | "unreachable";
 }
 
 export function classifyPlaybackError(
     error: PlaybackErrorLike | null | undefined,
-    { isLocalSource = false }: ClassifyOptions = {},
+    { isLocalSource = false, probedStatus }: ClassifyOptions = {},
 ): PlaybackFailureKind {
     if (isLocalSource) {
         return "permanent";
     }
 
+    const kind = classifyFromError(error);
+    return kind === "unknown" && probedStatus != undefined ? classifyFromProbe(probedStatus) : kind;
+}
+
+/**
+ * Only ever refines an unknown. A probe that reached the server and got the file back (2xx/3xx) says the
+ * source is fine and the fault is elsewhere, so it stays unknown rather than being guessed in either direction.
+ */
+function classifyFromProbe(probedStatus: number | "unreachable"): PlaybackFailureKind {
+    if (probedStatus === "unreachable" || isRetryableHttpStatus(probedStatus)) {
+        return "transient";
+    }
+
+    return probedStatus >= 400 ? "permanent" : "unknown";
+}
+
+function classifyFromError(error: PlaybackErrorLike | null | undefined): PlaybackFailureKind {
     const code = (error?.code ?? "").trim().toLowerCase();
     const message = error?.message ?? undefined;
 

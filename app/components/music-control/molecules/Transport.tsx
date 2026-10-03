@@ -1,23 +1,19 @@
 import React from "react";
 import { View } from "react-native";
-import { State, usePlaybackState } from "react-native-track-player";
 import { MediaManager } from "@/app/services/media-manager";
+import { useIsPlaybackActive } from "@/app/services/media-manager/mediaManager";
 import { useTheme } from "@/app/theme";
 import IconButton from "@/app/components/ui/IconButton";
 
 // Previous / play-pause / next. The play-pause glyph reflects live playback state; the toggle itself
-// re-checks MediaManager so it stays correct even if the state hook is mid-transition.
+// re-checks MediaManager so it stays correct even if the state hook is mid-transition. Both use the same rule, so a
+// stalled song shows "pause" and pausing it actually stops it.
 export default function Transport() {
     const theme = useTheme();
-    const playback = usePlaybackState();
-    const isPlaying = playback.state === State.Playing || playback.state === State.Buffering;
+    const isPlaying = useIsPlaybackActive();
 
     const toggle = async () => {
-        if (await MediaManager.isPlaying()) {
-            await MediaManager.pause();
-        } else {
-            await MediaManager.play();
-        }
+        await MediaManager.togglePlayback();
     };
 
     return (

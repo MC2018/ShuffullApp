@@ -2,8 +2,7 @@ import { ImageURISource, Pressable, StyleSheet, View } from "react-native";
 import React, { useEffect, useState } from "react";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { State, usePlaybackState } from "react-native-track-player";
-import { useActiveSong } from "@/app/services/media-manager/mediaManager";
+import { useActiveSong, useIsPlaybackActive } from "@/app/services/media-manager/mediaManager";
 import { useDb } from "@/app/services/db/DbProvider";
 import DbQueries from "@/app/services/db/queries";
 import { Song } from "@/app/services/db/models";
@@ -40,8 +39,7 @@ export default function PlayerBar({ floating = false }: { floating?: boolean }) 
     const theme = useTheme();
     const insets = useSafeAreaInsets();
     const db = useDb();
-    const playbackState = usePlaybackState();
-    const isPlaying = playbackState.state === State.Playing;
+    const isPlaying = useIsPlaybackActive();
     const { songId } = useActiveSong();
     const [songInfo, setSongInfo] = useState<SongDetails | null>(null);
     const [albumArt, setAlbumArt] = useState<ArtSource>(defaultArt);
@@ -67,11 +65,7 @@ export default function PlayerBar({ floating = false }: { floating?: boolean }) 
     }, [songId]);
 
     const controlMedia = async () => {
-        if (playbackState.state === State.Playing) {
-            await MediaManager.pause();
-        } else {
-            await MediaManager.play();
-        }
+        await MediaManager.togglePlayback();
     };
 
     if (songInfo == null) {
