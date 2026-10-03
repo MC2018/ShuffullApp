@@ -28,8 +28,7 @@
         <action android:name="android.intent.action.VIEW"/>
         <category android:name="android.intent.category.DEFAULT"/>
         <category android:name="android.intent.category.BROWSABLE"/>
-        <data android:scheme="myapp"/>
-        <data android:scheme="exp+shuffull-app"/>
+        <data android:scheme="${appScheme}"/>
       </intent-filter>
     </activity>
   </application>

@@ -13,6 +13,7 @@ import { logout } from "@/app/services/auth/auth";
 import { jamSummary, launchJam } from "@/app/services/genre-jam";
 import PlayerBar, { totalPlayerBarHeight } from "@/app/components/music-control/organisms/PlayerBar";
 import { AlbumArt, Card, IconButton, Screen, SectionHeader, Text } from "@/app/components/ui";
+import AppVersion from "@/app/components/common/AppVersion";
 import { useTheme } from "@/app/theme";
 
 const defaultArt: ImageURISource = require("@/assets/images/default-album-art.jpg");
@@ -149,6 +150,8 @@ export default function HomeScreen() {
                         </ScrollView>
                     </>
                 ) : null}
+
+                <AppVersion />
             </ScrollView>
             <PlayerBar />
         </Screen>

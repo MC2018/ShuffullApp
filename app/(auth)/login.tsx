@@ -2,10 +2,12 @@ import { useEffect, useState } from "react";
 import { View } from "react-native";
 import { Redirect } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { STORAGE_KEYS } from "@/app/constants/storageKeys";
 import { useAuthStore } from "@/app/services/auth/authStore";
 import { login, register } from "@/app/services/auth/auth";
 import { Button, Screen, Text, TextField } from "@/app/components/ui";
+import AppVersion from "@/app/components/common/AppVersion";
 import { useTheme } from "@/app/theme";
 
 // Canonical Shuffull server; pre-filled on a fresh install so most users never touch the host field.
@@ -17,6 +19,7 @@ const DEFAULT_HOST_ADDRESS = "https://shuffull-api.clausius.app";
 // redirect cover the inverse direction, so there is no manual navigation here.
 export default function LoginScreen() {
     const theme = useTheme();
+    const insets = useSafeAreaInsets();
     const status = useAuthStore((state) => state.status);
     const [username, setUsername] = useState("");
     const [password, setPassword] = useState("");
@@ -71,6 +74,9 @@ export default function LoginScreen() {
                         {error}
                     </Text>
                 ) : null}
+            </View>
+            <View style={{ paddingBottom: insets.bottom + theme.space.md }}>
+                <AppVersion />
             </View>
         </Screen>
     );

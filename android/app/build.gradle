@@ -81,6 +81,47 @@ def enableMinifyInReleaseBuilds = (findProperty('android.enableMinifyInReleaseBu
  */
 def jscFlavor = 'io.github.react-native-community:jsc-android:2026004.+'
 
+/**
+ * Two apps that install side by side on one phone:
+ *   release              -> com.mc2018.shuffullapp      "Shuffull"      the daily driver, JS bundled in
+ *   debug/debugOptimized -> com.mc2018.shuffullapp.dev  "Shuffull Dev"  the Expo dev client, needs Metro
+ * The release ID is the Play listing's, which is permanent, so the real app keeps it and dev gets the suffix.
+ * Dev's icon overlay lives in src/dev/res and is shared by both dev build types (see sourceSets below).
+ */
+def devBuildTypes = ['debug', 'debugOptimized']
+
+/**
+ * Version you can read off the phone. versionCode is the commit count, so a rebuild from a later commit
+ * installs over the previous one with `adb install -r`; versionName is the package.json version plus the
+ * commit it was built from, and "-dirty" when the tree had uncommitted changes.
+ */
+def git = { String... args ->
+    try {
+        def proc = (["git"] + args.toList()).execute(null, projectDir)
+        def out = proc.text.trim()
+        return proc.waitFor() == 0 ? out : null
+    } catch (Exception ignored) {
+        return null
+    }
+}
+def baseVersionName = new groovy.json.JsonSlurper().parse(new File(projectRoot, "package.json")).version
+def commitCount = git("rev-list", "--count", "HEAD")
+def shortSha = git("rev-parse", "--short=7", "HEAD")
+def dirty = git("status", "--porcelain", "--untracked-files=no")
+def appVersionCode = commitCount?.isInteger() ? commitCount.toInteger() : 1
+def appVersionName = shortSha ? "${baseVersionName}+${shortSha}${dirty ? '-dirty' : ''}" : baseVersionName
+
+/**
+ * Release signing key. Never in git: the passwords come from ~/.gradle/gradle.properties (or env vars of
+ * the same name), and the keystore file lives outside the repo. Every update of the installed daily driver
+ * must be signed with this same key, or Android refuses it and the only way out is an uninstall, which
+ * deletes the local DB and downloads. scripts/android-release.sh explains how to create one.
+ */
+def releaseSigningProp = { String name -> findProperty(name) ?: System.getenv(name) }
+def releaseStoreFile = releaseSigningProp('SHUFFULL_RELEASE_STORE_FILE')?.replaceFirst('^~', System.getProperty('user.home'))
+def releaseSigningConfigured = releaseStoreFile && releaseSigningProp('SHUFFULL_RELEASE_STORE_PASSWORD') &&
+        releaseSigningProp('SHUFFULL_RELEASE_KEY_ALIAS') && releaseSigningProp('SHUFFULL_RELEASE_KEY_PASSWORD')
+
 android {
     ndkVersion rootProject.ext.ndkVersion
 
@@ -92,8 +133,11 @@ android {
         applicationId 'com.mc2018.shuffullapp'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0.0"
+        versionCode appVersionCode
+        versionName appVersionName
+
+        resValue "string", "app_name", "Shuffull"
+        manifestPlaceholders = [appScheme: "shuffull"]
 
         buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""
     }
@@ -104,21 +148,45 @@ android {
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
+        if (releaseSigningConfigured) {
+            release {
+                storeFile file(releaseStoreFile)
+                storePassword releaseSigningProp('SHUFFULL_RELEASE_STORE_PASSWORD')
+                keyAlias releaseSigningProp('SHUFFULL_RELEASE_KEY_ALIAS')
+                keyPassword releaseSigningProp('SHUFFULL_RELEASE_KEY_PASSWORD')
+            }
+        }
     }
     buildTypes {
         debug {
             signingConfig signingConfigs.debug
         }
         release {
-            // Caution! In production, you need to generate your own keystore file.
-            // see https://reactnative.dev/docs/signed-apk-android.
-            signingConfig signingConfigs.debug
+            // Never the debug key: android/app/debug.keystore is public, so anything signed with it could
+            // install over the daily driver. Unconfigured, the release build stops (see preReleaseBuild below).
+            if (releaseSigningConfigured) {
+                signingConfig signingConfigs.release
+            }
             def enableShrinkResources = findProperty('android.enableShrinkResourcesInReleaseBuilds') ?: 'false'
             shrinkResources enableShrinkResources.toBoolean()
             minifyEnabled enableMinifyInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
             def enablePngCrunchInRelease = findProperty('android.enablePngCrunchInReleaseBuilds') ?: 'true'
             crunchPngs enablePngCrunchInRelease.toBoolean()
+        }
+        // debugOptimized is created by the React Native Gradle plugin, so configure it by name rather than
+        // declaring it here.
+        configureEach { buildType ->
+            if (buildType.name in devBuildTypes) {
+                buildType.applicationIdSuffix ".dev"
+                buildType.resValue "string", "app_name", "Shuffull Dev"
+                buildType.manifestPlaceholders = [appScheme: "shuffull-dev"]
+            }
+        }
+    }
+    sourceSets.configureEach { sourceSet ->
+        if (sourceSet.name in devBuildTypes) {
+            sourceSet.res.srcDir 'src/dev/res'
         }
     }
     packagingOptions {
@@ -129,6 +197,18 @@ android {
     }
     androidResources {
         ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:!CVS:!thumbs.db:!picasa.ini:!*~'
+    }
+}
+
+// Fail a local release build up front instead of producing an unsigned APK that can't be installed. EAS builds
+// are exempt: EAS injects its own signing config.
+tasks.configureEach { task ->
+    if (task.name == 'preReleaseBuild' && !releaseSigningConfigured && !System.getenv('EAS_BUILD')) {
+        task.doFirst {
+            throw new GradleException("Release signing is not configured. Set SHUFFULL_RELEASE_STORE_FILE, " +
+                    "SHUFFULL_RELEASE_STORE_PASSWORD, SHUFFULL_RELEASE_KEY_ALIAS and SHUFFULL_RELEASE_KEY_PASSWORD in " +
+                    "~/.gradle/gradle.properties (see scripts/android-release.sh). The debug key is never used for release.")
+        }
     }
 }
 

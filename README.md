@@ -25,6 +25,21 @@ In the output, you'll find options to open the app in a
 
 You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
 
+## Android: two apps on one phone
+
+| | App ID | Build | Needs Metro |
+|---|---|---|---|
+| **Shuffull** (daily driver) | `com.mc2018.shuffullapp` | `pnpm android:release` | no, JS is bundled |
+| **Shuffull Dev** (orange icon) | `com.mc2018.shuffullapp.dev` | `pnpm android` | yes: `APP_VARIANT=development pnpm start --dev-client` |
+
+They install side by side, each with its own local DB and login, but both talk to the same server
+account. The installed build is shown at the bottom of Home (`1.0.0+<commit> (<commit count>)`).
+
+The release build is signed with a private key kept outside the repo; `scripts/android-release.sh`
+prints the one-time setup when it is missing. Every update of the installed daily driver has to be
+signed with that same key, or Android refuses it and the only way out is an uninstall, which deletes
+its local data.
+
 ## Get a fresh project
 
 When you're ready, run:
