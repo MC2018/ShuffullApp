@@ -2,13 +2,12 @@ import { useCallback, useEffect, useState } from "react";
 import { ImageURISource, Pressable, ScrollView, View } from "react-native";
 import { router, useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { State, usePlaybackState } from "react-native-track-player";
 import { useDb } from "@/app/services/db/DbProvider";
 import DbQueries from "@/app/services/db/queries";
 import { SongDetails } from "@/app/services/db/types";
 import { GenreJam, Song } from "@/app/services/db/models";
 import { Downloader } from "@/app/services/downloader/Downloader";
-import { useActiveSong } from "@/app/services/media-manager/mediaManager";
+import { useActiveSong, useIsPlaybackActive } from "@/app/services/media-manager/mediaManager";
 import { MediaManager } from "@/app/services/media-manager";
 import { logout } from "@/app/services/auth/auth";
 import { jamSummary, launchJam } from "@/app/services/genre-jam";
@@ -23,8 +22,7 @@ export default function HomeScreen() {
     const theme = useTheme();
     const db = useDb();
     const { songId } = useActiveSong();
-    const playback = usePlaybackState();
-    const isPlaying = playback.state === State.Playing;
+    const isPlaying = useIsPlaybackActive();
     const [details, setDetails] = useState<SongDetails | null>(null);
     const [art, setArt] = useState<ArtSource>(defaultArt);
     const [jams, setJams] = useState<GenreJam[]>([]);
@@ -69,11 +67,7 @@ export default function HomeScreen() {
     );
 
     const togglePlay = async () => {
-        if (await MediaManager.isPlaying()) {
-            await MediaManager.pause();
-        } else {
-            await MediaManager.play();
-        }
+        await MediaManager.togglePlayback();
     };
 
     const artistText = details && details.artists.length > 0 ? details.artists.map((a) => a.name).join(", ") : "Unknown Artist";

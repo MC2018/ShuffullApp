@@ -48,6 +48,33 @@ describe("classifyPlaybackError", () => {
         expect(classifyPlaybackError({ code: "android-io-bad-http-status", message: "no number here" })).toBe("unknown");
     });
 
+    // What Android actually delivers: media3's source-error message is the literal "Source error", so the
+    // status is never in the event. Without a probe this was "unknown", and unknown skipped after ~3s - one song
+    // burned every few seconds for as long as the Cloudflare tunnel was down (2026-10-03).
+    it("uses the probed status when the error itself carries none", () => {
+        const sourceError = { code: "android-io-bad-http-status", message: "Source error" };
+        expect(classifyPlaybackError(sourceError, { probedStatus: 530 })).toBe("transient");
+        expect(classifyPlaybackError(sourceError, { probedStatus: 502 })).toBe("transient");
+        expect(classifyPlaybackError(sourceError, { probedStatus: "unreachable" })).toBe("transient");
+        expect(classifyPlaybackError(sourceError, { probedStatus: 404 })).toBe("permanent");
+    });
+
+    it("refines only an unknown, and only in a direction the probe actually shows", () => {
+        // The source answering fine says nothing about why the player failed - leave it unknown.
+        expect(classifyPlaybackError({ code: "android-unspecified" }, { probedStatus: 200 })).toBe("unknown");
+        expect(classifyPlaybackError({ code: "android-unspecified" }, { probedStatus: 206 })).toBe("unknown");
+        // An error that already classified is not second-guessed by a probe.
+        expect(classifyPlaybackError({ code: "android-decoder-init-failed" }, { probedStatus: "unreachable" })).toBe("permanent");
+        expect(classifyPlaybackError({ code: "android-io-network-connection-failed" }, { probedStatus: 404 })).toBe("transient");
+        // The status in the message, where a platform provides one, still wins over the probe.
+        expect(classifyPlaybackError(
+            { code: "android-io-bad-http-status", message: "Response code: 404" },
+            { probedStatus: 530 },
+        )).toBe("permanent");
+        // And a local file is still never waited out.
+        expect(classifyPlaybackError({ code: "android-unspecified" }, { isLocalSource: true, probedStatus: "unreachable" })).toBe("permanent");
+    });
+
     it("returns unknown for an unrecognised, empty or missing code", () => {
         expect(classifyPlaybackError({ code: "android-something-new" })).toBe("unknown");
         expect(classifyPlaybackError({ code: "" })).toBe("unknown");

@@ -5,12 +5,7 @@ import { MediaManager } from "@/app/services/media-manager";
 // TODO: not a proper atom, it's calling MediaManager directly
 export default function PlayPauseButton() {
     const handlePlay = async () => {
-
-        if (await MediaManager.isPlaying()) {
-            await MediaManager.pause();
-        } else {
-            await MediaManager.play();
-        }
+        await MediaManager.togglePlayback();
     };
 
     const handleSkip = async () => {
