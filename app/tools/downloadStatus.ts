@@ -122,3 +122,58 @@ export function describeDownloadsRow(status: DownloadStatus, downloadedCount: nu
             return saved;
     }
 }
+
+/**
+ * Whether the Downloader needs the process kept alive right now. Queued work that is not paused wants the
+ * foreground service even while waiting for Wi-Fi — the network listener is what restarts the loop, and it
+ * can only do that if the process is still there to hear it. Pausing releases the hold, except while a song
+ * is mid-file: the queue row is still there and letting the hold drop would let Android kill the process
+ * under a half-written temp file.
+ *
+ * Note what this deliberately does NOT do: start a service from the background. Android 12+ refuses that,
+ * so the hold is acquired when work is enqueued/resumed (always a foreground action) and simply kept.
+ */
+export function shouldHoldForegroundService(input: { paused: boolean; downloading: boolean; queuedCount: number }): boolean {
+    if (input.queuedCount <= 0) {
+        return false;
+    }
+    return !input.paused || input.downloading;
+}
+
+export interface DownloadNotification {
+    title: string;
+    text: string;
+    /** Whole percent (0–100) while a song is in flight; `indeterminate` before the first byte lands. */
+    progress?: { max: number; value: number; indeterminate?: boolean };
+}
+
+/**
+ * What the foreground-service notification says. Same words as the status card so the shade and the app
+ * never disagree about what is happening.
+ */
+export function describeDownloadNotification(status: DownloadStatus, currentName?: string): DownloadNotification {
+    const { title, detail } = describeDownloadStatus(status, currentName);
+    const text = detail ?? WIFI_ONLY_NOTE;
+    if (status.phase !== "downloading") {
+        return { title, text };
+    }
+    if (status.current == undefined) {
+        return { title, text, progress: { max: 100, value: 0, indeterminate: true } };
+    }
+    return { title, text, progress: { max: 100, value: Math.round(status.current.progress * 100) } };
+}
+
+/**
+ * Delay before retrying after a failed download attempt. The loop chains songs back-to-back, so without
+ * this a song that fails every time (404, hash mismatch) would be hammered continuously; with it the same
+ * song is retried at 2 s, 4 s, ... capped at a minute, and the counter resets on any success.
+ */
+export const RETRY_BASE_MS = 2000;
+export const RETRY_MAX_MS = 60000;
+
+export function retryDelayMs(consecutiveFailures: number): number {
+    if (consecutiveFailures <= 0) {
+        return 0;
+    }
+    return Math.min(RETRY_MAX_MS, RETRY_BASE_MS * 2 ** (consecutiveFailures - 1));
+}

@@ -1,4 +1,4 @@
-import React, { createContext, ReactNode, useContext, useEffect, useState } from "react";
+import React, { createContext, ReactNode, useContext, useMemo } from "react";
 import { useDb } from "../db/DbProvider";
 import { Downloader } from "./Downloader";
 
@@ -8,24 +8,13 @@ interface DownloaderProviderProps {
 
 const DownloaderContext = createContext<Downloader | null>(null);
 
+// Hands screens the process-wide Downloader. It used to CREATE one per mount and dispose it on unmount,
+// which is exactly wrong for a background job: on Android the tree unmounts when the app is swiped away
+// while the process (and the foreground service, and its notification) lives on — so the loop died
+// silently under a notification claiming otherwise. The singleton outlives the tree; this only publishes it.
 export default function DownloaderProvider({ children }: DownloaderProviderProps) {
     const db = useDb();
-    // Publish the Downloader through state (not a module-level variable) so the context value
-    // actually updates once the instance is created in the effect. The old module-variable approach
-    // left the context frozen at null unless a parent re-render happened to republish it — the former
-    // god-component re-rendered constantly so it worked by accident, but the static root layout never
-    // re-renders, so useDownloader() stayed null and every download silently no-op'd.
-    const [downloader, setDownloader] = useState<Downloader | null>(null);
-
-    useEffect(() => {
-        const instance = new Downloader(db);
-        setDownloader(instance);
-
-        return () => {
-            instance.dispose();
-            setDownloader(null);
-        };
-    }, [db]);
+    const downloader = useMemo(() => Downloader.shared(db), [db]);
 
     return <DownloaderContext.Provider value={downloader}>{children}</DownloaderContext.Provider>
 };

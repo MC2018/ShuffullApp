@@ -19,6 +19,11 @@
       "distribution": "internal"
     },
     "preview": {
+      "node": "22.13.0",
+      "pnpm": "11.5.0",
+      "android": {
+        "buildType": "apk"
+      },
       "distribution": "internal"
     },
     "production": {

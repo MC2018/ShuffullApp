@@ -23,17 +23,24 @@ import { useDownloadStatus } from "./downloadStatus";
  * natural follow-up once playback itself is proven.
  */
 export class Downloader {
+    private static instance: Downloader | undefined;
+
+    public static shared(db: GenericDb): Downloader {
+        if (Downloader.instance == undefined) {
+            Downloader.instance = new Downloader(db);
+        }
+        return Downloader.instance;
+    }
+
     downloading = false;
     paused = true;
     db: GenericDb;
 
-    constructor(db: GenericDb) {
+    private constructor(db: GenericDb) {
         this.db = db;
         // The shared Downloads screen reads this; say honestly that there is nothing to manage here.
         useDownloadStatus.getState().setStatus({ phase: "unsupported", queuedCount: 0, current: undefined });
     }
-
-    public dispose() { }
 
     /** No local store to queue into — accepted and ignored so the UI stays usable. */
     public async addSongToDownloadQueue(_songId: string, _priority: DownloadPriority) { }
@@ -50,7 +57,7 @@ export class Downloader {
 
     public async clearQueue() { }
 
-    public async downloadNext() { }
+    public kick() { }
 
     /** Always false: nothing is cached locally, so callers correctly fall through to the server URL. */
     public static async fileExists(_uri: string) {

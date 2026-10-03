@@ -1,12 +1,7 @@
-import { useEffect, useState } from "react";
-import { Platform } from "react-native";
+import { useEffect } from "react";
 import { useDb } from "./db/DbProvider";
 import DbQueries from "./db/queries";
 import React from "react";
-import BackgroundService from 'react-native-background-actions';
-import { sleep, generateId } from "../tools";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import { STORAGE_KEYS } from "../constants/storageKeys";
 import { MediaManager } from "./media-manager";
 
 export default function SongProgressSync() {
@@ -22,58 +17,22 @@ export default function SongProgressSync() {
 
             const newPosition = await MediaManager.getPosition();
             const currentlyPlayingSong = await DbQueries.getCurrentlyPlayingSong(db);
-    
+
             if (currentlyPlayingSong != undefined && newPosition != currentlyPlayingSong.timestampSeconds) {
                 await DbQueries.setRecentlyPlayedSongTimestampSeconds(db, currentlyPlayingSong.recentlyPlayedSongId, newPosition);
             }
         }, 1000);
 
-        const veryIntensiveTask = async (taskDataArguments: { id: string } | undefined) => {
-            const { id } = taskDataArguments!;
-            
-            await new Promise(async (resolve) => {
-                for (let i = 0; await AsyncStorage.getItem(STORAGE_KEYS.FOREGROUND_TIMER_ID) == id; i++) {
-                    await sleep(1000);
-                }
-            });
-        };
-
-        const options = {
-            taskName: "SongProgress",
-            taskTitle: "SongProgress",
-            taskDesc: "Updating song progress in the background",
-            taskIcon: {
-                name: "ic_launcher",
-                type: "mipmap",
-            },
-            parameters: {
-                id: generateId()
-            },
-            foregroundServiceType: ['dataSync'] as ('dataSync')[],
-        };
-        
-        (async () => {
-            await AsyncStorage.setItem(STORAGE_KEYS.FOREGROUND_TIMER_ID, options.parameters.id);
-
-            // react-native-background-actions keeps an Android FOREGROUND SERVICE alive so the interval above
-            // keeps running while the app is backgrounded. It is native-only and ships no web implementation:
-            // the JS wrapper's start() exists but immediately dereferences a native module that isn't there,
-            // throwing "Cannot read properties of undefined (reading 'start')" as an unhandled rejection on
-            // every desktop launch. (Guarding on `BackgroundService.start` is NOT enough — the method is
-            // present; it's what it reaches for that's missing.)
-            //
-            // Nothing is lost by skipping it here: an open desktop window is already foreground, and the
-            // interval above runs regardless. The try/catch covers any other platform lacking the module.
-            if (Platform.OS === "web") {
-                return;
-            }
-
-            try {
-                await BackgroundService.start(veryIntensiveTask, options);
-            } catch (e) {
-                console.warn("Background progress service unavailable; progress still syncs while open.", e);
-            }
-        })();
+        // This used to start a permanent react-native-background-actions foreground service so the interval
+        // above would keep firing after Home. Verified redundant on 2026-09-18: react-native-track-player's
+        // MusicService is itself a headless JS task, and RN keeps timers running while any headless task is
+        // active — with no service of ours at all, the persisted position advanced 38.7 s → 69.2 s over 30 s
+        // of backgrounded playback. The service also cost a permanent notification (invisible until the app
+        // gained POST_NOTIFICATIONS), a 6 h/24 h dataSync budget, and died anyway when the app was swiped
+        // away. Downloads now hold the service only while they have work (background/foregroundService.ts).
+        //
+        // Known trade-off: the outbox's 10 s tick no longer runs while the app is backgrounded AND idle
+        // (not playing, not downloading); queued requests go out on the next foreground/play instead.
 
         return () => clearInterval(interval);
     }, []);
