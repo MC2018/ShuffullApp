@@ -16,3 +16,16 @@ allowBuilds:
   esbuild: true
   better-sqlite3: true
   unrs-resolver: true
+
+# Security overrides for transitive deps that upstream pins below the patched release.
+# Each is a semver-compatible API for its consumer; re-check (and drop) on the next Expo SDK bump.
+# - postcss: @expo/metro-config 54 pins ~8.4.32; 8.5 is a minor.
+# - uuid: xcode (iOS prebuild only) still asks for ^7 but only calls uuid.v4(); 11.x keeps a CJS build.
+# - esbuild: drizzle-kit's @esbuild-kit loader pulls 0.18 (dev-server CORS advisory); dev-only.
+# Deliberately NOT overridden: image-size (2.x drops the file-path input Metro 0.83 passes),
+# decode-uri-component (0.4+ is ESM-only; query-string 7 require()s it), braces / node-forge
+# (no patched release exists).
+overrides:
+  postcss@<8.5.23: ^8.5.28
+  xcode>uuid: ^11.1.1
+  "@esbuild-kit/core-utils>esbuild": ^0.25.0
