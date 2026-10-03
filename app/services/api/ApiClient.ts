@@ -10,7 +10,12 @@ export class ApiClient {
     constructor(url: string, token: string) {
         this.client = axios.create({
             baseURL: url,
-            timeout: 3000
+            timeout: 3000,
+            // Resolve every status rather than letting axios reject non-2xx. Its default rejection threw a bare
+            // AxiosError, so the isSuccessfulStatus checks below never ran and ApiStatusFailureError was never
+            // constructed — SyncManager saw an unrecognised error and reported it as a 500. That both hid the
+            // real status and wedged the outbox, because a 500 aborts the whole sync while a 4xx/401 does not.
+            validateStatus: () => true
         });
         this.updateAuthHeader(token);
         this.url = url;
