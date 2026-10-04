@@ -31,6 +31,8 @@ export interface DownloadStatus {
     queuedCount: number;
     /** Bumped every time a song finishes downloading, so screens know to refresh their "downloaded" lists. */
     completedCount: number;
+    /** Rows dropped this session because they can never download (404, repeated hash mismatch). */
+    skippedCount: number;
 }
 
 export interface NetworkSnapshot {
@@ -79,7 +81,10 @@ export function describeDownloadStatus(status: DownloadStatus, currentName?: str
     const remaining = status.queuedCount;
     switch (status.phase) {
         case "idle":
-            return { title: status.completedCount > 0 ? "All downloads complete" : "Nothing queued" };
+            return {
+                title: status.completedCount > 0 ? "All downloads complete" : "Nothing queued",
+                detail: describeSkipped(status.skippedCount),
+            };
         case "downloading": {
             const pct = status.current ? `${Math.round(status.current.progress * 100)}%` : undefined;
             return {
@@ -99,6 +104,14 @@ export function describeDownloadStatus(status: DownloadStatus, currentName?: str
         case "unsupported":
             return { title: "Downloads aren't available on this platform" };
     }
+}
+
+/** Said once the queue is idle, so a queue that "finished" by giving up on songs doesn't look fully done. */
+function describeSkipped(skippedCount: number): string | undefined {
+    if (skippedCount <= 0) {
+        return undefined;
+    }
+    return `Skipped ${skippedCount} ${skippedCount === 1 ? "song" : "songs"} the server couldn't provide`;
 }
 
 /**

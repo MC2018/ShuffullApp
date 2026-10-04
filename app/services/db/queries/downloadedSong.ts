@@ -5,7 +5,17 @@ import { eq, gt, lt, ExtractTablesWithRelations, inArray, sql, isNotNull, and, d
 import { DownloadQueue } from "../models";
 import { chunkIds } from "./_chunk";
 
+// Idempotent: downloaded_songs has no unique constraint on song_id, and the Downloader also records songs it
+// finds already on disk (a run that moved the file but died before getting here), so a second call must not
+// add a duplicate row - every join on this table would then return the song twice.
 export async function addDownloadedSong(db: GenericDb, songId: string): Promise<void> {
+    const existing = await db.select({ songId: downloadedSongTable.songId }).from(downloadedSongTable)
+        .where(eq(downloadedSongTable.songId, songId)).limit(1);
+
+    if (existing.length) {
+        return;
+    }
+
     await db.insert(downloadedSongTable).values({
         downloadedSongId: generateId(),
         songId: songId

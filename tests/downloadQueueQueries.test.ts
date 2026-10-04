@@ -129,6 +129,14 @@ describe("download queue queries", () => {
         expect(await countDownloadedSongs(db)).toBe(2);
     });
 
+    // The Downloader now also records songs it finds already on disk (ShuffullApp#86), so the same song can be
+    // recorded twice. downloaded_songs has no unique song_id, so a second row would double it in every join.
+    it("recording a song as downloaded twice keeps one row", async () => {
+        await addDownloadedSong(db, "a");
+        await addDownloadedSong(db, "a");
+        expect(await countDownloadedSongs(db)).toBe(1);
+    });
+
     // Regression: this query had no WHERE and a per-artist join, so "Download playlist" enqueued the entire
     // library - one row per (song, artist) - instead of the playlist. Discovered the day the queue became visible.
     it("getSongsByPlaylist returns only that playlist's songs, one row each", async () => {

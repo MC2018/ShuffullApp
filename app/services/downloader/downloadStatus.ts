@@ -10,6 +10,6 @@ interface DownloadStatusState {
 }
 
 export const useDownloadStatus = create<DownloadStatusState>((set) => ({
-    status: { phase: "idle", queuedCount: 0, completedCount: 0 },
+    status: { phase: "idle", queuedCount: 0, completedCount: 0, skippedCount: 0 },
     setStatus: (patch) => set((state) => ({ status: { ...state.status, ...patch } })),
 }));
