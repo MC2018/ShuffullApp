@@ -1,0 +1,4 @@
+<resources>
+  <!-- Shuffull Dev's launcher icon is orange so it is never mistaken for the daily driver. -->
+  <color name="iconBackground">#E8590C</color>
+</resources>
