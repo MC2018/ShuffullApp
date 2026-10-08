@@ -59,7 +59,7 @@ describe("derivePhase", () => {
 });
 
 function status(patch: Partial<DownloadStatus>): DownloadStatus {
-    return { phase: "idle", queuedCount: 0, completedCount: 0, ...patch };
+    return { phase: "idle", queuedCount: 0, completedCount: 0, skippedCount: 0, ...patch };
 }
 
 describe("describeDownloadStatus", () => {
@@ -82,6 +82,15 @@ describe("describeDownloadStatus", () => {
     it("distinguishes a fresh idle from one that just finished work", () => {
         expect(describeDownloadStatus(status({ phase: "idle" })).title).toBe("Nothing queued");
         expect(describeDownloadStatus(status({ phase: "idle", completedCount: 3 })).title).toBe("All downloads complete");
+        expect(describeDownloadStatus(status({ phase: "idle", completedCount: 3 })).detail).toBeUndefined();
+    });
+
+    it("says when the queue finished by giving up on songs", () => {
+        expect(describeDownloadStatus(status({ phase: "idle", completedCount: 3, skippedCount: 1 })).detail).toBe("Skipped 1 song the server couldn't provide");
+        expect(describeDownloadStatus(status({ phase: "idle", skippedCount: 5 }))).toEqual({
+            title: "Nothing queued",
+            detail: "Skipped 5 songs the server couldn't provide",
+        });
     });
 
     it("names the network conditions", () => {
@@ -125,7 +134,7 @@ describe("shouldHoldForegroundService", () => {
 });
 
 describe("describeDownloadNotification", () => {
-    const base: DownloadStatus = { phase: "downloading", queuedCount: 12, completedCount: 0 };
+    const base: DownloadStatus = { phase: "downloading", queuedCount: 12, completedCount: 0, skippedCount: 0 };
 
     it("mirrors the status card and adds a determinate bar at the whole percent", () => {
         const n = describeDownloadNotification({ ...base, current: { songId: "s", progress: 0.426 } }, "Freestyle");

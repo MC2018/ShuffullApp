@@ -11,6 +11,7 @@ import { Song } from "../db/models";
 import { DownloadPriority } from "../db/types";
 import { useDownloadStatus } from "./downloadStatus";
 import { derivePhase, describeDownloadNotification, isDownloadNetwork, retryDelayMs, shouldHoldForegroundService } from "../../tools/downloadStatus";
+import { decideArtDownload, decideSongDownload } from "../../tools/downloadFailure";
 import { foregroundService } from "../background/foregroundService";
 import { ensureNotificationPermission } from "../background/notificationPermission";
 
@@ -29,9 +30,11 @@ const WATCHDOG_MS = 10000;
 /**
  * Outcome of one attempt at the head of the queue, which is what decides whether the loop keeps going:
  *   downloaded – a song landed; go straight to the next one
- *   skipped    – the row was dropped without work (song gone, already on disk); go on
+ *   skipped    – the row was dropped: song gone locally, already on disk, or a failure that will never
+ *                succeed (404, repeated hash mismatch - see tools/downloadFailure.ts); go on
  *   blocked    – nothing to do or not allowed to (empty, paused, no Wi-Fi, no host); stop and wait for an event
- *   failed     – the attempt errored; the row stays and the next try waits out a backoff
+ *   failed     – a failure that may clear up (5xx, interrupted, exception), or a drop deferred because too many
+ *                came in a row; the row stays and the next try waits out a backoff
  */
 type Attempt = "downloaded" | "skipped" | "blocked" | "failed";
 
@@ -69,6 +72,11 @@ export class Downloader {
     private network: NetworkState | undefined;
     private songInFlight: { songId: string; name: string } | undefined;
     private consecutiveFailures = 0;
+    // Per-song count of 2xx downloads whose hash didn't match (see decideSongDownload). In memory on purpose:
+    // a restart just grants a few more attempts.
+    private hashMismatches = new Map<string, number>();
+    // Rows dropped since the last song that actually downloaded; bounds a failure that hits every song alike.
+    private consecutiveDrops = 0;
 
     private constructor(db: GenericDb) {
         this.db = db;
@@ -136,7 +144,13 @@ export class Downloader {
 
     public async clearQueue() {
         await DbQueries.removeAllFromDownloadQueue(this.db);
+        this.startNewRun();
         await this.publishStatus();
+    }
+
+    /** New work (or a cleared queue) starts a new run, so "Skipped N" describes this run, not every one since launch. */
+    private startNewRun() {
+        useDownloadStatus.getState().setStatus({ skippedCount: 0 });
     }
 
     /** Starts the drain loop if it isn't already running. Safe to call from anywhere, any number of times. */
@@ -227,6 +241,7 @@ export class Downloader {
 
     public async addSongToDownloadQueue(songId: string, priority: DownloadPriority) {
         await DbQueries.addToDownloadQueue(this.db, [songId], priority);
+        this.startNewRun();
         await ensureNotificationPermission();
         await this.publishStatus();
         this.kick();
@@ -249,6 +264,7 @@ export class Downloader {
         songs = songs.filter(x => !existingSongs.includes(x.songId));
         await DbQueries.addToDownloadQueue(this.db, songs.map(x => x.songId), priority);
         if (songs.length > 0) {
+            this.startNewRun();
             await ensureNotificationPermission();
         }
         await this.publishStatus();
@@ -266,6 +282,8 @@ export class Downloader {
         if (this.paused) {
             return "blocked";
         }
+
+        const tempFiles: string[] = [];
 
         try {
             const nextDownload = await DbQueries.getFromDownloadQueue(this.db);
@@ -300,7 +318,7 @@ export class Downloader {
             const localSongUri = Downloader.generateLocalSongUri(song);
 
             if (await Downloader.fileExists(localSongUri)) {
-                await DbQueries.removeFromDownloadQueue(this.db, song.songId);
+                await this.recordAlreadyOnDisk(song.songId);
                 return "skipped";
             }
 
@@ -311,6 +329,7 @@ export class Downloader {
             await this.publishStatus();
             const songFileName = Downloader.generateSongFileName(song);
             const songDownloadedPath = path.join(tempFolder, songFileName);
+            tempFiles.push(songDownloadedPath);
             const songDownloadResumable = FileSystem.createDownloadResumable(
                 path.join(hostAddress, "music", songFileName),
                 songDownloadedPath,
@@ -321,59 +340,104 @@ export class Downloader {
                     }
                 },
             );
+            // Resolves on ANY HTTP status (a 404 writes the error body to disk), so the status has to be read.
             const downloadedSongFile = await songDownloadResumable.downloadAsync();
+            // No point hashing an error page.
+            const hashMatches = downloadedSongFile != undefined && downloadedSongFile.status < 400
+                ? await verifyFileIntegrity(downloadedSongFile.uri)
+                : undefined;
+            const decision = decideSongDownload(
+                downloadedSongFile && { status: downloadedSongFile.status, hashMatches },
+                { hashMismatches: this.hashMismatches.get(song.songId) ?? 0, consecutiveDrops: this.consecutiveDrops },
+            );
 
-            if (downloadedSongFile == undefined) {
+            if (decision.action === "retry") {
+                this.hashMismatches.set(song.songId, decision.hashMismatches);
+                console.warn(`[downloader] will retry ${song.songId} (${song.name}): ${decision.reason}`);
                 return "failed";
             }
 
-            const verifiedSong = await verifyFileIntegrity(downloadedSongFile.uri)
+            this.hashMismatches.delete(song.songId);
 
-            if (!verifiedSong) {
-                // A 404/500 body or a truncated file lands here; leave nothing behind for the next attempt.
-                await FileSystem.deleteAsync(downloadedSongFile.uri, { idempotent: true });
+            if (decision.action === "defer") {
+                // Back off as for any failure, but from the back of the queue, so the songs behind this one get
+                // their turn - one of them downloading is what shows the server is fine and lets drops resume.
+                console.warn(`[downloader] deferring ${song.songId} (${song.name}) to the back of the download queue: ${decision.reason}`);
+                await DbQueries.moveToBackOfDownloadQueue(this.db, song.songId);
                 return "failed";
             }
 
-            // Download album art
-            const albumArtFileName = `${song.fileHash}.jpg`;
-            const albumArtDownloadedPath = path.join(tempFolder, albumArtFileName);
-            const albumArtDownloadResumable = FileSystem.createDownloadResumable(
-                path.join(hostAddress, "albumart", albumArtFileName),
-                albumArtDownloadedPath);
-
-            if (await Downloader.fileExists(localSongUri)) {
+            if (decision.action === "drop") {
+                // Not marked downloaded: the song stays in the library and can be queued again.
+                console.warn(`[downloader] skipping ${song.songId} (${song.name}), removed from the download queue: ${decision.reason}`);
+                this.consecutiveDrops++;
                 await DbQueries.removeFromDownloadQueue(this.db, song.songId);
+                useDownloadStatus.getState().setStatus({ skippedCount: useDownloadStatus.getState().status.skippedCount + 1 });
                 return "skipped";
             }
 
-            const downloadedAlbumArtFile = await albumArtDownloadResumable.downloadAsync();
+            if (await Downloader.fileExists(localSongUri)) {
+                await this.recordAlreadyOnDisk(song.songId);
+                return "skipped";
+            }
 
-            if (downloadedAlbumArtFile == undefined) {
+            // A song the server has no art for is saved without it; a transient art failure retries the whole
+            // song (see decideArtDownload). An exception lands in the catch below, which is also a retry.
+            const albumArtFileName = Downloader.generateAlbumArtFileName(song);
+            const albumArtDownloadedPath = path.join(tempFolder, albumArtFileName);
+            tempFiles.push(albumArtDownloadedPath);
+            const downloadedAlbumArtFile = await FileSystem.createDownloadResumable(
+                path.join(hostAddress, "albumart", albumArtFileName),
+                albumArtDownloadedPath).downloadAsync();
+            const art = decideArtDownload(downloadedAlbumArtFile);
+
+            if (art === "retry") {
+                console.warn(`[downloader] will retry ${song.songId} (${song.name}): album art returned ${downloadedAlbumArtFile?.status ?? "no result"}`);
                 return "failed";
+            }
+
+            if (art === "without") {
+                console.warn(`[downloader] no album art for ${song.songId} (status ${downloadedAlbumArtFile?.status}); saving the song without it`);
             }
 
             // Move song and art to respective folder
             await FileSystem.moveAsync({
-                from: downloadedSongFile.uri,
+                from: songDownloadedPath,
                 to: path.join(musicFolder, songFileName)
             });
-            await FileSystem.moveAsync({
-                from: downloadedAlbumArtFile.uri,
-                to: path.join(albumArtFolder, albumArtFileName)
-            });
+            if (art === "keep") {
+                await FileSystem.moveAsync({
+                    from: albumArtDownloadedPath,
+                    to: path.join(albumArtFolder, albumArtFileName)
+                });
+            }
             await DbQueries.addDownloadedSong(this.db, song.songId);
             await DbQueries.removeFromDownloadQueue(this.db, song.songId);
+            this.consecutiveDrops = 0;
             useDownloadStatus.getState().setStatus({ completedCount: useDownloadStatus.getState().status.completedCount + 1 });
             return "downloaded";
         } catch (e) {
             console.error("[downloader] attempt failed", e);
             return "failed";
         } finally {
+            // Whatever didn't get moved into place - an error body, a partial file, unusable art - goes, so
+            // nothing half-written is left behind. A no-op for files that were moved.
+            for (const tempFile of tempFiles) {
+                await FileSystem.deleteAsync(tempFile, { idempotent: true }).catch((e) => console.warn("[downloader] failed to clean up", tempFile, e));
+            }
             this.downloading = false;
             this.songInFlight = undefined;
             await this.publishStatus();
         }
+    }
+
+    /**
+     * The file is already in the music folder (an earlier run moved it, then died before recording it), so
+     * record it as downloaded rather than just dropping the row - otherwise it is on disk but never offered offline.
+     */
+    private async recordAlreadyOnDisk(songId: string) {
+        await DbQueries.addDownloadedSong(this.db, songId);
+        await DbQueries.removeFromDownloadQueue(this.db, songId);
     }
 
     public static generateSongFileName(song: { fileHash: string, fileExtension: string }) {

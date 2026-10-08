@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import type { GenericDb } from "@/app/services/db/GenericDb";
@@ -9,6 +9,7 @@ import {
     getDownloadQueueDetails,
     getFromDownloadQueue,
     isSongInDownloadQueue,
+    moveToBackOfDownloadQueue,
     removeAllFromDownloadQueue,
     removeFromDownloadQueue,
 } from "@/app/services/db/queries/downloadQueue";
@@ -115,6 +116,34 @@ describe("download queue queries", () => {
         expect(listed[1].artists).toEqual([]);
     });
 
+    // A deferred download (too many drops in a row, ShuffullApp#86) must keep its row but stop blocking the head,
+    // so the songs behind it get their turn.
+    it("moves a row to the back of its priority tier without losing it", async () => {
+        // Queue ids are ULIDs, ordered by the millisecond they were made in, so pin the clock: rows queued in
+        // the same millisecond have no defined order (and in the app a defer always comes well after the queueing).
+        vi.useFakeTimers({ toFake: ["Date"] });
+        try {
+            vi.setSystemTime(1_000);
+            await addToDownloadQueue(db, ["a"], DownloadPriority.Medium);
+            vi.setSystemTime(2_000);
+            await addToDownloadQueue(db, ["b"], DownloadPriority.Medium);
+            await addToDownloadQueue(db, ["c"], DownloadPriority.High);
+            expect((await getDownloadQueueDetails(db, 10)).map((x) => x.song.songId)).toEqual(["c", "a", "b"]);
+
+            vi.setSystemTime(3_000);
+            await moveToBackOfDownloadQueue(db, "a");
+
+            expect((await getDownloadQueueDetails(db, 10)).map((x) => x.song.songId)).toEqual(["c", "b", "a"]);
+            expect(await countDownloadQueue(db)).toBe(3);
+            // Priority is untouched: deferring a High row doesn't put it behind Medium ones.
+            vi.setSystemTime(4_000);
+            await moveToBackOfDownloadQueue(db, "c");
+            expect((await getFromDownloadQueue(db))?.songId).toBe("c");
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it("honours the preview limit", async () => {
         await addToDownloadQueue(db, ["a", "b", "c"], DownloadPriority.Medium);
         const listed = await getDownloadQueueDetails(db, 2);
@@ -127,6 +156,14 @@ describe("download queue queries", () => {
         await addDownloadedSong(db, "a");
         await addDownloadedSong(db, "b");
         expect(await countDownloadedSongs(db)).toBe(2);
+    });
+
+    // The Downloader now also records songs it finds already on disk (ShuffullApp#86), so the same song can be
+    // recorded twice. downloaded_songs has no unique song_id, so a second row would double it in every join.
+    it("recording a song as downloaded twice keeps one row", async () => {
+        await addDownloadedSong(db, "a");
+        await addDownloadedSong(db, "a");
+        expect(await countDownloadedSongs(db)).toBe(1);
     });
 
     // Regression: this query had no WHERE and a per-artist join, so "Download playlist" enqueued the entire
