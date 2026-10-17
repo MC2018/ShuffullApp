@@ -4,7 +4,6 @@ import {
     decidePlaybackRecovery,
     isRetryableHttpStatus,
     retryDelayMs,
-    MAX_CONSECUTIVE_SKIPS,
     MAX_TRANSIENT_ATTEMPTS,
     MAX_UNKNOWN_ATTEMPTS,
     RETRY_BACKOFF_MS,
@@ -100,7 +99,7 @@ describe("classifyPlaybackError", () => {
 describe("decidePlaybackRecovery", () => {
     it("never skips on a transient fault, at any attempt count", () => {
         for (let attempt = 0; attempt <= MAX_TRANSIENT_ATTEMPTS + 3; attempt++) {
-            const recovery = decidePlaybackRecovery({ kind: "transient", attempt, consecutiveSkips: 0 });
+            const recovery = decidePlaybackRecovery({ kind: "transient", attempt });
             expect(recovery.action).not.toBe("skip");
         }
     });
@@ -108,7 +107,7 @@ describe("decidePlaybackRecovery", () => {
     it("retries the same track with a growing delay while the budget lasts", () => {
         const delays: number[] = [];
         for (let attempt = 0; attempt < MAX_TRANSIENT_ATTEMPTS; attempt++) {
-            const recovery = decidePlaybackRecovery({ kind: "transient", attempt, consecutiveSkips: 0 });
+            const recovery = decidePlaybackRecovery({ kind: "transient", attempt });
             expect(recovery.action).toBe("retry");
             delays.push(recovery.action === "retry" ? recovery.delayMs : -1);
         }
@@ -119,28 +118,32 @@ describe("decidePlaybackRecovery", () => {
     });
 
     it("halts as offline once the transient budget is spent, rather than advancing the queue", () => {
-        expect(decidePlaybackRecovery({ kind: "transient", attempt: MAX_TRANSIENT_ATTEMPTS, consecutiveSkips: 0 }))
+        expect(decidePlaybackRecovery({ kind: "transient", attempt: MAX_TRANSIENT_ATTEMPTS }))
             .toEqual({ action: "halt", reason: "offline" });
     });
 
-    it("gives an unknown fault a couple of retries, then treats it as a bad source", () => {
+    it("gives an unknown fault a couple of retries, then stops on it rather than skipping", () => {
         for (let attempt = 0; attempt < MAX_UNKNOWN_ATTEMPTS; attempt++) {
-            expect(decidePlaybackRecovery({ kind: "unknown", attempt, consecutiveSkips: 0 }).action).toBe("retry");
+            expect(decidePlaybackRecovery({ kind: "unknown", attempt }).action).toBe("retry");
         }
-        expect(decidePlaybackRecovery({ kind: "unknown", attempt: MAX_UNKNOWN_ATTEMPTS, consecutiveSkips: 0 }).action)
-            .toBe("skip");
+        expect(decidePlaybackRecovery({ kind: "unknown", attempt: MAX_UNKNOWN_ATTEMPTS }))
+            .toEqual({ action: "halt", reason: "unplayable" });
     });
 
-    it("skips a permanent fault immediately — no retry budget is spent on it", () => {
-        expect(decidePlaybackRecovery({ kind: "permanent", attempt: 0, consecutiveSkips: 0 }))
-            .toEqual({ action: "skip" });
+    it("stops on a permanent fault at once - no retry, and no skip either", () => {
+        expect(decidePlaybackRecovery({ kind: "permanent", attempt: 0 }))
+            .toEqual({ action: "halt", reason: "unplayable" });
     });
 
-    it("bounds a run of unplayable songs so skip-on-error cannot walk the library", () => {
-        expect(decidePlaybackRecovery({ kind: "permanent", attempt: 0, consecutiveSkips: MAX_CONSECUTIVE_SKIPS - 1 }))
-            .toEqual({ action: "skip" });
-        expect(decidePlaybackRecovery({ kind: "permanent", attempt: 0, consecutiveSkips: MAX_CONSECUTIVE_SKIPS }))
-            .toEqual({ action: "halt", reason: "unplayable-run" });
+    // ShuffullApp#103: moving past a song that won't load is the user's call. Even a "permanent" verdict can be
+    // a 404 from a server that is still starting up, so nothing here may advance the queue on its own.
+    it("never skips, for any kind of failure at any attempt count", () => {
+        const kinds = ["transient", "unknown", "permanent"] as const;
+        for (const kind of kinds) {
+            for (let attempt = 0; attempt <= MAX_TRANSIENT_ATTEMPTS + 3; attempt++) {
+                expect(["retry", "halt"]).toContain(decidePlaybackRecovery({ kind, attempt }).action);
+            }
+        }
     });
 
     // The reported incident, end to end: three streamed songs fail on a flaky connection and the player must
@@ -151,7 +154,6 @@ describe("decidePlaybackRecovery", () => {
             const recovery = decidePlaybackRecovery({
                 kind: classifyPlaybackError({ code: "android-io-network-connection-failed" }),
                 attempt,
-                consecutiveSkips: 0,
             });
             expect(recovery.action).toBe("retry");
             attempt++;

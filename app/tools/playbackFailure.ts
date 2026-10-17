@@ -15,16 +15,17 @@
  * `ORDER BY us.last_played ASC` and drawn from the FRONT, so a burned song drops to the back of the rotation;
  * an audition pool narrows to `last_played IS NULL OR <= 0` outright, so a burned audition song leaves the
  * cohort entirely and renders "heard" — dimmed, and gone when the mix is purged. The user never heard a note
- * of it. Worse, each skip loads the next track over the same dead path, so ONE blip burns songs in a row
- * until the consecutive-skip bound stops it.
+ * of it. Worse, each skip loads the next track over the same dead path, so ONE blip burns songs in a row.
  *
  * The two mistakes are therefore not symmetric, and the default must not pretend they are:
  *
  *   a wrong RETRY costs a few seconds of silence, and is fully recoverable;
  *   a wrong SKIP costs a song out of the rotation, and is written to the server.
  *
- * Everything below follows from that asymmetry. An unknown failure retries FIRST and only skips once retrying
- * has visibly not helped, and a transient failure never skips at all, however long it lasts.
+ * So the player NEVER skips on its own, whatever the failure (ShuffullApp#103). Even a "permanent" verdict is
+ * a guess from an error code or a probe taken while the server may be half up, and a 404 mid-restart looks
+ * exactly like a deleted song. It stops on the song, says why, and leaves skipping to the user. A transient
+ * fault is retried for as long as it lasts; an unknown one gets a couple of retries first.
  *
  * Pure, and free of react-native-track-player, so this is unit-testable — mediaManager is not.
  */
@@ -105,8 +106,8 @@ export interface ClassifyOptions {
      * Whether the track was loaded off local storage rather than streamed.
      *
      * The strongest signal available, and worth more than any code: a file already on disk cannot fail
-     * because the network did, so nothing about a local failure is worth waiting out. Retrying one would
-     * stall playback on a song that will never load, which is the failure mode the skip existed to prevent.
+     * because the network did, so nothing about a local failure is worth waiting out. It is flagged at once
+     * rather than retried.
      */
     isLocalSource?: boolean;
     /**
@@ -179,30 +180,23 @@ export const RETRY_BACKOFF_MS: readonly number[] = [1_000, 2_000, 5_000, 10_000,
 export const MAX_TRANSIENT_ATTEMPTS = 8;
 
 /**
- * Retries of one track for an UNCLASSIFIED fault before it is treated as a bad source and skipped. Small on
- * purpose: this is the budget spent proving that an unrecognised error is not just the network, and two
- * attempts is enough to rule that out without leaving playback stalled on a genuinely dead song.
+ * Retries of one track for an UNCLASSIFIED fault before the player stops and flags it. Small on purpose: a
+ * blip is usually over by then, and past that the user is better served by being told than by more silence.
  */
 export const MAX_UNKNOWN_ATTEMPTS = 2;
 
 /**
- * Songs skipped in a row for being unplayable before the player stops rather than carrying on. Without a
- * bound, a batch deleted server-side (or a device with nothing downloaded) would let skip-on-error tear
- * through the whole library. Anything that actually plays clears the count.
+ * There is deliberately no "skip". Every failure ends either in a retry of the same track or in a halt that
+ * the UI shows, and moving on is the user's call.
  */
-export const MAX_CONSECUTIVE_SKIPS = 5;
-
 export type PlaybackRecovery =
     | { action: "retry"; delayMs: number }
-    | { action: "skip" }
-    | { action: "halt"; reason: "offline" | "unplayable-run" };
+    | { action: "halt"; reason: "offline" | "unplayable" };
 
 export interface RecoveryInput {
     kind: PlaybackFailureKind;
     /** Failed attempts already made at THIS track since it last played. */
     attempt: number;
-    /** Songs skipped in a row because they failed to load. */
-    consecutiveSkips: number;
 }
 
 export function retryDelayMs(attempt: number): number {
@@ -210,7 +204,7 @@ export function retryDelayMs(attempt: number): number {
     return RETRY_BACKOFF_MS[index];
 }
 
-export function decidePlaybackRecovery({ kind, attempt, consecutiveSkips }: RecoveryInput): PlaybackRecovery {
+export function decidePlaybackRecovery({ kind, attempt }: RecoveryInput): PlaybackRecovery {
     if (kind === "transient") {
         // Never a skip, at any attempt count. Advancing the queue cannot help when the fault is the path to
         // the bytes, and it is exactly what turns one blip into several songs marked played-but-unheard.
@@ -225,9 +219,8 @@ export function decidePlaybackRecovery({ kind, attempt, consecutiveSkips }: Reco
         return { action: "retry", delayMs: retryDelayMs(attempt) };
     }
 
-    // Permanent, or unknown that has run out of benefit of the doubt: this song is the problem, so step over
-    // it — bounded, so a bad stretch of the library cannot run away.
-    return consecutiveSkips >= MAX_CONSECUTIVE_SKIPS
-        ? { action: "halt", reason: "unplayable-run" }
-        : { action: "skip" };
+    // Permanent, or unknown that has run out of retries: stop on this song and say so. Not a skip - the
+    // verdict may be wrong (a 404 from a server that is still starting reads as a deleted song), and a wrong
+    // skip is the expensive mistake.
+    return { action: "halt", reason: "unplayable" };
 }
