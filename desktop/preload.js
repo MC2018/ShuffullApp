@@ -37,7 +37,7 @@ contextBridge.exposeInMainWorld("shuffull", {
      */
     media: {
         /** Fetches `<host>/<kind>/<fileName>` into the store. Resolves `{ ok }` or `{ ok: false, error }`. */
-        download: (host, kind, fileName, verify) => ipcRenderer.invoke("shuffull:media:download", { host, kind, fileName, verify }),
+        download: (host, kind, fileName) => ipcRenderer.invoke("shuffull:media:download", { host, kind, fileName }),
         exists: (kind, fileName) => ipcRenderer.invoke("shuffull:media:exists", { kind, fileName }),
         remove: (kind, fileName) => ipcRenderer.invoke("shuffull:media:delete", { kind, fileName }),
         /** `callback({ kind, fileName, received, total })` as a download progresses. Returns an unsubscribe function. */

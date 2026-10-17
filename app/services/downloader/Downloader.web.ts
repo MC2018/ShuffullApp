@@ -279,14 +279,14 @@ export class Downloader {
             await this.publishStatus();
 
             // Main verifies the hash before the file is moved into place, so a failure leaves nothing behind.
-            const songResult = await media.download(hostAddress, "music", songFileName, true);
+            const songResult = await media.download(hostAddress, "music", songFileName);
 
             if (!songResult.ok) {
                 console.warn(`[downloader] ${song.name}: ${songResult.error}`);
                 return "failed";
             }
 
-            const artResult = await media.download(hostAddress, "albumart", Downloader.generateAlbumArtFileName(song), false);
+            const artResult = await media.download(hostAddress, "albumart", Downloader.generateAlbumArtFileName(song));
 
             if (!artResult.ok) {
                 console.warn(`[downloader] no album art saved for ${song.name}: ${artResult.error}`);

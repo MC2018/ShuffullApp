@@ -101,7 +101,7 @@ function createWindow() {
 function registerMediaIpc() {
     void media.clearTemp(MEDIA_ROOT);
 
-    ipcMain.handle("shuffull:media:download", (event, { host, kind, fileName, verify } = {}) => {
+    ipcMain.handle("shuffull:media:download", (event, { host, kind, fileName } = {}) => {
         let lastPercent = -1;
         return media.downloadMedia({
             root: MEDIA_ROOT,
@@ -109,7 +109,9 @@ function registerMediaIpc() {
             host,
             kind,
             fileName,
-            verify: verify === true,
+            // Main decides, not the page: every song is hash-checked (as on native); album art never is, because its
+            // file name is the SONG's hash and can't match the image's bytes.
+            verify: kind === "music",
             onProgress: (received, total) => {
                 // Whole-percent steps only: a chunk-by-chunk stream would be thousands of IPC messages per song.
                 const percent = total > 0 ? Math.floor((received / total) * 100) : -1;

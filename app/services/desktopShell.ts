@@ -11,8 +11,8 @@ import { MediaKind } from "../tools/desktopMedia";
 export type ShortcutAction = "like" | "love" | "dislike" | "keep" | "neutral";
 
 export interface DesktopMediaStore {
-    /** Fetches `<host>/<kind>/<fileName>` into the store. Never rejects for a failed download; reports it. */
-    download: (host: string, kind: MediaKind, fileName: string, verify: boolean) => Promise<{ ok: boolean; error?: string }>;
+    /** Fetches `<host>/<kind>/<fileName>` into the store (songs hash-checked by main). Reports failure; doesn't reject. */
+    download: (host: string, kind: MediaKind, fileName: string) => Promise<{ ok: boolean; error?: string }>;
     exists: (kind: MediaKind, fileName: string) => Promise<boolean>;
     remove: (kind: MediaKind, fileName: string) => Promise<void>;
     onProgress: (callback: (progress: { kind: MediaKind; fileName: string; received: number; total: number }) => void) => () => void;
