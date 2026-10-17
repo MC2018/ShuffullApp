@@ -21,7 +21,7 @@ export type DownloadPhase =
     | "paused" // the user paused; nothing new starts (an in-flight song is allowed to finish)
     | "waiting-for-wifi" // queued, online, but not on an allowed network
     | "offline" // queued, no internet at all
-    | "unsupported"; // web/desktop build: no local store
+    | "unsupported"; // plain browser build: no local store
 
 export interface DownloadStatus {
     phase: DownloadPhase;
@@ -31,6 +31,12 @@ export interface DownloadStatus {
     queuedCount: number;
     /** Bumped every time a song finishes downloading, so screens know to refresh their "downloaded" lists. */
     completedCount: number;
+    /**
+     * Whether downloads wait for Wi-Fi/Ethernet. Absent means yes: that is the phone rule, and it protects a data
+     * plan. The desktop build sets false - it has no data plan, and the web network API can't tell Wi-Fi from
+     * Ethernet anyway, so the allowlist would only ever answer "waiting for Wi-Fi" there.
+     */
+    wifiOnly?: boolean;
 }
 
 export interface NetworkSnapshot {
@@ -48,6 +54,8 @@ export function derivePhase(input: {
     downloading: boolean;
     queuedCount: number;
     network: NetworkSnapshot | undefined;
+    /** See DownloadStatus.wifiOnly. Absent = Wi-Fi only. */
+    wifiOnly?: boolean;
 }): DownloadPhase {
     if (input.paused) {
         return "paused";
@@ -61,7 +69,7 @@ export function derivePhase(input: {
     if (input.network == undefined || !input.network.isInternetReachable) {
         return "offline";
     }
-    if (!isDownloadNetwork(input.network.type)) {
+    if (input.wifiOnly !== false && !isDownloadNetwork(input.network.type)) {
         return "waiting-for-wifi";
     }
     return "downloading";
@@ -69,6 +77,12 @@ export function derivePhase(input: {
 
 /** Shown under the status card and on the Library row so the policy is written down where it applies. */
 export const WIFI_ONLY_NOTE = "Downloads only over Wi-Fi.";
+export const ANY_NETWORK_NOTE = "Downloads whenever you're online.";
+
+/** The policy line for the status card, matching what the Downloader actually enforces. */
+export function downloadNetworkNote(status: DownloadStatus): string {
+    return status.wifiOnly === false ? ANY_NETWORK_NOTE : WIFI_ONLY_NOTE;
+}
 
 /**
  * Headline for the status card. `currentName` is the in-flight song's title, when known. The "N of M"
