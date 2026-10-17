@@ -5,7 +5,7 @@
  * track which will not load is a track worth stepping over. That is right for exactly one of the three things
  * that raise the event, and it is not the common one:
  *
- *   - the SOURCE is bad (deleted server-side, corrupt file, unsupported container) — skipping is correct;
+ *   - the SOURCE is bad (deleted server-side, corrupt file, unsupported container) — retrying cannot help;
  *   - the PATH to the source is bad (timeout, dropped connection, tunnel flapping) — skipping is harmful;
  *   - something else — unknown.
  *
@@ -152,7 +152,7 @@ function classifyFromError(error: PlaybackErrorLike | null | undefined): Playbac
     if (code === "android-io-bad-http-status") {
         const status = extractHttpStatus(message);
         // An unreadable message leaves the status unknown, and "unknown" is the branch that retries before it
-        // skips — which is the side to be wrong on.
+        // stops — which is the side to be wrong on.
         if (status == undefined) {
             return "unknown";
         }
@@ -191,7 +191,15 @@ export const MAX_UNKNOWN_ATTEMPTS = 2;
  */
 export type PlaybackRecovery =
     | { action: "retry"; delayMs: number }
-    | { action: "halt"; reason: "offline" | "unplayable" };
+    | {
+        action: "halt";
+        reason: "offline" | "unplayable";
+        /**
+         * Whether the connection coming back should retry this song on its own. True whenever the fault might
+         * still be the network; false only for a permanent one, which waits for the user's play or next.
+         */
+        resumeOnReconnect: boolean;
+    };
 
 export interface RecoveryInput {
     kind: PlaybackFailureKind;
@@ -212,7 +220,7 @@ export function decidePlaybackRecovery({ kind, attempt }: RecoveryInput): Playba
         // when connectivity returns.
         return attempt < MAX_TRANSIENT_ATTEMPTS
             ? { action: "retry", delayMs: retryDelayMs(attempt) }
-            : { action: "halt", reason: "offline" };
+            : { action: "halt", reason: "offline", resumeOnReconnect: true };
     }
 
     if (kind === "unknown" && attempt < MAX_UNKNOWN_ATTEMPTS) {
@@ -222,5 +230,5 @@ export function decidePlaybackRecovery({ kind, attempt }: RecoveryInput): Playba
     // Permanent, or unknown that has run out of retries: stop on this song and say so. Not a skip - the
     // verdict may be wrong (a 404 from a server that is still starting reads as a deleted song), and a wrong
     // skip is the expensive mistake.
-    return { action: "halt", reason: "unplayable" };
+    return { action: "halt", reason: "unplayable", resumeOnReconnect: kind !== "permanent" };
 }

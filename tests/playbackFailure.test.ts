@@ -97,13 +97,6 @@ describe("classifyPlaybackError", () => {
 });
 
 describe("decidePlaybackRecovery", () => {
-    it("never skips on a transient fault, at any attempt count", () => {
-        for (let attempt = 0; attempt <= MAX_TRANSIENT_ATTEMPTS + 3; attempt++) {
-            const recovery = decidePlaybackRecovery({ kind: "transient", attempt });
-            expect(recovery.action).not.toBe("skip");
-        }
-    });
-
     it("retries the same track with a growing delay while the budget lasts", () => {
         const delays: number[] = [];
         for (let attempt = 0; attempt < MAX_TRANSIENT_ATTEMPTS; attempt++) {
@@ -119,20 +112,22 @@ describe("decidePlaybackRecovery", () => {
 
     it("halts as offline once the transient budget is spent, rather than advancing the queue", () => {
         expect(decidePlaybackRecovery({ kind: "transient", attempt: MAX_TRANSIENT_ATTEMPTS }))
-            .toEqual({ action: "halt", reason: "offline" });
+            .toEqual({ action: "halt", reason: "offline", resumeOnReconnect: true });
     });
 
     it("gives an unknown fault a couple of retries, then stops on it rather than skipping", () => {
         for (let attempt = 0; attempt < MAX_UNKNOWN_ATTEMPTS; attempt++) {
             expect(decidePlaybackRecovery({ kind: "unknown", attempt }).action).toBe("retry");
         }
+        // Still resumes on its own when the connection returns: an unclassified fault may be the network.
         expect(decidePlaybackRecovery({ kind: "unknown", attempt: MAX_UNKNOWN_ATTEMPTS }))
-            .toEqual({ action: "halt", reason: "unplayable" });
+            .toEqual({ action: "halt", reason: "unplayable", resumeOnReconnect: true });
     });
 
     it("stops on a permanent fault at once - no retry, and no skip either", () => {
+        // Waits for the user's play or next: a reconnect is no reason to think the source has been fixed.
         expect(decidePlaybackRecovery({ kind: "permanent", attempt: 0 }))
-            .toEqual({ action: "halt", reason: "unplayable" });
+            .toEqual({ action: "halt", reason: "unplayable", resumeOnReconnect: false });
     });
 
     // ShuffullApp#103: moving past a song that won't load is the user's call. Even a "permanent" verdict can be

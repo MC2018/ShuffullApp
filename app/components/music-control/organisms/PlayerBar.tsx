@@ -112,12 +112,13 @@ export default function PlayerBar({ floating = false }: { floating?: boolean }) 
                     </Text>
                 </View>
             </Pressable>
-            <IconButton name={isPlaying ? "pause" : "play"} size={22} color={theme.color.textPrimary} onPress={controlMedia} accessibilityLabel={isPlaying ? "Pause" : "Play"} />
             {/* The player stops on a song it can't play instead of skipping it, so the skip has to be in reach
-                here rather than one screen away. */}
+                here rather than one screen away. It goes BEFORE Play so Play stays where it always is: a user
+                reaching for Play to retry the song must not hit Next instead. */}
             {issue?.kind === "unplayable" ? (
                 <IconButton name="play-skip-forward" size={22} color={theme.color.textPrimary} onPress={() => MediaManager.skip()} accessibilityLabel="Next" />
             ) : null}
+            <IconButton name={isPlaying ? "pause" : "play"} size={22} color={theme.color.textPrimary} onPress={controlMedia} accessibilityLabel={isPlaying ? "Pause" : "Play"} />
         </View>
     );
 }

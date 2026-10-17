@@ -309,7 +309,7 @@ async function handlePlaybackFailure(raw: unknown) {
         probedStatus = await probeStreamStatus(activeStreamUrl);
 
         // The probe can take seconds. A skip or a new song in that window has made this failure stale, and
-        // acting on it would retry or skip the song the user has just moved to.
+        // acting on it would retry or flag the song the user has just moved to.
         if (epoch !== recoveryEpoch) {
             return;
         }
@@ -318,7 +318,7 @@ async function handlePlaybackFailure(raw: unknown) {
     }
 
     if (userPaused) {
-        // Recorded, not acted on. The user has stopped playback; retrying or skipping now would override that.
+        // Recorded, not acted on. The user has stopped playback; retrying now would override that.
         console.warn(`[player] ${kind} playback failure on song ${songId} while paused - leaving it paused.`);
         return;
     }
@@ -342,16 +342,15 @@ async function handlePlaybackFailure(raw: unknown) {
     if (recovery.reason === "offline") {
         // The timer gives up; the recovery does not. stalledSongId stays set, so the network coming back
         // resumes THIS song - which is the whole point of never having skipped it.
-        stalledSongId = songId;
+        stalledSongId = recovery.resumeOnReconnect ? songId : undefined;
         console.warn("[player] still unreachable - waiting for the connection to come back before retrying.");
         usePlaybackIssue.getState().setIssue({ kind: "offline", songId });
         return;
     }
 
-    // Stopped on this song, never skipped past it: play retries it, next moves on, both the user's call. An
-    // unknown fault may still be the network, so the connection coming back resumes it; a permanent one won't.
+    // Stopped on this song, never skipped past it: play retries it, next moves on, both the user's call.
     console.warn("[player] song can't be played - stopped on it until the user retries or skips.");
-    stalledSongId = kind === "permanent" ? undefined : songId;
+    stalledSongId = recovery.resumeOnReconnect ? songId : undefined;
     usePlaybackIssue.getState().setIssue({ kind: "unplayable", songId });
 }
 
