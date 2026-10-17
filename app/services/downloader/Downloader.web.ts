@@ -6,7 +6,8 @@ import { Song } from "../db/models";
 import { DownloadPriority } from "../db/types";
 import { useDownloadStatus } from "./downloadStatus";
 import { derivePhase, retryDelayMs } from "../../tools/downloadStatus";
-import { localMediaUri, MediaKind, parseLocalMediaUri } from "../../tools/desktopMedia";
+import { localMediaUri, parseLocalMediaUri } from "../../tools/desktopMedia";
+import { desktopShell, DesktopMediaStore } from "../desktopShell";
 import { sleep } from "../../tools/utils";
 
 /**
@@ -31,24 +32,17 @@ import { sleep } from "../../tools/utils";
  *   forever. The player falls back to the server URL for art it can't find locally.
  */
 
-interface MediaBridge {
-    download: (host: string, kind: MediaKind, fileName: string, verify: boolean) => Promise<{ ok: boolean; error?: string }>;
-    exists: (kind: MediaKind, fileName: string) => Promise<boolean>;
-    remove: (kind: MediaKind, fileName: string) => Promise<void>;
-    onProgress: (callback: (progress: { kind: MediaKind; fileName: string; received: number; total: number }) => void) => () => void;
-}
-
 /** The desktop shell's media store, or undefined in a plain browser (and during `expo export`'s prerender). */
-function mediaBridge(): MediaBridge | undefined {
-    return (globalThis as unknown as { shuffull?: { media?: MediaBridge } }).shuffull?.media;
+function mediaBridge(): DesktopMediaStore | undefined {
+    return desktopShell()?.media;
 }
 
 function pageOrigin(): string {
-    return (globalThis as unknown as { location?: { origin?: string } }).location?.origin ?? "";
+    return typeof window === "undefined" ? "" : window.location.origin;
 }
 
 function isOnline(): boolean {
-    return (globalThis as unknown as { navigator?: { onLine?: boolean } }).navigator?.onLine !== false;
+    return typeof navigator === "undefined" || navigator.onLine !== false;
 }
 
 // Safety net only, as on native: enqueue, resume and coming back online all kick the loop directly.
@@ -71,7 +65,7 @@ export class Downloader {
     // Starts true so nothing can start before the persisted value is read; the constructor flips it.
     paused = true;
     db: GenericDb;
-    private readonly media: MediaBridge | undefined;
+    private readonly media: DesktopMediaStore | undefined;
     private songInFlight: { songId: string; fileName: string; name: string } | undefined;
     private consecutiveFailures = 0;
 
@@ -106,12 +100,11 @@ export class Downloader {
         })();
 
         // Show "offline" the moment the connection drops, and pick the queue back up the moment it returns.
-        const target = globalThis as unknown as { addEventListener?: (type: string, listener: () => void) => void };
-        target.addEventListener?.("online", () => {
+        window.addEventListener("online", () => {
             void this.publishStatus();
             this.kick();
         });
-        target.addEventListener?.("offline", () => void this.publishStatus());
+        window.addEventListener("offline", () => void this.publishStatus());
     }
 
     /** Stops starting NEW downloads. A song already in flight is allowed to finish. */

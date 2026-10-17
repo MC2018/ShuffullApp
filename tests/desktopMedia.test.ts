@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 import { createRequire } from "node:module";
-import { mkdtempSync, readFileSync, existsSync, readdirSync } from "node:fs";
+import { mkdtempSync, readFileSync, existsSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
 import path from "node:path";
@@ -10,6 +10,14 @@ import { localMediaUri, MEDIA_ROUTE, parseLocalMediaUri } from "@/app/tools/desk
 const media = createRequire(import.meta.url)("../desktop/media.js");
 
 const HASH = "0123456789abcdef0123456789abcdef";
+
+const tempRoots: string[] = [];
+function tempRoot(): string {
+    const root = mkdtempSync(path.join(tmpdir(), "shuffull-media-"));
+    tempRoots.push(root);
+    return root;
+}
+afterAll(() => tempRoots.forEach((root) => rmSync(root, { recursive: true, force: true })));
 
 describe("file names and paths", () => {
     it("accepts only <hex hash>.<ext>", () => {
@@ -88,7 +96,7 @@ describe("downloadMedia", () => {
     fakeFetch.lastUrl = "";
 
     it("stores a verified file under its kind and builds the URL from host + kind + name", async () => {
-        const root = mkdtempSync(path.join(tmpdir(), "shuffull-media-"));
+        const root = tempRoot();
         const progress: number[] = [];
         const result = await media.downloadMedia({
             root, fetchImpl: fakeFetch(200, body), host: "https://example.test/api", kind: "music", fileName: goodName, verify: true,
@@ -107,7 +115,7 @@ describe("downloadMedia", () => {
     });
 
     it("leaves nothing behind when the bytes don't match the name", async () => {
-        const root = mkdtempSync(path.join(tmpdir(), "shuffull-media-"));
+        const root = tempRoot();
         const result = await media.downloadMedia({ root, fetchImpl: fakeFetch(200, body), host: "https://example.test", kind: "music", fileName: `${HASH}.mp3`, verify: true });
         expect(result.ok).toBe(false);
         expect(existsSync(path.join(root, "music", `${HASH}.mp3`))).toBe(false);
@@ -115,14 +123,14 @@ describe("downloadMedia", () => {
     });
 
     it("fails on an HTTP error instead of storing the error page", async () => {
-        const root = mkdtempSync(path.join(tmpdir(), "shuffull-media-"));
+        const root = tempRoot();
         const result = await media.downloadMedia({ root, fetchImpl: fakeFetch(404, body), host: "https://example.test", kind: "albumart", fileName: `${HASH}.jpg`, verify: false });
         expect(result).toEqual({ ok: false, error: `HTTP 404 for albumart/${HASH}.jpg` });
         expect(existsSync(path.join(root, "albumart", `${HASH}.jpg`))).toBe(false);
     });
 
     it("refuses bad names and non-http hosts before fetching anything", async () => {
-        const root = mkdtempSync(path.join(tmpdir(), "shuffull-media-"));
+        const root = tempRoot();
         const fetchImpl = async () => { throw new Error("should not fetch"); };
         expect((await media.downloadMedia({ root, fetchImpl, host: "https://example.test", kind: "music", fileName: "../../x.mp3" })).ok).toBe(false);
         expect((await media.downloadMedia({ root, fetchImpl, host: "file:///etc", kind: "music", fileName: goodName })).ok).toBe(false);
@@ -131,7 +139,7 @@ describe("downloadMedia", () => {
 
 describe("serveMedia", () => {
     it("answers Range requests with 206 and the right slice", async () => {
-        const root = mkdtempSync(path.join(tmpdir(), "shuffull-media-"));
+        const root = tempRoot();
         const bytes = new TextEncoder().encode("0123456789");
         const name = `${createHash("sha256").update(bytes).digest("hex").slice(0, 32)}.mp3`;
         await media.downloadMedia({ root, fetchImpl: async () => new Response(bytes), host: "https://example.test", kind: "music", fileName: name, verify: true });

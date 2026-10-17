@@ -3,6 +3,7 @@ import { useDb } from "./db/DbProvider";
 import DbQueries from "./db/queries";
 import { MediaManager } from "./media-manager";
 import { LikeStatus } from "../enums";
+import { desktopShell, ShortcutAction } from "./desktopShell";
 
 /**
  * Wires the desktop shell's GLOBAL rating shortcuts to the media manager.
@@ -15,22 +16,11 @@ import { LikeStatus } from "../enums";
  * while the app is in the background.
  */
 
-type ShortcutAction = "like" | "love" | "dislike" | "keep" | "neutral";
-
-interface ShuffullBridge {
-    onRatingShortcut: (callback: (action: ShortcutAction) => void) => () => void;
-    notify: (title: string, body: string) => void;
-}
-
-function bridge(): ShuffullBridge | undefined {
-    return (globalThis as unknown as { shuffull?: ShuffullBridge }).shuffull;
-}
-
 export default function DesktopShortcuts() {
     const db = useDb();
 
     useEffect(() => {
-        const shell = bridge();
+        const shell = desktopShell();
         if (!shell) {
             return;
         }

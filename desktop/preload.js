@@ -6,8 +6,9 @@ const { contextBridge, ipcRenderer } = require("electron");
  * The window runs with contextIsolation on and nodeIntegration off, so the renderer has no access to Node or
  * to ipcRenderer directly. This exposes three things and nothing else: a subscription to the global rating
  * shortcuts, a way to raise a desktop notification, and the offline media store. Anything wider would hand the
- * whole page (which loads remote album art) a route into the main process. The media calls take a kind and a
- * file name, never a path or a URL, and main validates both (desktop/media.js).
+ * whole page (which loads remote album art) a route into the main process. The media calls take a kind, a file
+ * name and the API host - never a path or a full URL. Main validates the kind and name, accepts only an
+ * http(s) host, and builds the URL itself as `<host>/<kind>/<file>` (desktop/media.js).
  *
  * `window.shuffull` is absent on mobile and in a plain browser, so the app can feature-detect it and simply do
  * nothing there rather than needing platform-specific files.

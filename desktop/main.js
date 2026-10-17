@@ -55,7 +55,9 @@ const MEDIA_ROOT = path.join(app.getPath("userData"), "media");
 // Must be declared before `ready`. `standard` gives normal URL parsing, `secure` makes it a secure context
 // (the part OPFS cares about), `supportFetchAPI` lets the wasm/worker assets be fetched.
 protocol.registerSchemesAsPrivileged([
-    { scheme: SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } },
+    // `stream` lets <audio> read downloaded songs (served under this scheme, see media.js) as a stream with Range
+    // requests instead of waiting for the whole response to buffer.
+    { scheme: SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true } },
 ]);
 
 function createWindow() {
@@ -92,8 +94,9 @@ function createWindow() {
 }
 
 /**
- * The offline store's IPC, for the web Downloader. Each handler re-validates kind and file name in media.js;
- * nothing here trusts the renderer's arguments.
+ * The offline store's IPC, for the web Downloader. media.js validates the kind and file name and rejects a
+ * non-http(s) host. The host itself is the renderer's (it is the API address the user logged in with), so the
+ * most a hostile page could do is make main fetch `<some http host>/<music|albumart>/<hash>.<ext>` into the store.
  */
 function registerMediaIpc() {
     void media.clearTemp(MEDIA_ROOT);
