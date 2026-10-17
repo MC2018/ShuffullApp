@@ -1,6 +1,7 @@
 const { app, BrowserWindow, protocol, net, session, globalShortcut, ipcMain, Notification } = require("electron");
 const path = require("node:path");
 const url = require("node:url");
+const media = require("./media");
 
 /**
  * Global rating shortcuts.
@@ -48,6 +49,8 @@ const RATING_SHORTCUTS = [
  */
 const DIST = path.join(__dirname, "..", "dist");
 const SCHEME = "app";
+// Offline songs and album art (see media.js). Under userData so it survives rebuilding dist/ and app updates.
+const MEDIA_ROOT = path.join(app.getPath("userData"), "media");
 
 // Must be declared before `ready`. `standard` gives normal URL parsing, `secure` makes it a secure context
 // (the part OPFS cares about), `supportFetchAPI` lets the wasm/worker assets be fetched.
@@ -64,7 +67,8 @@ function createWindow() {
             // Nothing in the web bundle needs Node, and letting the renderer have it would be a liability.
             nodeIntegration: false,
             contextIsolation: true,
-            // The single, deliberately narrow bridge: rating shortcuts in, notifications out. See preload.js.
+            // The single, deliberately narrow bridge: rating shortcuts in, notifications and the offline media
+            // store out. See preload.js.
             preload: path.join(__dirname, "preload.js"),
         },
     });
@@ -87,6 +91,35 @@ function createWindow() {
     return win;
 }
 
+/**
+ * The offline store's IPC, for the web Downloader. Each handler re-validates kind and file name in media.js;
+ * nothing here trusts the renderer's arguments.
+ */
+function registerMediaIpc() {
+    void media.clearTemp(MEDIA_ROOT);
+
+    ipcMain.handle("shuffull:media:download", (event, { host, kind, fileName, verify } = {}) => {
+        let lastPercent = -1;
+        return media.downloadMedia({
+            root: MEDIA_ROOT,
+            fetchImpl: (target) => net.fetch(target),
+            host,
+            kind,
+            fileName,
+            verify: verify === true,
+            onProgress: (received, total) => {
+                // Whole-percent steps only: a chunk-by-chunk stream would be thousands of IPC messages per song.
+                const percent = total > 0 ? Math.floor((received / total) * 100) : -1;
+                if (percent === lastPercent || event.sender.isDestroyed()) return;
+                lastPercent = percent;
+                event.sender.send("shuffull:media:progress", { kind, fileName, received, total });
+            },
+        });
+    });
+    ipcMain.handle("shuffull:media:exists", (_event, { kind, fileName } = {}) => media.mediaExists(MEDIA_ROOT, kind, fileName));
+    ipcMain.handle("shuffull:media:delete", (_event, { kind, fileName } = {}) => media.deleteMedia(MEDIA_ROOT, kind, fileName));
+}
+
 app.whenReady().then(() => {
     // Cross-origin isolation, so SharedArrayBuffer (and therefore the SQLite web driver) is available.
     session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
@@ -103,6 +136,12 @@ app.whenReady().then(() => {
 
     protocol.handle(SCHEME, (request) => {
         const { pathname } = new URL(request.url);
+
+        // Downloaded media, served under the page's own origin so COEP never gets a say (see media.js).
+        if (pathname.startsWith(media.MEDIA_ROUTE)) {
+            return media.serveMedia(MEDIA_ROOT, pathname, request.headers.get("range"));
+        }
+
         // SPA: unknown paths are routes, not files — hand back index.html and let expo-router resolve them.
         const rel = pathname === "/" || !path.extname(pathname) ? "/index.html" : pathname;
         const filePath = path.join(DIST, decodeURIComponent(rel));
@@ -115,6 +154,7 @@ app.whenReady().then(() => {
         return net.fetch(url.pathToFileURL(filePath).toString());
     });
 
+    registerMediaIpc();
     const mainWindow = createWindow();
 
     // Notifications raised by the renderer after a shortcut lands. The shortcuts are GLOBAL, so the user is
