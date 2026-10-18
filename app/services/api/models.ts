@@ -142,6 +142,17 @@ export interface SongRetagResult {
 export interface RetagResponse {
     results: SongRetagResult[];
 }
+// POST /api/v1/songs/keep  body: { songIds } -> per-song outcome. Any signed-in user; records the Keep (clears
+// the server's Exploratory) with no AI. "failed" means the song is not in the caller's library.
+export type SongKeepOutcome = "kept" | "failed";
+export interface SongKeepResult {
+    songId: string;
+    outcome: SongKeepOutcome;
+    error: string | null;
+}
+export interface KeepResponse {
+    results: SongKeepResult[];
+}
 /** One song to re-tag and its engine tier — the wire item of POST /songs/retag {items}. */
 export interface SongRetagWireItem {
     songId: string;

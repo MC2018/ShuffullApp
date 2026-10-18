@@ -12,6 +12,7 @@ export type UserSong = typeof Schema.userSongTable.$inferSelect;
 export type LocalSessionData = typeof Schema.localSessionDataTable.$inferSelect;
 export type RecentlyPlayedSong = typeof Schema.recentlyPlayedSongTable.$inferSelect;
 export type Request = typeof Schema.requestTable.$inferInsert;
+export type DeadLetterRequest = typeof Schema.deadLetterRequestTable.$inferSelect;
 export type AuthenticateRequest = Request & {
     username: string,
     userHash: string,

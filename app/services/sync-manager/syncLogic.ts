@@ -218,3 +218,81 @@ export function groupRequestsIntoBatches<T extends BatchableRequest>(
 
     return batches;
 }
+
+/** One per-song outcome from POST /songs/keep. */
+export interface KeepOutcomeRow {
+    songId: string;
+    outcome: "kept" | "failed";
+    error?: string | null;
+}
+
+/** A queued Keep row as the outcome rule needs it. */
+export interface QueuedKeep {
+    songId?: string | null;
+}
+
+/**
+ * The queued Keep rows the server did NOT record, each with its reason.
+ *
+ * A row counts as kept only when the response names its song as "kept". Everything else — reported failed,
+ * absent from the results, or a row with no song id — is returned here to be dead-lettered rather than deleted.
+ */
+export function failedKeeps<T extends QueuedKeep>(
+    requests: T[],
+    results: KeepOutcomeRow[] | undefined | null,
+): { request: T; reason: string }[] {
+    const outcomeBySong = new Map((results ?? []).filter(r => r?.songId).map(r => [r.songId, r]));
+    const failures: { request: T; reason: string }[] = [];
+
+    for (const request of requests) {
+        const outcome = request.songId ? outcomeBySong.get(request.songId) : undefined;
+        if (outcome?.outcome === "kept") {
+            continue;
+        }
+
+        const reason = !request.songId
+            ? "Keep row has no song id."
+            : outcome == undefined
+                ? "The server returned no outcome for this song."
+                : outcome.error?.trim() || "The server reported the keep as failed, with no reason.";
+        failures.push({ request, reason });
+    }
+
+    return failures;
+}
+
+/**
+ * Why queued playlist deletes must wait, or null if they may go.
+ *
+ * Deleting an audition playlist makes the server purge every song in it that is still Exploratory. A Keep the
+ * server hasn't recorded leaves its song Exploratory, so sending the delete first is exactly how kept songs
+ * were destroyed on 2026-08-22. Deletes therefore wait while any Keep is still queued, and also while one sits
+ * in the dead-letter table: that Keep was never recorded, so holding the delete is the only thing protecting its
+ * song. A held delete loses nothing; the playlist just stays on the server.
+ */
+export function playlistDeleteHold(outbox: BatchableRequest[], deadLetters: BatchableRequest[]): string | null {
+    if (outbox.some(x => x.requestType == RequestType.SongRetag)) {
+        return "a Keep is still waiting to be recorded";
+    }
+
+    if (deadLetters.some(x => x.requestType == RequestType.SongRetag)) {
+        return "a Keep was dead-lettered without being recorded";
+    }
+
+    return null;
+}
+
+/**
+ * The server's playlists minus any the user has deleted locally but whose delete hasn't been sent yet.
+ *
+ * Without this a held (or merely not-yet-flushed) delete brings the playlist straight back on the next pull.
+ */
+export function withoutPendingDeletes<T extends { playlistId: string }>(
+    playlists: T[],
+    outbox: (BatchableRequest & { playlistId?: string | null })[],
+): T[] {
+    const pending = new Set(outbox
+        .filter(x => x.requestType == RequestType.DeletePlaylist && x.playlistId)
+        .map(x => x.playlistId));
+    return playlists.filter(x => !pending.has(x.playlistId));
+}

@@ -1,0 +1,221 @@
+import { describe, it, expect, beforeEach, vi } from "vitest";
+import Database from "better-sqlite3";
+import { drizzle } from "drizzle-orm/better-sqlite3";
+import { migrate } from "drizzle-orm/better-sqlite3/migrator";
+import path from "path";
+import type { GenericDb } from "@/app/services/db/GenericDb";
+import { addRequests, enqueueSongRetag, getDeadLetterRequests, getRequests } from "@/app/services/db/queries/request";
+import { userTable } from "@/app/services/db/schema";
+import { RequestType } from "@/app/enums";
+import { ApiStatusFailureError } from "@/app/services/api/errors";
+import type { KeepResponse } from "@/app/services/api/models";
+
+// SyncManager's own imports reach native modules (the downloader, async-storage, argon2 via the tools barrel).
+// None of them run during the push phase tested here, so they are stubbed and the real SyncManager is exercised.
+vi.mock("@/app/tools", () => import("@/app/tools/pure"));
+vi.mock("@/app/services/downloader/Downloader", () => ({ Downloader: {} }));
+vi.mock("@react-native-async-storage/async-storage", () => ({ default: { getItem: async () => null, setItem: async () => {} } }));
+
+const { SyncManager } = await import("@/app/services/sync-manager/SyncManager");
+
+const USER = "u1";
+
+// The real schema, built by running the app's own migrations, so the dead-letter table is the shipped one.
+function makeDb(): GenericDb {
+    const db = drizzle(new Database(":memory:"));
+    migrate(db, { migrationsFolder: path.resolve(__dirname, "../app/services/db/drizzle") });
+    return db as unknown as GenericDb;
+}
+
+function rejected(endpoint: string, status: number, error: string) {
+    return new ApiStatusFailureError(endpoint, { status, data: { error } });
+}
+
+function makeApi() {
+    return {
+        songKeep: vi.fn(async (songIds: string[]): Promise<KeepResponse> => ({
+            results: songIds.map(songId => ({ songId, outcome: "kept", error: null })),
+        })),
+        songRetag: vi.fn(async (items: { songId: string }[]) => ({
+            results: items.map(x => ({ songId: x.songId, outcome: "enriched", error: null })),
+        })),
+        playlistDelete: vi.fn(async (_playlistId: string) => {}),
+    };
+}
+
+// Built without the constructor, which starts a 10s timer and an immediate sync. The pull phase is out of scope
+// here, so overallSync is stubbed to succeed.
+function makeManager(db: GenericDb, api: ReturnType<typeof makeApi>, logout = vi.fn(async () => {})) {
+    const manager = Object.create(SyncManager.prototype);
+    Object.assign(manager, { db, api, userId: USER, logout, syncing: false });
+    manager.overallSync = async () => 200;
+    return manager as { sync(): Promise<void> };
+}
+
+async function setCurator(db: GenericDb, isCurator: boolean) {
+    await db.insert(userTable).values({ userId: USER, username: "max", version: new Date(), isCurator });
+}
+
+async function queueDelete(db: GenericDb, playlistId: string, at = new Date()) {
+    await addRequests(db, [{
+        requestId: `delete-${playlistId}`,
+        timeRequested: at,
+        requestType: RequestType.DeletePlaylist,
+        userId: USER,
+        playlistId,
+    }]);
+}
+
+describe("SyncManager: a Keep is recorded through /songs/keep, for every user", () => {
+    let db: GenericDb;
+    let api: ReturnType<typeof makeApi>;
+    beforeEach(() => { db = makeDb(); api = makeApi(); });
+
+    it("a non-curator's Keep goes to /keep, never to the curator-only /retag", async () => {
+        await setCurator(db, false);
+        await enqueueSongRetag(db, USER, "s1", "weak");
+
+        await makeManager(db, api).sync();
+
+        expect(api.songKeep).toHaveBeenCalledWith(["s1"]);
+        expect(api.songRetag).not.toHaveBeenCalled();
+        expect(await getRequests(db)).toHaveLength(0);
+        expect(await getDeadLetterRequests(db)).toHaveLength(0);
+    });
+
+    it("a curator's Keep is recorded first, then re-tagged at its tier", async () => {
+        await setCurator(db, true);
+        await enqueueSongRetag(db, USER, "s1", "weak");
+        await enqueueSongRetag(db, USER, "s2", "strong");
+
+        await makeManager(db, api).sync();
+
+        expect(api.songKeep).toHaveBeenCalledWith(["s1", "s2"]);
+        expect(api.songKeep.mock.invocationCallOrder[0]).toBeLessThan(api.songRetag.mock.invocationCallOrder[0]);
+        expect(api.songRetag).toHaveBeenCalledWith([{ songId: "s1", model: "weak" }, { songId: "s2", model: "strong" }]);
+        expect(await getRequests(db)).toHaveLength(0);
+    });
+
+    it("a failed re-tag after a recorded Keep costs the tags, not the rows' disposal", async () => {
+        await setCurator(db, true);
+        await enqueueSongRetag(db, USER, "s1", "weak");
+        api.songRetag.mockRejectedValueOnce(rejected("/api/v1/songs/retag", 400, "AI is not enabled"));
+
+        await makeManager(db, api).sync();
+
+        expect(await getRequests(db)).toHaveLength(0);
+        expect(await getDeadLetterRequests(db)).toHaveLength(0);
+    });
+
+    it("a song the server did not keep is dead-lettered with its reason, not deleted", async () => {
+        await setCurator(db, true);
+        await enqueueSongRetag(db, USER, "mine", "weak");
+        await enqueueSongRetag(db, USER, "notMine", "weak");
+        api.songKeep.mockResolvedValueOnce({
+            results: [
+                { songId: "mine", outcome: "kept", error: null },
+                { songId: "notMine", outcome: "failed", error: "Song is not in your library." },
+            ],
+        });
+
+        await makeManager(db, api).sync();
+
+        const deadLetters = await getDeadLetterRequests(db);
+        expect(deadLetters.map(x => [x.songId, x.reason])).toEqual([["notMine", "Song is not in your library."]]);
+        expect(api.songRetag).toHaveBeenCalledWith([{ songId: "mine", model: "weak" }]);
+        expect(await getRequests(db)).toHaveLength(0);
+    });
+
+    it("a 401 logs out instead of being read as 'server down'", async () => {
+        await enqueueSongRetag(db, USER, "s1", "weak");
+        api.songKeep.mockRejectedValueOnce(rejected("/api/v1/songs/keep", 401, "expired"));
+        const logout = vi.fn(async () => {});
+
+        await makeManager(db, api, logout).sync();
+
+        expect(logout).toHaveBeenCalledOnce();
+        expect(await getRequests(db)).toHaveLength(1);
+    });
+});
+
+describe("SyncManager: playlist deletes wait for every Keep (the 2026-08-22 purge)", () => {
+    let db: GenericDb;
+    let api: ReturnType<typeof makeApi>;
+    beforeEach(() => { db = makeDb(); api = makeApi(); });
+
+    it("a rejected Keep is retained AND holds the playlist delete queued behind it", async () => {
+        await enqueueSongRetag(db, USER, "kept", "weak");
+        await queueDelete(db, "mix", new Date(Date.now() + 1));
+        api.songKeep.mockRejectedValue(rejected("/api/v1/songs/keep", 400, "boom"));
+
+        await makeManager(db, api).sync();
+
+        expect(api.playlistDelete).not.toHaveBeenCalled();
+        expect((await getRequests(db)).map(x => x.requestType).sort())
+            .toEqual([RequestType.SongRetag, RequestType.DeletePlaylist].sort());
+    });
+
+    it("once the Keep is recorded, the delete goes in the same flush", async () => {
+        await enqueueSongRetag(db, USER, "kept", "weak");
+        await queueDelete(db, "mix", new Date(Date.now() + 1));
+
+        await makeManager(db, api).sync();
+
+        expect(api.songKeep.mock.invocationCallOrder[0]).toBeLessThan(api.playlistDelete.mock.invocationCallOrder[0]);
+        expect(await getRequests(db)).toHaveLength(0);
+    });
+
+    it("a delete queued BEFORE a Keep is held for that flush, and goes on the next", async () => {
+        await queueDelete(db, "mix", new Date(Date.now() - 1000));
+        await enqueueSongRetag(db, USER, "kept", "weak");
+        const manager = makeManager(db, api);
+
+        await manager.sync();
+        expect(api.playlistDelete).not.toHaveBeenCalled();
+
+        await manager.sync();
+        expect(api.playlistDelete).toHaveBeenCalledWith("mix");
+        expect(await getRequests(db)).toHaveLength(0);
+    });
+
+    it("a dead-lettered Keep keeps holding deletes: that song was never recorded as kept", async () => {
+        await enqueueSongRetag(db, USER, "kept", "weak");
+        api.songKeep.mockResolvedValueOnce({ results: [{ songId: "kept", outcome: "failed", error: "nope" }] });
+        const manager = makeManager(db, api);
+        await manager.sync();
+
+        await queueDelete(db, "mix");
+        await manager.sync();
+
+        expect(api.playlistDelete).not.toHaveBeenCalled();
+        expect(await getRequests(db)).toHaveLength(1);
+    });
+
+    it("with no Keep anywhere, a delete is sent straight away", async () => {
+        await queueDelete(db, "mix");
+
+        await makeManager(db, api).sync();
+
+        expect(api.playlistDelete).toHaveBeenCalledWith("mix");
+    });
+
+    it("a Keep rejected past the retry window is dead-lettered, never dropped", async () => {
+        await addRequests(db, [{
+            requestId: "old-keep",
+            timeRequested: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000),
+            requestType: RequestType.SongRetag,
+            userId: USER,
+            songId: "kept",
+            payload: { model: "weak" },
+        }]);
+        api.songKeep.mockRejectedValue(rejected("/api/v1/songs/keep", 400, "boom"));
+
+        await makeManager(db, api).sync();
+
+        const deadLetters = await getDeadLetterRequests(db);
+        expect(await getRequests(db)).toHaveLength(0);
+        expect(deadLetters).toHaveLength(1);
+        expect(deadLetters[0].reason).toContain("400");
+        expect(deadLetters[0].reason).toContain("boom");
+    });
+});

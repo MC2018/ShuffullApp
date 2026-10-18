@@ -3,14 +3,20 @@ import DbQueries from "@/app/services/db/queries";
 import * as DbModels from "@/app/services/db/models";
 import * as ApiModels from "@/app/services/api/models";
 import { deterministicId, distinctBy, distinctByLast, generateId } from "@/app/tools";
-import { HttpStatusCode } from "axios";
+import axios, { HttpStatusCode } from "axios";
 import { RequestType } from "@/app/enums";
-import { ApiStatusFailureError } from "@/app/services/api/errors";
+import { ApiStatusFailureError, statusOfFailure } from "@/app/services/api/errors";
 import { GenericDb } from "@/app/services/db/GenericDb";
 import { Downloader } from "@/app/services/downloader/Downloader";
 import { STORAGE_KEYS } from "@/app/constants/storageKeys";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { advanceSongCursor, collectNewSongIds, groupRequestsIntoBatches, partitionRejectedRequests, playlistsToFetch, summarizeRetagFailures, toRetagItems } from "@/app/services/sync-manager/syncLogic";
+import { advanceSongCursor, collectNewSongIds, failedKeeps, groupRequestsIntoBatches, partitionRejectedRequests, playlistDeleteHold, playlistsToFetch, summarizeRetagFailures, toRetagItems, withoutPendingDeletes } from "@/app/services/sync-manager/syncLogic";
+
+/** What one outbox batch came back with: the status sync() acts on, and the error text when it failed. */
+interface RunResult {
+    statusCode: number;
+    reason?: string;
+}
 
 export class SyncManager {
     db: GenericDb;
@@ -59,7 +65,18 @@ export class SyncManager {
 
             // Run all pushing requests
             for (const requestBatch of requestBatches) {
-                const statusCode = await this.runRequests(requestBatch);
+                if (requestBatch[0]?.requestType == RequestType.DeletePlaylist) {
+                    // Read fresh: a Keep sent earlier in this flush may have just been recorded or dead-lettered.
+                    const hold = playlistDeleteHold(
+                        await DbQueries.getRequests(this.db),
+                        await DbQueries.getDeadLetterRequests(this.db));
+                    if (hold) {
+                        console.warn(`[sync] Holding playlist delete ${requestBatch[0].playlistId}: ${hold}.`);
+                        continue;
+                    }
+                }
+
+                const { statusCode, reason } = await this.runRequests(requestBatch);
 
                 if (statusCode == HttpStatusCode.Unauthorized) {
                     await this.logout();
@@ -70,16 +87,17 @@ export class SyncManager {
                 } else if (400 <= statusCode && statusCode <= 499) {
                     // Client error: replaying the same payload usually won't fix it — but deleting the rows
                     // outright is how queued work used to vanish with nothing logged. Keep them for a bounded
-                    // window so a transient cause (a stale token, a server-side fix) recovers by itself, and
-                    // abandon only what is too old to be anything but noise. Either way, say so out loud.
+                    // window so a transient cause (a stale token, a server-side fix) recovers by itself, then
+                    // move them to the dead-letter table with the reason. Either way, say so out loud.
                     const { abandon, keep } = partitionRejectedRequests(requestBatch, new Date());
                     console.warn(
                         `[sync] ${statusCode} on ${requestBatch.length} request(s) of type ` +
                         `${requestBatch[0]?.requestType}: retaining ${keep.length} for retry, ` +
-                        `abandoning ${abandon.length} past the retry window.`);
-                    if (abandon.length) {
-                        await DbQueries.deleteRequests(this.db, abandon.map(x => x.requestId));
-                    }
+                        `dead-lettering ${abandon.length} past the retry window. ${reason ?? ""}`);
+                    await DbQueries.deadLetterRequests(this.db, abandon.map(request => ({
+                        request,
+                        reason: `Rejected with ${statusCode} for longer than the retry window. ${reason ?? ""}`.trim(),
+                    })));
                 } else if (500 <= statusCode) {
                     console.log(`Cannot access server. Status code: ${statusCode}`);
                     endedPrematurely = true;
@@ -108,164 +126,109 @@ export class SyncManager {
         }
     }
     
-    private async runRequests(requests: DbModels.Request[]) {
+    private async runRequests(requests: DbModels.Request[]): Promise<RunResult> {
         const singleRequest = requests[0];
         const requestType = singleRequest.requestType as RequestType;
-        let statusCode: HttpStatusCode;
 
         switch (requestType) {
             case RequestType.UpdateSongLastPlayed:
-                statusCode = await this.updateSongLastPlayed(requests as DbModels.UpdateSongLastPlayedRequest[]);
-                break;
+                return await this.attempt(() => this.api.userSongUpdateLastPlayed(requests as DbModels.UpdateSongLastPlayedRequest[]));
             case RequestType.OverallSync:
-                statusCode = await this.overallSync();
-                break;
+                return { statusCode: await this.overallSync() };
             case RequestType.CreateUserSong:
-                statusCode = await this.createUserSong(requests as DbModels.CreateUserSongRequest[]);
-                break;
+                return await this.attempt(() => this.api.userSongCreateMany((requests as DbModels.CreateUserSongRequest[]).map(x => x.songId)));
             case RequestType.SetSongLikeStatus:
-                statusCode = await this.setSongLikeStatus(requests as DbModels.SetSongLikeStatusRequest[]);
-                break;
+                // Processed individually, so each batch is a single song; loop defensively all the same.
+                return await this.attempt(async () => {
+                    for (const request of requests as DbModels.SetSongLikeStatusRequest[]) {
+                        await this.api.userSongSetLikeStatus(request.songId, request.likeStatus);
+                    }
+                });
             case RequestType.FlagSongForReplacement:
-                statusCode = await this.flagSongForReplacement(requests as DbModels.FlagSongForReplacementRequest[]);
-                break;
+                // Batched: one idempotent POST per flagged song (server skips songs already queued).
+                return await this.attempt(async () => {
+                    for (const request of requests as DbModels.FlagSongForReplacementRequest[]) {
+                        await this.api.flagSongForReplacement(request.songId);
+                    }
+                });
             case RequestType.UpdateSongMetadata:
-                statusCode = await this.updateSongMetadata(requests as DbModels.UpdateSongMetadataRequest[]);
-                break;
+                // Processed individually, so each batch is a single song; loop defensively all the same.
+                return await this.attempt(async () => {
+                    for (const request of requests as DbModels.UpdateSongMetadataRequest[]) {
+                        await this.api.songUpdate(request.songId, request.payload);
+                    }
+                });
             case RequestType.SongRetag:
-                statusCode = await this.songRetag(requests as DbModels.SongRetagRequest[]);
-                break;
+                return await this.attempt(() => this.keepAndRetag(requests as DbModels.SongRetagRequest[]));
             case RequestType.DeletePlaylist:
-                statusCode = await this.deletePlaylist(requests as DbModels.DeletePlaylistRequest[]);
-                break;
+                // Processed individually, so each batch is a single playlist; loop defensively all the same. The
+                // local rows were already removed optimistically when the user deleted; this just tells the server
+                // (which also purges the un-kept audition songs). sync() holds these while any Keep is unrecorded.
+                return await this.attempt(async () => {
+                    for (const request of requests as DbModels.DeletePlaylistRequest[]) {
+                        await this.api.playlistDelete(request.playlistId);
+                    }
+                });
             default:
                 throw new Error("A request type has no method to call.");
         }
-
-        return statusCode;
     }
 
-    private async updateSongLastPlayed(requests: DbModels.UpdateSongLastPlayedRequest[]) {
+    // Runs one batch's calls and reports the status sync() acts on, plus the error text for the log and any
+    // dead-letter row. statusOfFailure is the one place a thrown error becomes a status.
+    private async attempt(send: () => Promise<unknown>): Promise<RunResult> {
         try {
-            await this.api.userSongUpdateLastPlayed(requests);
-            return HttpStatusCode.Ok;
+            await send();
+            return { statusCode: HttpStatusCode.Ok };
         } catch (e) {
-            if (e instanceof ApiStatusFailureError) {
-                return e.status;
-            }
-
-            return HttpStatusCode.InternalServerError;
+            return { statusCode: statusOfFailure(e), reason: e instanceof Error ? e.message : String(e) };
         }
     }
 
-    private async createUserSong(requests: DbModels.CreateUserSongRequest[]): Promise<HttpStatusCode> {
-        try {
-            const songIds = requests.map(x => x.songId);
-            await this.api.userSongCreateMany(songIds);
-            return HttpStatusCode.Ok;
-        } catch (e) {
-            if (e instanceof ApiStatusFailureError) {
-                return e.status;
-            }
+    // A queued SongRetag row is a Keep (weak) or a like-promotion (strong). Either way the user's decision is
+    // recorded FIRST, through /songs/keep, which any user may call and which runs no AI. Only then, and only for a
+    // curator, is re-tagging attempted. /retag is curator-only, so routing a non-curator's Keep through it is
+    // what left their Keeps unrecorded and their songs purgeable.
+    private async keepAndRetag(requests: DbModels.SongRetagRequest[]): Promise<void> {
+        const songIds = [...new Set(requests.map(x => x.songId).filter(Boolean))];
+        const response = songIds.length ? await this.api.songKeep(songIds) : undefined;
 
-            return HttpStatusCode.InternalServerError;
+        // A 200 only means the POST landed; the per-item outcomes say whether each Keep was recorded. A song the
+        // server didn't keep is dead-lettered with its reason. Deleting it would be another silent loss, and
+        // retrying it would replay a verdict on the song, not a transient fault.
+        const failures = failedKeeps(requests, response?.results);
+        if (failures.length) {
+            console.warn(
+                `[sync] ${failures.length}/${requests.length} keep(s) not recorded, dead-lettered: ` +
+                `${[...new Set(failures.map(x => x.reason))].join("; ")}`);
+            await DbQueries.deadLetterRequests(this.db, failures);
         }
-    }
 
-    private async setSongLikeStatus(requests: DbModels.SetSongLikeStatusRequest[]): Promise<HttpStatusCode> {
-        try {
-            // Processed individually, so each batch is a single song; loop defensively all the same.
-            for (const request of requests) {
-                await this.api.userSongSetLikeStatus(request.songId, request.likeStatus);
-            }
-            return HttpStatusCode.Ok;
-        } catch (e) {
-            if (e instanceof ApiStatusFailureError) {
-                return e.status;
-            }
-
-            return HttpStatusCode.InternalServerError;
+        const user = await DbQueries.getUser(this.db, this.userId);
+        if (!user?.isCurator) {
+            return;
         }
-    }
 
-    private async flagSongForReplacement(requests: DbModels.FlagSongForReplacementRequest[]): Promise<HttpStatusCode> {
-        try {
-            // Batched: one idempotent POST per flagged song (server skips songs already queued).
-            for (const request of requests) {
-                await this.api.flagSongForReplacement(request.songId);
-            }
-            return HttpStatusCode.Ok;
-        } catch (e) {
-            if (e instanceof ApiStatusFailureError) {
-                return e.status;
-            }
-
-            return HttpStatusCode.InternalServerError;
+        const failed = new Set(failures.map(x => x.request.requestId));
+        const items = toRetagItems(requests.filter(x => !failed.has(x.requestId)));
+        if (!items.length) {
+            return;
         }
-    }
 
-    private async updateSongMetadata(requests: DbModels.UpdateSongMetadataRequest[]): Promise<HttpStatusCode> {
+        // Enrichment is optional: the Keeps above are already durable, so a failure here costs tags, never the
+        // decision, and it must not keep these rows queued. The songs stay findable server-side (they match the
+        // stale-song query), but nothing drains that query automatically today, so these warnings are the only
+        // signal that tags are owed.
         try {
-            // Processed individually, so each batch is a single song; loop defensively all the same.
-            for (const request of requests) {
-                await this.api.songUpdate(request.songId, request.payload);
+            const retag = await this.api.songRetag(items);
+            const { songIds: notEnriched, reasons } = summarizeRetagFailures(retag?.results);
+            if (notEnriched.length) {
+                console.warn(
+                    `[sync] ${notEnriched.length}/${items.length} re-tag(s) did not enrich: ` +
+                    `${reasons.join("; ")}`);
             }
-            return HttpStatusCode.Ok;
         } catch (e) {
-            if (e instanceof ApiStatusFailureError) {
-                return e.status;
-            }
-
-            return HttpStatusCode.InternalServerError;
-        }
-    }
-
-    private async songRetag(requests: DbModels.SongRetagRequest[]): Promise<HttpStatusCode> {
-        try {
-            // ONE burst POST for the whole (possibly mixed) backlog: each item carries its own model tier,
-            // so weak Keeps and strong like-promotions flush together. Stronger-wins dedupe mirrors both the
-            // enqueue rule and the server's collapse.
-            const items = toRetagItems(requests);
-            if (items.length) {
-                const response = await this.api.songRetag(items);
-
-                // A 200 only means the POST landed; the per-item outcomes say whether the tagging ran. The
-                // server records the keep BEFORE enriching, so a failure here is outstanding TAG work, not a
-                // lost decision — the song is safe and still matches the server's stale-song query. Nothing
-                // drains that query automatically today, so this warning is the only signal tags are owed.
-                // Discarding this body is what hid months of silent failures.
-                const { songIds, reasons } = summarizeRetagFailures(response?.results);
-                if (songIds.length) {
-                    console.warn(
-                        `[sync] ${songIds.length}/${items.length} re-tag(s) did not enrich: ` +
-                        `${reasons.join("; ")}`);
-                }
-            }
-            return HttpStatusCode.Ok;
-        } catch (e) {
-            if (e instanceof ApiStatusFailureError) {
-                return e.status;
-            }
-
-            return HttpStatusCode.InternalServerError;
-        }
-    }
-
-    private async deletePlaylist(requests: DbModels.DeletePlaylistRequest[]): Promise<HttpStatusCode> {
-        try {
-            // Processed individually, so each batch is a single playlist; loop defensively all the same. The
-            // local rows were already removed optimistically when the user deleted; this just tells the server
-            // (which also purges the un-kept audition songs).
-            for (const request of requests) {
-                await this.api.playlistDelete(request.playlistId);
-            }
-            return HttpStatusCode.Ok;
-        } catch (e) {
-            if (e instanceof ApiStatusFailureError) {
-                return e.status;
-            }
-
-            return HttpStatusCode.InternalServerError;
+            console.warn(`[sync] Re-tag after keep failed with ${statusOfFailure(e)}; the keeps are recorded.`, e);
         }
     }
 
@@ -278,7 +241,10 @@ export class SyncManager {
             const oldUser = await DbQueries.getUser(this.db, this.userId);
             const user = await this.api.userGet();
             const tags = await this.api.tagGetAll();
-            const accessiblePlaylists = await this.api.playlistGetAll();
+            // A playlist deleted here but not yet deleted on the server (queued, or held behind a Keep) stays gone.
+            const accessiblePlaylists = withoutPendingDeletes(
+                await this.api.playlistGetAll(),
+                await DbQueries.getRequests(this.db));
 
             // Decide which playlists changed (local read) and fetch just those.
             const localPlaylists = await DbQueries.getPlaylists(this.db, this.userId);
@@ -474,8 +440,8 @@ export class SyncManager {
 
             return HttpStatusCode.Ok;
         } catch (e) {
-            if (e instanceof ApiStatusFailureError) {
-                return e.status;
+            if (e instanceof ApiStatusFailureError || axios.isAxiosError(e)) {
+                return statusOfFailure(e);
             }
 
             // A NON-API failure here (a bad write, a driver that rejects a statement, a null deref) used to be

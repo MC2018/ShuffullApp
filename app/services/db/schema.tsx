@@ -203,6 +203,21 @@ export const requestTable = sqliteTable("requests", {
     payload: text("payload", { mode: "json" }).$type<UpdateSongMetadataPayload | SongRetagPayload>()
 });
 
+// Outbox rows the app gave up sending, kept with the reason instead of deleted. A row lands here when the server
+// rejected it (4xx) for longer than the retry window, or answered 200 but reported that item failed. Nothing
+// replays these: they are the record that queued work did not happen, so it is never silently lost.
+export const deadLetterRequestTable = sqliteTable("dead_letter_requests", {
+    requestId: text("request_id").primaryKey(),
+    requestType: integer("request_type").notNull(),
+    songId: text("song_id"),
+    playlistId: text("playlist_id"),
+    timeRequested: integer("time_request", { mode: "timestamp_ms" }).notNull(),
+    deadLetteredAt: integer("dead_lettered_at", { mode: "timestamp_ms" }).notNull(),
+    reason: text("reason").notNull(),
+    // The whole original outbox row, so nothing about the request is lost with it.
+    request: text("request", { mode: "json" }).notNull(),
+});
+
 export const downloadQueueTable = sqliteTable("download_queue", {
     downloadQueueId: text("download_queue_id").primaryKey(),
     songId: text("song_id").notNull().references(() => songTable.songId).unique(),

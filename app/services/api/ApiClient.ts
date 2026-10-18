@@ -1,5 +1,5 @@
 import axios, { AxiosInstance } from "axios";
-import { AuthenticateResponse, AuthenticateResponseSchema, ChangedSongPageSchema, CreatePlaylistResponseSchema, Playlist, PlaylistListResponseSchema, RetagResponse, RetagStaleResponse, SongListResponseSchema, SongRetagWireItem, Tag, TagListResponseSchema, UserResponseSchema, UserSongPageSchema } from "./models";
+import { AuthenticateResponse, AuthenticateResponseSchema, ChangedSongPageSchema, CreatePlaylistResponseSchema, KeepResponse, Playlist, PlaylistListResponseSchema, RetagResponse, RetagStaleResponse, SongListResponseSchema, SongRetagWireItem, Tag, TagListResponseSchema, UserResponseSchema, UserSongPageSchema } from "./models";
 import { ApiStatusFailureError } from "./errors";
 import { UpdateSongLastPlayedRequest, UpdateSongMetadataPayload } from "../db/models";
 
@@ -334,6 +334,29 @@ export class ApiClient {
             }
 
             console.log(`[API] Endpoint ${endpoint} succeeded`);
+        } catch (error) {
+            console.log(`[API] Endpoint ${endpoint} failed with error:`, error);
+            throw error;
+        }
+    }
+
+    // Any user: record a Keep of audition songs in their library. Promotes them server-side (clears Exploratory) and
+    // runs no AI, so the decision is durable whatever happens to tagging. Returns a per-song outcome.
+    public async songKeep(songIds: string[]): Promise<KeepResponse> {
+        const endpoint = "/api/v1/songs/keep";
+        console.log(`[API] Calling endpoint: ${endpoint} (${songIds.length} songs)`);
+        try {
+            const response = await this.client.post(endpoint, JSON.stringify({ songIds }), {
+                headers: {
+                    "Content-Type": "application/json"
+                }
+            });
+            if (!isSuccessfulStatus(response.status)) {
+                console.log(`[API] Endpoint ${endpoint} failed with status: ${response.status}`);
+                throw new ApiStatusFailureError(endpoint, response);
+            }
+            console.log(`[API] Endpoint ${endpoint} succeeded`);
+            return response.data as KeepResponse;
         } catch (error) {
             console.log(`[API] Endpoint ${endpoint} failed with error:`, error);
             throw error;
