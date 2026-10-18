@@ -2,7 +2,7 @@ import { ImageURISource, Pressable, StyleSheet, View } from "react-native";
 import React, { useEffect, useState } from "react";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useActiveSong, useIsPlaybackActive } from "@/app/services/media-manager/mediaManager";
+import { PLAYBACK_ISSUE_LABEL, useActiveSong, useIsPlaybackActive, usePlaybackIssue } from "@/app/services/media-manager/mediaManager";
 import { useDb } from "@/app/services/db/DbProvider";
 import DbQueries from "@/app/services/db/queries";
 import { Song } from "@/app/services/db/models";
@@ -41,6 +41,7 @@ export default function PlayerBar({ floating = false }: { floating?: boolean }) 
     const db = useDb();
     const isPlaying = useIsPlaybackActive();
     const { songId } = useActiveSong();
+    const { issue } = usePlaybackIssue();
     const [songInfo, setSongInfo] = useState<SongDetails | null>(null);
     const [albumArt, setAlbumArt] = useState<ArtSource>(defaultArt);
 
@@ -104,11 +105,19 @@ export default function PlayerBar({ floating = false }: { floating?: boolean }) 
                     <Text variant="label" numberOfLines={1}>
                         {songInfo.song.name}
                     </Text>
-                    <Text variant="caption" color="textMuted" numberOfLines={1}>
-                        {songInfo.artists.map((x) => x.name).join(", ")}
+                    {/* The artist line gives way to the player's issue, so a stalled or failed song is flagged
+                        on every screen and not only on Now Playing. */}
+                    <Text variant="caption" color={issue ? "accent" : "textMuted"} numberOfLines={1}>
+                        {issue ? PLAYBACK_ISSUE_LABEL[issue.kind] : songInfo.artists.map((x) => x.name).join(", ")}
                     </Text>
                 </View>
             </Pressable>
+            {/* The player stops on a song it can't play instead of skipping it, so the skip has to be in reach
+                here rather than one screen away. It goes BEFORE Play so Play stays where it always is: a user
+                reaching for Play to retry the song must not hit Next instead. */}
+            {issue?.kind === "unplayable" ? (
+                <IconButton name="play-skip-forward" size={22} color={theme.color.textPrimary} onPress={() => MediaManager.skip()} accessibilityLabel="Next" />
+            ) : null}
             <IconButton name={isPlaying ? "pause" : "play"} size={22} color={theme.color.textPrimary} onPress={controlMedia} accessibilityLabel={isPlaying ? "Pause" : "Play"} />
         </View>
     );

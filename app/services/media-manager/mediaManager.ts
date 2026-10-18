@@ -41,9 +41,6 @@ let activeStreamUrl: string | undefined;
 let userPaused = false;
 // Failed attempts at the CURRENT track since it last played. Cleared whenever a track starts or plays.
 let trackRetryAttempts = 0;
-// Songs skipped in a row for being unplayable. Bounds skip-on-error so a batch deleted server-side (or a
-// device with nothing downloaded) cannot walk the whole library. Anything that actually plays clears it.
-let consecutiveFailedSkips = 0;
 // The song the player is stalled on, waiting out a fault that looks environmental. Set for as long as we are
 // prepared to resume it - INCLUDING after the retry timer has given up, because connectivity returning is
 // still a good reason to carry on, and that can happen long after the last scheduled attempt.
@@ -111,6 +108,17 @@ export const useLikeStatus = create<LikeStatusState>((set) => ({
 export type PlaybackIssue = {
     kind: "reconnecting" | "offline" | "unplayable";
     songId: string | undefined;
+};
+
+/**
+ * What the player shows in place of its usual caption while there is an issue. Waiting on a song looks like a
+ * hang unless it says so, and since a failed song is never skipped automatically, "unplayable" is the user's
+ * cue to skip it themselves.
+ */
+export const PLAYBACK_ISSUE_LABEL: Record<PlaybackIssue["kind"], string> = {
+    reconnecting: "Reconnecting…",
+    offline: "Waiting for connection",
+    unplayable: "Can't play this song",
 };
 
 interface PlaybackIssueState {
@@ -240,10 +248,8 @@ async function setupEventListeners() {
     });
     TrackPlayer.addEventListener(Event.PlaybackState, async (state: PlaybackState) => {
         // A track reaching the speakers is the only proof that BOTH the source and the path to it are good, so
-        // it is what clears every failure budget. Without this, an unplayable stretch of the library would
-        // permanently disable skip-on-error.
+        // it is what clears the retry budget and any flag on screen.
         if (state.state == State.Playing) {
-            consecutiveFailedSkips = 0;
             clearStall();
             return;
         }
@@ -303,7 +309,7 @@ async function handlePlaybackFailure(raw: unknown) {
         probedStatus = await probeStreamStatus(activeStreamUrl);
 
         // The probe can take seconds. A skip or a new song in that window has made this failure stale, and
-        // acting on it would retry or skip the song the user has just moved to.
+        // acting on it would retry or flag the song the user has just moved to.
         if (epoch !== recoveryEpoch) {
             return;
         }
@@ -312,16 +318,12 @@ async function handlePlaybackFailure(raw: unknown) {
     }
 
     if (userPaused) {
-        // Recorded, not acted on. The user has stopped playback; retrying or skipping now would override that.
+        // Recorded, not acted on. The user has stopped playback; retrying now would override that.
         console.warn(`[player] ${kind} playback failure on song ${songId} while paused - leaving it paused.`);
         return;
     }
 
-    const recovery = decidePlaybackRecovery({
-        kind,
-        attempt: trackRetryAttempts,
-        consecutiveSkips: consecutiveFailedSkips,
-    });
+    const recovery = decidePlaybackRecovery({ kind, attempt: trackRetryAttempts });
 
     console.warn(
         `[player] ${kind} playback failure on song ${songId} ` +
@@ -337,26 +339,18 @@ async function handlePlaybackFailure(raw: unknown) {
         return;
     }
 
-    if (recovery.action === "skip") {
-        consecutiveFailedSkips++;
-        clearStall();
-        await skip(false);
-        return;
-    }
-
     if (recovery.reason === "offline") {
         // The timer gives up; the recovery does not. stalledSongId stays set, so the network coming back
         // resumes THIS song - which is the whole point of never having skipped it.
-        stalledSongId = songId;
+        stalledSongId = recovery.resumeOnReconnect ? songId : undefined;
         console.warn("[player] still unreachable - waiting for the connection to come back before retrying.");
         usePlaybackIssue.getState().setIssue({ kind: "offline", songId });
         return;
     }
 
-    console.warn(
-        "[player] too many unplayable songs in a row - stopping rather than skipping further. " +
-        "Playback resumes on the next explicit play/skip.");
-    stalledSongId = undefined;
+    // Stopped on this song, never skipped past it: play retries it, next moves on, both the user's call.
+    console.warn("[player] song can't be played - stopped on it until the user retries or skips.");
+    stalledSongId = recovery.resumeOnReconnect ? songId : undefined;
     usePlaybackIssue.getState().setIssue({ kind: "unplayable", songId });
 }
 
@@ -470,7 +464,6 @@ function subscribeToNetworkRecovery() {
  */
 function beginUserInitiatedPlayback() {
     userPaused = false;
-    consecutiveFailedSkips = 0;
     clearStall();
 }
 
@@ -583,15 +576,11 @@ export async function pause() {
 }
 
 /**
- * `userInitiated` defaults to true because almost every caller is a person or a finished song, and both
- * legitimately reset the failure budgets. The ONE caller that passes false is the error-recovery path, which
- * is stepping over an unplayable song: letting that reset the budget would defeat the bound it is counted
- * against and let a bad stretch of the library run away again.
+ * Every caller is a person or a finished song. A failed load never calls this (ShuffullApp#103): the player
+ * stops and flags the song instead, and moving on is left to the user.
  */
-export async function skip(userInitiated: boolean = true) {
-    if (userInitiated) {
-        beginUserInitiatedPlayback();
-    }
+export async function skip() {
+    beginUserInitiatedPlayback();
 
     let recentlyPlayedSong: RecentlyPlayedSong | undefined;
     let songId: string | undefined;
