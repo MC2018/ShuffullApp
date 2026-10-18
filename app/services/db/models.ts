@@ -42,7 +42,9 @@ export type SongRetagRequest = Request & {
     payload?: Schema.SongRetagPayload | null
 };
 export type DeletePlaylistRequest = Request & {
-    playlistId: string
+    playlistId: string,
+    // Absent on rows queued before the delete hold was scoped to the playlist's songs.
+    payload?: Schema.DeletePlaylistPayload | null
 };
 export type UpdateSongMetadataPayload = Schema.UpdateSongMetadataPayload;
 export type SongTagEdit = Schema.SongTagEdit;

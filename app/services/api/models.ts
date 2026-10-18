@@ -143,16 +143,17 @@ export interface RetagResponse {
     results: SongRetagResult[];
 }
 // POST /api/v1/songs/keep  body: { songIds } -> per-song outcome. Any signed-in user; records the Keep (clears
-// the server's Exploratory) with no AI. "failed" means the song is not in the caller's library.
-export type SongKeepOutcome = "kept" | "failed";
-export interface SongKeepResult {
-    songId: string;
-    outcome: SongKeepOutcome;
-    error: string | null;
-}
-export interface KeepResponse {
-    results: SongKeepResult[];
-}
+// the server's Exploratory) with no AI. Parsed rather than cast: a 200 with some other body (a proxy page) must
+// fail the call and be retried, not read as "no song was kept". Outcome stays a string ("kept" | "failed" today)
+// so a new outcome can't fail the parse; anything but "kept" counts as not kept.
+export const KeepResponseSchema = z.object({
+    results: z.array(z.object({
+        songId: z.string(),
+        outcome: z.string(),
+        error: z.string().nullish(),
+    })),
+});
+export type KeepResponse = z.infer<typeof KeepResponseSchema>;
 /** One song to re-tag and its engine tier — the wire item of POST /songs/retag {items}. */
 export interface SongRetagWireItem {
     songId: string;

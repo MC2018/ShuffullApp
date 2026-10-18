@@ -5,7 +5,7 @@ import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import path from "path";
 import type { GenericDb } from "@/app/services/db/GenericDb";
 import { addRequests, enqueueSongRetag, getDeadLetterRequests, getRequests } from "@/app/services/db/queries/request";
-import { userTable } from "@/app/services/db/schema";
+import { deadLetterRequestTable, userTable } from "@/app/services/db/schema";
 import { RequestType } from "@/app/enums";
 import { ApiStatusFailureError } from "@/app/services/api/errors";
 import type { KeepResponse } from "@/app/services/api/models";
@@ -56,14 +56,23 @@ async function setCurator(db: GenericDb, isCurator: boolean) {
     await db.insert(userTable).values({ userId: USER, username: "max", version: new Date(), isCurator });
 }
 
-async function queueDelete(db: GenericDb, playlistId: string, at = new Date()) {
+async function queueDelete(db: GenericDb, playlistId: string, at = new Date(), songIds: string[] | null = []) {
     await addRequests(db, [{
         requestId: `delete-${playlistId}`,
         timeRequested: at,
         requestType: RequestType.DeletePlaylist,
         userId: USER,
         playlistId,
+        payload: songIds ? { songIds } : null,
     }]);
+}
+
+// Leaves a Keep for `songId` in the dead-letter table, the way a refused Keep gets there.
+async function deadLetterKeep(db: GenericDb, api: ReturnType<typeof makeApi>, songId: string) {
+    await enqueueSongRetag(db, USER, songId, "weak");
+    api.songKeep.mockResolvedValueOnce({ results: [{ songId, outcome: "failed", error: "nope" }] });
+    await makeManager(db, api).sync();
+    expect(await getDeadLetterRequests(db, USER)).toHaveLength(1);
 }
 
 describe("SyncManager: a Keep is recorded through /songs/keep, for every user", () => {
@@ -80,7 +89,7 @@ describe("SyncManager: a Keep is recorded through /songs/keep, for every user", 
         expect(api.songKeep).toHaveBeenCalledWith(["s1"]);
         expect(api.songRetag).not.toHaveBeenCalled();
         expect(await getRequests(db)).toHaveLength(0);
-        expect(await getDeadLetterRequests(db)).toHaveLength(0);
+        expect(await getDeadLetterRequests(db, USER)).toHaveLength(0);
     });
 
     it("a curator's Keep is recorded first, then re-tagged at its tier", async () => {
@@ -104,7 +113,7 @@ describe("SyncManager: a Keep is recorded through /songs/keep, for every user", 
         await makeManager(db, api).sync();
 
         expect(await getRequests(db)).toHaveLength(0);
-        expect(await getDeadLetterRequests(db)).toHaveLength(0);
+        expect(await getDeadLetterRequests(db, USER)).toHaveLength(0);
     });
 
     it("a song the server did not keep is dead-lettered with its reason, not deleted", async () => {
@@ -120,7 +129,7 @@ describe("SyncManager: a Keep is recorded through /songs/keep, for every user", 
 
         await makeManager(db, api).sync();
 
-        const deadLetters = await getDeadLetterRequests(db);
+        const deadLetters = await getDeadLetterRequests(db, USER);
         expect(deadLetters.map(x => [x.songId, x.reason])).toEqual([["notMine", "Song is not in your library."]]);
         expect(api.songRetag).toHaveBeenCalledWith([{ songId: "mine", model: "weak" }]);
         expect(await getRequests(db)).toHaveLength(0);
@@ -178,17 +187,57 @@ describe("SyncManager: playlist deletes wait for every Keep (the 2026-08-22 purg
         expect(await getRequests(db)).toHaveLength(0);
     });
 
-    it("a dead-lettered Keep keeps holding deletes: that song was never recorded as kept", async () => {
-        await enqueueSongRetag(db, USER, "kept", "weak");
-        api.songKeep.mockResolvedValueOnce({ results: [{ songId: "kept", outcome: "failed", error: "nope" }] });
-        const manager = makeManager(db, api);
-        await manager.sync();
+    it("a dead-lettered Keep holds the delete of a playlist that holds its song", async () => {
+        await deadLetterKeep(db, api, "kept");
+        api.songKeep.mockResolvedValueOnce({ results: [{ songId: "kept", outcome: "failed", error: "still no" }] });
+        await queueDelete(db, "mix", new Date(), ["kept", "other"]);
 
-        await queueDelete(db, "mix");
-        await manager.sync();
+        await makeManager(db, api).sync();
 
+        expect(api.songKeep).toHaveBeenLastCalledWith(["kept"]); // the hold re-sends the Keep it is waiting on
         expect(api.playlistDelete).not.toHaveBeenCalled();
         expect(await getRequests(db)).toHaveLength(1);
+    });
+
+    it("...and lets it go once the re-sent Keep is recorded", async () => {
+        await deadLetterKeep(db, api, "kept");
+        await queueDelete(db, "mix", new Date(), ["kept"]);
+
+        await makeManager(db, api).sync();
+
+        expect(api.playlistDelete).toHaveBeenCalledWith("mix");
+        expect(await getDeadLetterRequests(db, USER)).toHaveLength(0);
+        expect(await getRequests(db)).toHaveLength(0);
+    });
+
+    it("a dead-lettered Keep does not hold the delete of a playlist without its song", async () => {
+        await deadLetterKeep(db, api, "kept");
+        await queueDelete(db, "unrelated", new Date(), ["other"]);
+
+        await makeManager(db, api).sync();
+
+        expect(api.playlistDelete).toHaveBeenCalledWith("unrelated");
+        expect(await getDeadLetterRequests(db, USER)).toHaveLength(1);
+    });
+
+    it("an older delete row that doesn't record its songs is held by any dead-lettered Keep", async () => {
+        await deadLetterKeep(db, api, "kept");
+        api.songKeep.mockResolvedValueOnce({ results: [{ songId: "kept", outcome: "failed", error: "still no" }] });
+        await queueDelete(db, "legacy", new Date(), null);
+
+        await makeManager(db, api).sync();
+
+        expect(api.playlistDelete).not.toHaveBeenCalled();
+    });
+
+    it("another account's dead letters hold nothing", async () => {
+        await deadLetterKeep(db, api, "kept");
+        await db.update(deadLetterRequestTable).set({ userId: "someone-else" });
+        await queueDelete(db, "mix", new Date(), ["kept"]);
+
+        await makeManager(db, api).sync();
+
+        expect(api.playlistDelete).toHaveBeenCalledWith("mix");
     });
 
     it("with no Keep anywhere, a delete is sent straight away", async () => {
@@ -212,7 +261,7 @@ describe("SyncManager: playlist deletes wait for every Keep (the 2026-08-22 purg
 
         await makeManager(db, api).sync();
 
-        const deadLetters = await getDeadLetterRequests(db);
+        const deadLetters = await getDeadLetterRequests(db, USER);
         expect(await getRequests(db)).toHaveLength(0);
         expect(deadLetters).toHaveLength(1);
         expect(deadLetters[0].reason).toContain("400");

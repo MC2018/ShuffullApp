@@ -185,6 +185,12 @@ export interface SongRetagPayload {
     model: RetagModel;
 }
 
+// A queued playlist delete carries the songs the playlist held when the user deleted it, so a Keep that was never
+// recorded holds back only the delete that would purge its song (see playlistDeleteHold). Absent on older rows.
+export interface DeletePlaylistPayload {
+    songIds: string[];
+}
+
 export const requestTable = sqliteTable("requests", {
     requestId: text("request_id").primaryKey(),
     timeRequested: integer("time_request", { mode: "timestamp_ms" }).notNull(),
@@ -200,7 +206,7 @@ export const requestTable = sqliteTable("requests", {
     likeStatus: integer("like_status"),
     // Structured payload for richer requests (a curator song edit, a re-tag's model tier). Null for the
     // simpler request types; the per-request-type models narrow it (see db/models.ts).
-    payload: text("payload", { mode: "json" }).$type<UpdateSongMetadataPayload | SongRetagPayload>()
+    payload: text("payload", { mode: "json" }).$type<UpdateSongMetadataPayload | SongRetagPayload | DeletePlaylistPayload>()
 });
 
 // Outbox rows the app gave up sending, kept with the reason instead of deleted. A row lands here when the server
@@ -209,13 +215,15 @@ export const requestTable = sqliteTable("requests", {
 export const deadLetterRequestTable = sqliteTable("dead_letter_requests", {
     requestId: text("request_id").primaryKey(),
     requestType: integer("request_type").notNull(),
+    // Scopes the delete hold to the account that queued the row; logout does not clear this table.
+    userId: text("user_id").notNull(),
     songId: text("song_id"),
     playlistId: text("playlist_id"),
     timeRequested: integer("time_request", { mode: "timestamp_ms" }).notNull(),
     deadLetteredAt: integer("dead_lettered_at", { mode: "timestamp_ms" }).notNull(),
     reason: text("reason").notNull(),
-    // The whole original outbox row, so nothing about the request is lost with it.
-    request: text("request", { mode: "json" }).notNull(),
+    // The whole original outbox row, so nothing about the request is lost with it. Its Dates read back as ISO strings.
+    request: text("request", { mode: "json" }).$type<Omit<typeof requestTable.$inferInsert, "timeRequested"> & { timeRequested: string | Date }>().notNull(),
 });
 
 export const downloadQueueTable = sqliteTable("download_queue", {

@@ -1,5 +1,5 @@
 import axios, { AxiosInstance } from "axios";
-import { AuthenticateResponse, AuthenticateResponseSchema, ChangedSongPageSchema, CreatePlaylistResponseSchema, KeepResponse, Playlist, PlaylistListResponseSchema, RetagResponse, RetagStaleResponse, SongListResponseSchema, SongRetagWireItem, Tag, TagListResponseSchema, UserResponseSchema, UserSongPageSchema } from "./models";
+import { AuthenticateResponse, AuthenticateResponseSchema, ChangedSongPageSchema, CreatePlaylistResponseSchema, KeepResponse, KeepResponseSchema, Playlist, PlaylistListResponseSchema, RetagResponse, RetagStaleResponse, SongListResponseSchema, SongRetagWireItem, Tag, TagListResponseSchema, UserResponseSchema, UserSongPageSchema } from "./models";
 import { ApiStatusFailureError } from "./errors";
 import { UpdateSongLastPlayedRequest, UpdateSongMetadataPayload } from "../db/models";
 
@@ -356,7 +356,7 @@ export class ApiClient {
                 throw new ApiStatusFailureError(endpoint, response);
             }
             console.log(`[API] Endpoint ${endpoint} succeeded`);
-            return response.data as KeepResponse;
+            return KeepResponseSchema.parse(response.data);
         } catch (error) {
             console.log(`[API] Endpoint ${endpoint} failed with error:`, error);
             throw error;

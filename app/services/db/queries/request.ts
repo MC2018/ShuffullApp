@@ -1,5 +1,5 @@
 import { GenericDb } from "../GenericDb";
-import { Request, RetagModel, SongRetagPayload } from "../models";
+import { DeadLetterRequest, Request, RetagModel, SongRetagPayload } from "../models";
 import { deadLetterRequestTable, requestTable } from "../schema";
 import { eq, gt, lt, ExtractTablesWithRelations, inArray, sql, isNotNull, and, desc, asc, or } from "drizzle-orm";
 import { RequestType } from "@/app/enums";
@@ -61,6 +61,7 @@ export async function deadLetterRequests(db: GenericDb, failures: { request: Req
     const rows = failures.map(({ request, reason }) => ({
         requestId: request.requestId,
         requestType: request.requestType,
+        userId: request.userId,
         songId: request.songId ?? null,
         playlistId: request.playlistId ?? null,
         timeRequested: request.timeRequested,
@@ -75,8 +76,18 @@ export async function deadLetterRequests(db: GenericDb, failures: { request: Req
     await deleteRequests(db, failures.map(x => x.request.requestId));
 }
 
-export async function getDeadLetterRequests(db: GenericDb) {
-    return await db.select().from(deadLetterRequestTable);
+export async function getDeadLetterRequests(db: GenericDb, userId: string): Promise<DeadLetterRequest[]> {
+    return await db.select().from(deadLetterRequestTable).where(eq(deadLetterRequestTable.userId, userId));
+}
+
+// Clears dead-lettered Keeps the server has since recorded, which lifts any playlist delete they were holding.
+export async function removeDeadLetteredKeeps(db: GenericDb, userId: string, songIds: string[]): Promise<void> {
+    for (const idChunk of chunkIds(songIds)) {
+        await db.delete(deadLetterRequestTable).where(and(
+            eq(deadLetterRequestTable.userId, userId),
+            eq(deadLetterRequestTable.requestType, RequestType.SongRetag),
+            inArray(deadLetterRequestTable.songId, idChunk)));
+    }
 }
 
 // TODO: move all requests from SyncManager to here

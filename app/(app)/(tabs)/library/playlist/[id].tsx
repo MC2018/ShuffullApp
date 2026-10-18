@@ -139,6 +139,9 @@ export default function PlaylistScreen() {
                 text: "Delete",
                 style: "destructive",
                 onPress: async () => {
+                    // Read before the purge removes them: the queued delete carries them so it waits only for Keeps
+                    // of songs in THIS playlist.
+                    const songIds = await DbQueries.getPlaylistSongIds(db, playlist.playlistId);
                     // Purge locally (mirrors the server) and clean up any downloaded media for the removed songs.
                     const purged = await DbQueries.deletePlaylistAndPurge(db, playlist.playlistId);
                     for (const song of purged) {
@@ -152,6 +155,7 @@ export default function PlaylistScreen() {
                             requestType: RequestType.DeletePlaylist,
                             userId: playlist.userId,
                             playlistId: playlist.playlistId,
+                            payload: { songIds },
                         },
                     ]);
                     router.back();

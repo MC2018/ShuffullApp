@@ -66,10 +66,7 @@ export class SyncManager {
             // Run all pushing requests
             for (const requestBatch of requestBatches) {
                 if (requestBatch[0]?.requestType == RequestType.DeletePlaylist) {
-                    // Read fresh: a Keep sent earlier in this flush may have just been recorded or dead-lettered.
-                    const hold = playlistDeleteHold(
-                        await DbQueries.getRequests(this.db),
-                        await DbQueries.getDeadLetterRequests(this.db));
+                    const hold = await this.playlistDeleteHold(requestBatch[0] as DbModels.DeletePlaylistRequest);
                     if (hold) {
                         console.warn(`[sync] Holding playlist delete ${requestBatch[0].playlistId}: ${hold}.`);
                         continue;
@@ -183,6 +180,28 @@ export class SyncManager {
         } catch (e) {
             return { statusCode: statusOfFailure(e), reason: e instanceof Error ? e.message : String(e) };
         }
+    }
+
+    // Why this delete must wait (see playlistDeleteHold), or null. Reads fresh: a Keep sent earlier in this flush
+    // may have just been recorded or dead-lettered. A hold caused by dead-lettered Keeps re-sends them first, which
+    // is its way out: once the server records them, the delete goes.
+    private async playlistDeleteHold(request: DbModels.DeletePlaylistRequest): Promise<string | null> {
+        const outbox = await DbQueries.getRequests(this.db);
+        const hold = playlistDeleteHold(request, outbox, await DbQueries.getDeadLetterRequests(this.db, this.userId));
+        if (!hold?.retrySongIds.length) {
+            return hold?.reason ?? null;
+        }
+
+        try {
+            const response = await this.api.songKeep(hold.retrySongIds);
+            const kept = response.results.filter(x => x.outcome === "kept").map(x => x.songId);
+            await DbQueries.removeDeadLetteredKeeps(this.db, this.userId, kept);
+        } catch (e) {
+            console.warn(`[sync] Re-sending dead-lettered keeps failed with ${statusOfFailure(e)}.`, e);
+        }
+
+        const after = playlistDeleteHold(request, outbox, await DbQueries.getDeadLetterRequests(this.db, this.userId));
+        return after?.reason ?? null;
     }
 
     // A queued SongRetag row is a Keep (weak) or a like-promotion (strong). Either way the user's decision is

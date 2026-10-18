@@ -219,10 +219,10 @@ export function groupRequestsIntoBatches<T extends BatchableRequest>(
     return batches;
 }
 
-/** One per-song outcome from POST /songs/keep. */
+/** One per-song outcome from POST /songs/keep. Outcome is a plain string: anything but "kept" is a failure. */
 export interface KeepOutcomeRow {
     songId: string;
-    outcome: "kept" | "failed";
+    outcome: string;
     error?: string | null;
 }
 
@@ -241,45 +241,78 @@ export function failedKeeps<T extends QueuedKeep>(
     requests: T[],
     results: KeepOutcomeRow[] | undefined | null,
 ): { request: T; reason: string }[] {
-    const outcomeBySong = new Map((results ?? []).filter(r => r?.songId).map(r => [r.songId, r]));
+    const outcomeBySong = new Map((results ?? []).map(r => [r.songId, r]));
     const failures: { request: T; reason: string }[] = [];
 
     for (const request of requests) {
         const outcome = request.songId ? outcomeBySong.get(request.songId) : undefined;
-        if (outcome?.outcome === "kept") {
-            continue;
+        if (outcome?.outcome !== "kept") {
+            failures.push({ request, reason: keepFailureReason(request, outcome) });
         }
-
-        const reason = !request.songId
-            ? "Keep row has no song id."
-            : outcome == undefined
-                ? "The server returned no outcome for this song."
-                : outcome.error?.trim() || "The server reported the keep as failed, with no reason.";
-        failures.push({ request, reason });
     }
 
     return failures;
 }
 
+function keepFailureReason(request: QueuedKeep, outcome: KeepOutcomeRow | undefined): string {
+    if (!request.songId) {
+        return "Keep row has no song id.";
+    }
+
+    if (outcome == undefined) {
+        return "The server returned no outcome for this song.";
+    }
+
+    return outcome.error?.trim() || "The server reported the keep as failed, with no reason.";
+}
+
+/** A dead-lettered row as the hold rule needs it. */
+export interface DeadLetteredRow extends BatchableRequest {
+    songId?: string | null;
+}
+
+/** A queued playlist delete as the hold rule needs it. */
+export interface QueuedPlaylistDelete {
+    payload?: unknown;
+}
+
 /**
- * Why queued playlist deletes must wait, or null if they may go.
+ * Why a queued playlist delete must wait, and which dead-lettered Keeps to re-send to lift the hold; null if it
+ * may go.
  *
  * Deleting an audition playlist makes the server purge every song in it that is still Exploratory. A Keep the
- * server hasn't recorded leaves its song Exploratory, so sending the delete first is exactly how kept songs
- * were destroyed on 2026-08-22. Deletes therefore wait while any Keep is still queued, and also while one sits
- * in the dead-letter table: that Keep was never recorded, so holding the delete is the only thing protecting its
- * song. A held delete loses nothing; the playlist just stays on the server.
+ * server hasn't recorded leaves its song Exploratory, so sending the delete first is exactly how kept songs were
+ * destroyed on 2026-08-22.
+ *
+ * - While any Keep is still queued, every delete waits. That lasts at most the retry window: a Keep rejected
+ *   for longer is dead-lettered.
+ * - A dead-lettered Keep holds only a delete whose playlist held that song (every delete, for an older row that
+ *   doesn't record its songs). Its song is returned in `retrySongIds`, so the caller can re-send it and lift the
+ *   hold once the server records it. Until then the delete waits: sending it would purge a song the user kept.
+ *   A held delete loses nothing; the playlist just stays on the server.
  */
-export function playlistDeleteHold(outbox: BatchableRequest[], deadLetters: BatchableRequest[]): string | null {
+export function playlistDeleteHold(
+    deleteRequest: QueuedPlaylistDelete,
+    outbox: BatchableRequest[],
+    deadLetters: DeadLetteredRow[],
+): { reason: string; retrySongIds: string[] } | null {
     if (outbox.some(x => x.requestType == RequestType.SongRetag)) {
-        return "a Keep is still waiting to be recorded";
+        return { reason: "a Keep is still waiting to be recorded", retrySongIds: [] };
     }
 
-    if (deadLetters.some(x => x.requestType == RequestType.SongRetag)) {
-        return "a Keep was dead-lettered without being recorded";
+    const playlistSongIds = (deleteRequest.payload as { songIds?: string[] } | null | undefined)?.songIds;
+    const inPlaylist = playlistSongIds ? new Set(playlistSongIds) : undefined;
+    const blocking = deadLetters
+        .filter(x => x.requestType == RequestType.SongRetag && x.songId)
+        .map(x => x.songId as string)
+        .filter(songId => inPlaylist == undefined || inPlaylist.has(songId));
+
+    if (!blocking.length) {
+        return null;
     }
 
-    return null;
+    const retrySongIds = [...new Set(blocking)];
+    return { reason: `${retrySongIds.length} song(s) in it were kept but the Keep was never recorded`, retrySongIds };
 }
 
 /**

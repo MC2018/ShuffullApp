@@ -104,17 +104,25 @@ describe("failedKeeps (a 200 does not mean every Keep was recorded)", () => {
 describe("playlistDeleteHold", () => {
     const keep = { requestType: RequestType.SongRetag };
     const like = { requestType: RequestType.SetSongLikeStatus };
+    const deadKeep = (songId: string) => ({ requestType: RequestType.SongRetag, songId });
+    const deleting = (...songIds: string[]) => ({ payload: { songIds } });
 
-    it("holds while a Keep is queued", () => {
-        expect(playlistDeleteHold([like, keep], [])).not.toBeNull();
+    it("holds every delete while a Keep is queued", () => {
+        expect(playlistDeleteHold(deleting("x"), [like, keep], [])).toMatchObject({ retrySongIds: [] });
     });
 
-    it("holds while a Keep is dead-lettered", () => {
-        expect(playlistDeleteHold([], [keep])).not.toBeNull();
+    it("a dead-lettered Keep holds only a delete whose playlist held its song, and asks to re-send it", () => {
+        expect(playlistDeleteHold(deleting("a", "b"), [], [deadKeep("b"), deadKeep("c")]))
+            .toMatchObject({ retrySongIds: ["b"] });
+        expect(playlistDeleteHold(deleting("a"), [], [deadKeep("c")])).toBeNull();
     });
 
-    it("other queued work does not hold a delete", () => {
-        expect(playlistDeleteHold([like], [like])).toBeNull();
+    it("an older delete with no recorded songs is held by any dead-lettered Keep", () => {
+        expect(playlistDeleteHold({ payload: null }, [], [deadKeep("c")])).toMatchObject({ retrySongIds: ["c"] });
+    });
+
+    it("other queued or dead-lettered work does not hold a delete", () => {
+        expect(playlistDeleteHold({}, [like], [{ ...like, songId: "a" }])).toBeNull();
     });
 });
 
@@ -153,24 +161,25 @@ describe("deadLetterRequests", () => {
         await deadLetterRequests(db, [{ request: row, reason: "nope" }], new Date("2026-10-18T00:00:00Z"));
 
         expect(await getRequests(db)).toHaveLength(0);
-        const [deadLetter] = await getDeadLetterRequests(db);
+        const [deadLetter] = await getDeadLetterRequests(db, "u1");
         expect(deadLetter.reason).toBe("nope");
         expect(deadLetter.songId).toBe("s1");
-        expect((deadLetter.request as { payload: unknown }).payload).toEqual({ model: "weak" });
+        expect(deadLetter.userId).toBe("u1");
+        expect(deadLetter.request.payload).toEqual({ model: "weak" });
     });
 
     it("finishes a move interrupted after the insert: no error, outbox row removed, one dead letter", async () => {
         const db = makeDb();
         await addRequests(db, [row]);
         await db.insert(deadLetterRequestTable).values({
-            requestId: "r1", requestType: row.requestType, timeRequested: row.timeRequested,
+            requestId: "r1", requestType: row.requestType, userId: "u1", timeRequested: row.timeRequested,
             deadLetteredAt: new Date(), reason: "first try", request: row,
         });
 
         await deadLetterRequests(db, [{ request: row, reason: "second try" }]);
 
         expect(await getRequests(db)).toHaveLength(0);
-        const deadLetters = await getDeadLetterRequests(db);
+        const deadLetters = await getDeadLetterRequests(db, "u1");
         expect(deadLetters.map(x => x.reason)).toEqual(["first try"]);
     });
 });

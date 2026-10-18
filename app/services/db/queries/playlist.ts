@@ -41,6 +41,14 @@ export async function getPlaylist(db: GenericDb, playlistId: string): Promise<Pl
 
 // The ids of the local playlists that already contain the given song — used to show membership in the
 // "add to playlist" sheet.
+export async function getPlaylistSongIds(db: GenericDb, playlistId: string): Promise<string[]> {
+    return (await db
+        .select({ songId: playlistSongTable.songId })
+        .from(playlistSongTable)
+        .where(eq(playlistSongTable.playlistId, playlistId)))
+        .map(r => r.songId);
+}
+
 export async function getPlaylistIdsContainingSong(db: GenericDb, songId: string): Promise<string[]> {
     const rows = await db
         .select({ playlistId: playlistSongTable.playlistId })
