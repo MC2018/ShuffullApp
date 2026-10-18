@@ -9,6 +9,8 @@ import {
     describeDownloadNotification,
     retryDelayMs,
     WIFI_ONLY_NOTE,
+    ANY_NETWORK_NOTE,
+    downloadNetworkNote,
 } from "@/app/tools/downloadStatus";
 
 // Why an allowlist: the old gate was `type != CELLULAR`. On Android 10+ a VPN over LTE reports CELLULAR only
@@ -165,5 +167,19 @@ describe("retryDelayMs", () => {
         expect(retryDelayMs(5)).toBe(32000);
         expect(retryDelayMs(6)).toBe(60000);
         expect(retryDelayMs(50)).toBe(60000);
+    });
+});
+
+describe("desktop network policy (wifiOnly: false)", () => {
+    it("downloads on any online connection, but still waits when offline", () => {
+        const unknown = { isInternetReachable: true, type: undefined };
+        expect(derivePhase({ paused: false, downloading: false, queuedCount: 3, network: unknown, wifiOnly: false })).toBe("downloading");
+        expect(derivePhase({ paused: false, downloading: false, queuedCount: 3, network: unknown })).toBe("waiting-for-wifi");
+        expect(derivePhase({ paused: false, downloading: false, queuedCount: 3, network: { isInternetReachable: false, type: undefined }, wifiOnly: false })).toBe("offline");
+    });
+
+    it("words the note to match the policy", () => {
+        expect(downloadNetworkNote({ phase: "idle", queuedCount: 0, completedCount: 0, skippedCount: 0 })).toBe(WIFI_ONLY_NOTE);
+        expect(downloadNetworkNote({ phase: "idle", queuedCount: 0, completedCount: 0, skippedCount: 0, wifiOnly: false })).toBe(ANY_NETWORK_NOTE);
     });
 });

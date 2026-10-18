@@ -204,8 +204,8 @@ function publishPosition() {
  * Maps the element's MediaError onto the code vocabulary `tools/playbackFailure.ts` classifies.
  *
  * Emitting this at all is the point: desktop has no PlaybackError event of its own, so mediaManager's
- * recovery listener was registered against `undefined` and could never fire - and desktop is the platform
- * MOST exposed to it, because Downloader.web caches nothing, so every single track streams.
+ * recovery listener was registered against `undefined` and could never fire - and the web build is the one
+ * MOST exposed to it: a browser caches nothing, and desktop streams every track it hasn't downloaded.
  *
  * SRC_NOT_SUPPORTED is deliberately not called permanent. Chromium reports it both for a source the server
  * refused to hand over and for one it genuinely cannot decode, so the honest code is one the classifier

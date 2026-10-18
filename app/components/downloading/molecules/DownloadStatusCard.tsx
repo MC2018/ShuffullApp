@@ -4,7 +4,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { Card, IconButton, Text } from "@/app/components/ui";
 import { useTheme } from "@/app/theme";
 import { useDownloader } from "@/app/services/downloader/DownloaderProvider";
-import { describeDownloadStatus, DownloadPhase, WIFI_ONLY_NOTE } from "@/app/tools/downloadStatus";
+import { describeDownloadStatus, downloadNetworkNote, DownloadPhase } from "@/app/tools/downloadStatus";
 import { useDownloadStatusView } from "../useDownloadStatusView";
 
 // Glyph per phase, so the state is readable at a glance before the words are.
@@ -18,7 +18,7 @@ const PHASE_ICON: Record<DownloadPhase, keyof typeof Ionicons.glyphMap> = {
 };
 
 // The management surface for background downloads: what is happening, to which song, how far along, and
-// the one control that matters (pause / resume). The Wi-Fi policy is written underneath so it never has
+// the one control that matters (pause / resume). The network policy is written underneath so it never has
 // to be discovered by watching nothing happen on mobile data.
 export default function DownloadStatusCard() {
     const theme = useTheme();
@@ -86,9 +86,9 @@ export default function DownloadStatusCard() {
 
             {status.phase !== "unsupported" ? (
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: theme.space.md }}>
-                    <Ionicons name="wifi" size={13} color={theme.color.textFaint} />
+                    <Ionicons name={status.wifiOnly === false ? "globe-outline" : "wifi"} size={13} color={theme.color.textFaint} />
                     <Text variant="caption" color="textFaint">
-                        {WIFI_ONLY_NOTE}
+                        {downloadNetworkNote(status)}
                         {paused ? " Paused downloads won't resume until you tap play." : ""}
                     </Text>
                 </View>
