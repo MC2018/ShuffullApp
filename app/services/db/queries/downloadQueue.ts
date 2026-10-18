@@ -40,6 +40,12 @@ export async function removeFromDownloadQueue(db: GenericDb, songId: string): Pr
     await db.delete(downloadQueueTable).where(eq(downloadQueueTable.songId, songId));
 }
 
+// Sends a row to the back of its priority tier without losing it. The queue is read in download_queue_id order and
+// ids are ULIDs (time-prefixed), so a fresh id sorts after every row already queued.
+export async function moveToBackOfDownloadQueue(db: GenericDb, songId: string): Promise<void> {
+    await db.update(downloadQueueTable).set({ downloadQueueId: generateId() }).where(eq(downloadQueueTable.songId, songId));
+}
+
 export async function removeAllFromDownloadQueue(db: GenericDb): Promise<void> {
     await db.delete(downloadQueueTable);
 }
