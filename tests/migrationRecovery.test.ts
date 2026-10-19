@@ -8,14 +8,16 @@ import os from "os";
 import path from "path";
 import type { GenericDb } from "@/app/services/db/GenericDb";
 import { addRequests, deadLetterRequests, getDeadLetterRequests, getRequests } from "@/app/services/db/queries/request";
-import { rebuildKeepingOutbox, saveOutbox } from "@/app/services/db/recovery";
+import { addGenreJam, getGenreJams } from "@/app/services/db/queries/genreJam";
+import { rebuildKeepingLocalData, restoreRescuedTables } from "@/app/services/db/recovery";
 import { RequestType } from "@/app/enums";
 
 /**
  * ShuffullApp#92: a migration that fails used to delete the database file outright, and the outbox with it —
- * queued Keeps, Likes and playlist deletes that exist nowhere else until they are sent.
+ * queued Keeps, Likes and playlist deletes that exist nowhere else until they are sent — plus the dead letters
+ * and the user's genre jams.
  *
- * These run against a real database FILE, and `reset` really deletes it, the way `resetDb()` does on the device.
+ * These run against a real database FILE, so "the app was killed" can be shown by closing it and opening it again.
  */
 const MIGRATIONS = path.resolve(__dirname, "../app/services/db/drizzle");
 
@@ -27,6 +29,7 @@ beforeEach(() => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), "shuffull-92-"));
     file = path.join(dir, "shuffull-db");
     sqlite = new Database(file);
+    deleteFile.mockClear();
     vi.spyOn(console, "warn").mockImplementation(() => {});
     vi.spyOn(console, "error").mockImplementation(() => {});
 });
@@ -41,8 +44,12 @@ afterEach(() => {
 const asDb = (handle: Database.Database) => drizzle(handle) as unknown as GenericDb;
 
 // Web-shaped handle: sqlite-proxy, whose raw rows are positional arrays (as the OPFS driver returns them).
-function asProxyDb(handle: () => Database.Database): GenericDb {
+// `refuse` makes matching statements fail, to stand in for a file too damaged to change.
+function asProxyDb(handle: () => Database.Database, refuse?: RegExp): GenericDb {
     return drizzleProxy(async (query, params, method) => {
+        if (refuse?.test(query)) {
+            throw new Error("database disk image is malformed");
+        }
         const statement = handle().prepare(query);
         if (method === "run") {
             statement.run(...params);
@@ -67,19 +74,27 @@ function migrationsUpTo(lastTag: string): string {
     return out;
 }
 
-// What resetDb() does: close, delete the file, open a new empty one at the same path.
-function reset(wrap: (handle: Database.Database) => GenericDb = asDb) {
-    return () => {
-        sqlite.close();
-        fs.rmSync(file);
-        sqlite = new Database(file);
-        return wrap(sqlite);
-    };
-}
-
 // Migrates whatever file is open now. Async, so a failure arrives as a rejection the way it does on the device.
 const migrateTo = (folder: string) => migrate(drizzle(sqlite), { migrationsFolder: folder });
 const migrateLatest = async () => migrateTo(MIGRATIONS);
+
+// What resetDb() does: close, delete the file, open a new empty one at the same path.
+const deleteFile = vi.fn(() => {
+    sqlite.close();
+    fs.rmSync(file);
+    sqlite = new Database(file);
+    return asDb(sqlite);
+});
+
+// Close and reopen the file, as an app restart would.
+function restart(): GenericDb {
+    sqlite.close();
+    sqlite = new Database(file);
+    return asDb(sqlite);
+}
+
+const rescued = () => (sqlite.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE '\\_\\_rescued\\_%' ESCAPE '\\'")
+    .all() as { name: string }[]).map((x) => x.name);
 
 const keep = {
     requestId: "keep-1",
@@ -87,6 +102,7 @@ const keep = {
     requestType: RequestType.SongRetag,
     userId: "u1",
     songId: "s1",
+    payload: { model: "weak" as const },
 };
 const deletePlaylist = {
     requestId: "delete-1",
@@ -96,30 +112,43 @@ const deletePlaylist = {
     playlistId: "p1",
     payload: { songIds: ["s1", "s2"] },
 };
+const jam = {
+    genreJamId: "jam-1",
+    name: "Morning",
+    whitelists: { artistIds: ["a1"], playlistIds: [], genreIds: [], timePeriodIds: [], languageIds: [], moodIds: [], themeIds: [] },
+    blacklists: { artistIds: [], playlistIds: [], genreIds: [], timePeriodIds: [], languageIds: [], moodIds: [], themeIds: [] },
+    energyMin: 3,
+    energyMax: 7,
+};
 
-describe("a forced migration failure keeps the outbox", () => {
-    it("queued and dead-lettered rows survive the database being deleted and rebuilt", async () => {
+// A Keep written by hand on an older schema, which the app's queries can't write to.
+function insertOldKeep() {
+    sqlite.prepare(`INSERT INTO requests (request_id, time_request, request_type, user_id, song_id, payload)
+                    VALUES ('keep-1', ?, ?, 'u1', 's1', '{"model":"weak"}')`).run(keep.timeRequested.getTime(), keep.requestType);
+}
+
+describe("a failed migration rebuilds the database and keeps the data only this device has", () => {
+    it("outbox, dead letters and genre jams survive; the server cache is dropped", async () => {
         const db = asDb(sqlite);
         await migrateLatest();
         await addRequests(db, [keep, deletePlaylist]);
         await addRequests(db, [{ ...keep, requestId: "keep-2", songId: "s9" }]);
         await deadLetterRequests(db, [{ request: { ...keep, requestId: "keep-2", songId: "s9" }, reason: "not in your library" }]);
-        // Something else in the file — a cached song row — which the rebuild is allowed to drop.
+        await addGenreJam(db, jam);
         sqlite.exec("INSERT INTO users (user_id, username, version) VALUES ('u1', 'max', 0)");
 
-        const { db: fresh, outbox } = await rebuildKeepingOutbox(db, reset(), migrateLatest);
+        const fresh = await rebuildKeepingLocalData(db, migrateLatest, deleteFile);
 
-        expect(outbox).toEqual({ restored: 3, lost: [] });
+        expect(deleteFile).not.toHaveBeenCalled();
         expect(sqlite.prepare("SELECT count(*) AS n FROM users").get()).toEqual({ n: 0 });
         // Read back through the app's own queries: dates, JSON payloads and every column intact.
-        expect(await getRequests(fresh)).toEqual([
-            expect.objectContaining(keep),
-            expect.objectContaining(deletePlaylist),
-        ]);
+        expect(await getRequests(fresh)).toEqual([expect.objectContaining(keep), expect.objectContaining(deletePlaylist)]);
         const dead = await getDeadLetterRequests(fresh, "u1");
         expect(dead).toHaveLength(1);
         expect(dead[0]).toMatchObject({ requestId: "keep-2", songId: "s9", reason: "not in your library" });
         expect(dead[0].request).toMatchObject({ requestId: "keep-2", songId: "s9" });
+        expect(await getGenreJams(fresh)).toEqual([expect.objectContaining(jam)]);
+        expect(rescued()).toEqual([]);
     });
 
     it("a stale on-device schema that fails to migrate is rebuilt with its queued Keep", async () => {
@@ -128,24 +157,20 @@ describe("a forced migration failure keeps the outbox", () => {
         const db = asDb(sqlite);
         migrateTo(migrationsUpTo("0026_add_exploratory_flags"));
         sqlite.exec("ALTER TABLE requests ADD playlist_id text");
-        sqlite.prepare(`INSERT INTO requests (request_id, time_request, request_type, user_id, song_id, playlist_id)
-                        VALUES ('keep-1', ?, ?, 'u1', 's1', NULL)`).run(keep.timeRequested.getTime(), keep.requestType);
+        insertOldKeep();
 
         await expect(migrateLatest()).rejects.toThrow(/ADD `playlist_id`/);
+        const fresh = await rebuildKeepingLocalData(db, migrateLatest, deleteFile);
 
-        const { db: fresh, outbox } = await rebuildKeepingOutbox(db, reset(), migrateLatest);
-
-        expect(outbox.restored).toBe(1);
         expect(await getRequests(fresh)).toEqual([expect.objectContaining(keep)]);
     });
 
     it("copies the columns both schemas share; a column the old one lacked takes its default", async () => {
         const db = asDb(sqlite);
         migrateTo(migrationsUpTo("0026_add_exploratory_flags"));
-        sqlite.prepare(`INSERT INTO requests (request_id, time_request, request_type, user_id, song_id)
-                        VALUES ('keep-1', ?, ?, 'u1', 's1')`).run(keep.timeRequested.getTime(), keep.requestType);
+        insertOldKeep();
 
-        const { db: fresh } = await rebuildKeepingOutbox(db, reset(), migrateLatest);
+        const fresh = await rebuildKeepingLocalData(db, migrateLatest, deleteFile);
 
         const [row] = await getRequests(fresh);
         expect(row).toMatchObject(keep);
@@ -157,54 +182,75 @@ describe("a forced migration failure keeps the outbox", () => {
         await migrateLatest();
         await addRequests(db, [keep, deletePlaylist]);
 
-        const saved = await saveOutbox(db);
-        expect(saved.find((t) => t.table === "requests")?.rows[0]).toMatchObject({ request_id: "keep-1", song_id: "s1" });
+        const fresh = await rebuildKeepingLocalData(db, migrateLatest, deleteFile);
 
-        const { db: fresh, outbox } = await rebuildKeepingOutbox(
-            db,
-            reset(() => asProxyDb(() => sqlite)),
-            migrateLatest,
-        );
-
-        expect(outbox).toEqual({ restored: 2, lost: [] });
-        expect(await getRequests(fresh)).toEqual([
-            expect.objectContaining(keep),
-            expect.objectContaining(deletePlaylist),
-        ]);
+        expect(await getRequests(fresh)).toEqual([expect.objectContaining(keep), expect.objectContaining(deletePlaylist)]);
+        expect(rescued()).toEqual([]);
     });
 
     it("a schema from before the outbox existed rebuilds with nothing to carry", async () => {
         const db = asDb(sqlite);
         migrateTo(migrationsUpTo("0007_add_notnull_req"));
 
-        const { db: fresh, outbox } = await rebuildKeepingOutbox(db, reset(), migrateLatest);
+        const fresh = await rebuildKeepingLocalData(db, migrateLatest, deleteFile);
 
-        expect(outbox).toEqual({ restored: 0, lost: [] });
         expect(await getRequests(fresh)).toEqual([]);
+        expect(rescued()).toEqual([]);
     });
+});
 
-    it("a row the rebuilt table can't take is reported and logged, and the rest still restore", async () => {
-        const db = asDb(sqlite);
-        // A hand-made requests table missing user_id, which the rebuilt one requires (NOT NULL, no default).
-        sqlite.exec("CREATE TABLE requests (request_id text PRIMARY KEY, time_request integer, request_type integer)");
-        sqlite.exec(`INSERT INTO requests VALUES ('orphan', 1, ${RequestType.SongRetag})`);
-
-        const { outbox } = await rebuildKeepingOutbox(db, reset(), migrateLatest);
-
-        expect(outbox.restored).toBe(0);
-        expect(outbox.lost).toEqual([
-            expect.objectContaining({ table: "requests", row: expect.objectContaining({ request_id: "orphan" }) }),
-        ]);
-        expect(console.error).toHaveBeenCalledWith(expect.stringContaining("Outbox row lost"), expect.stringContaining("orphan"));
-    });
-
-    it("if the rebuild itself fails, the carried rows are logged before the error surfaces", async () => {
+describe("the preserved rows are never only in memory", () => {
+    it("if the rebuild dies before restoring, the rows are still in the file, and the next start restores them", async () => {
         const db = asDb(sqlite);
         await migrateLatest();
         await addRequests(db, [keep]);
+        await addGenreJam(db, jam);
 
-        await expect(rebuildKeepingOutbox(db, reset(), async () => { throw new Error("broken bundle"); }))
-            .rejects.toThrow("broken bundle");
-        expect(console.error).toHaveBeenCalledWith(expect.stringContaining("rebuild failed"), expect.stringContaining("keep-1"));
+        await expect(rebuildKeepingLocalData(db, async () => { throw new Error("killed mid-migration"); }, deleteFile))
+            .rejects.toThrow("killed mid-migration");
+        expect(rescued()).toHaveLength(3); // requests, dead_letter_requests (empty) and genre_jam
+
+        // Next launch: the provider migrates (now it works) and restores whatever is rescued.
+        const next = restart();
+        await migrateLatest();
+        await restoreRescuedTables(next);
+
+        expect(await getRequests(next)).toEqual([expect.objectContaining(keep)]);
+        expect(await getGenreJams(next)).toEqual([expect.objectContaining(jam)]);
+        expect(rescued()).toEqual([]);
+    });
+
+    it("a row the new schema refuses stays rescued and is retried on every start; the rest restore", async () => {
+        const db = asDb(sqlite);
+        // A hand-made requests table where one row has no user_id, which the new table requires.
+        sqlite.exec("CREATE TABLE requests (request_id text PRIMARY KEY, time_request integer, request_type integer, user_id text)");
+        sqlite.exec(`INSERT INTO requests VALUES ('good', 1, ${RequestType.SongRetag}, 'u1'), ('orphan', 2, ${RequestType.SongRetag}, NULL)`);
+
+        const fresh = await rebuildKeepingLocalData(db, migrateLatest, deleteFile);
+
+        expect((await getRequests(fresh)).map((x) => x.requestId)).toEqual(["good"]);
+        const [table] = rescued();
+        expect(sqlite.prepare(`SELECT request_id FROM "${table}"`).all()).toEqual([{ request_id: "orphan" }]);
+        expect(console.error).toHaveBeenCalledWith(expect.stringContaining("1 row(s) could not be restored"), expect.anything());
+
+        expect(await restoreRescuedTables(restart())).toEqual({ restored: 0, leftInPlace: [table] });
+        expect(rescued()).toEqual([table]);
+    });
+
+    it("only a file too damaged to change falls back to deleting it, and says what that lost", async () => {
+        const db = asProxyDb(() => sqlite, /^ALTER TABLE/);
+        await migrateLatest();
+        await addRequests(db, [keep]);
+
+        const fresh = await rebuildKeepingLocalData(db, migrateLatest, deleteFile);
+
+        expect(deleteFile).toHaveBeenCalledOnce();
+        expect(await getRequests(fresh)).toEqual([]);
+        expect(console.error).toHaveBeenCalledWith(expect.stringContaining("are lost"), expect.anything());
+    });
+
+    it("with nothing rescued, the start-up check does nothing", async () => {
+        await migrateLatest();
+        expect(await restoreRescuedTables(asDb(sqlite))).toEqual({ restored: 0, leftInPlace: [] });
     });
 });

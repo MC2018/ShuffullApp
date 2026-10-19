@@ -3,124 +3,180 @@ import { GenericDb } from "./GenericDb";
 import { namedRows } from "./queries/_rawRow";
 
 /**
- * Last-resort recovery when the on-device schema cannot be migrated: rebuild the database from scratch, but
- * carry the outbox across.
+ * Last-resort recovery when the on-device schema cannot be migrated: rebuild the schema from scratch, but keep
+ * the tables that hold data the server does not have.
  *
- * The local database is mostly a cache of the server, and a re-sync restores it. The outbox is not: a queued
- * Keep, Like or playlist delete exists nowhere else until it is sent, and a dead-lettered row is the only record
- * that queued work did not happen. Deleting the file used to take both with it (ShuffullApp#92).
+ * Most of the local database is a cache of the server, and a re-sync restores it. These tables are not:
+ *   requests              the outbox. A queued Keep, Like or playlist delete exists nowhere else until it is sent.
+ *   dead_letter_requests  the only record that queued work did not happen.
+ *   genre_jam             user-made presets. Nothing syncs them.
+ * Deleting the database file used to take all three with it (ShuffullApp#92).
  *
- * Rows are copied RAW, column by column, rather than through the Drizzle schema, because the old table is by
- * definition on an older schema than the code. Only columns both sides have are copied; a column the fresh
- * table added takes its default.
+ * The rows never leave the file. In ONE transaction the preserved tables are renamed to `__rescued_<ts>__<table>`
+ * and everything else is dropped; the empty file is then migrated, and `restoreRescuedTables` moves the rows into
+ * the new tables. A crash at any point leaves them on disk: the rename either happened or didn't, and the restore
+ * runs on every start, so it picks up where it stopped. A row the new schema cannot take stays in its rescue
+ * table rather than being dropped.
+ *
+ * Rows copy RAW, column by column, rather than through the Drizzle schema, because the rescued table is on an
+ * older schema than the code. Only columns both sides have are copied; a column the new table added takes its
+ * default.
  */
-export const OUTBOX_TABLES = ["requests", "dead_letter_requests"] as const;
+const PRESERVED_TABLES = ["requests", "dead_letter_requests", "genre_jam"];
+const RESCUE_PREFIX = "__rescued_";
 
-interface SavedTable {
-    table: string;
-    columns: string[];
-    rows: Record<string, unknown>[];
-}
-
-export interface OutboxRestore {
+export interface RescueRestore {
     restored: number;
-    // Rows that could not be written back. Logged in full, so they are at least recoverable from the device log.
-    lost: { table: string; row: Record<string, unknown>; error: string }[];
+    // Rescue tables still holding rows the new schema refused (or that could not be read). Retried on every start.
+    leftInPlace: string[];
 }
 
 async function columnsOf(db: GenericDb, table: string): Promise<string[]> {
-    // PRAGMA table_info: cid, name, type, notnull, dflt_value, pk. A missing table returns no rows.
-    const rows = (await db.all(sql.raw(`PRAGMA table_info("${table}")`))) as unknown[];
-    return namedRows<{ cid: number; name: string }>(rows, ["cid", "name"]).map((x) => x.name);
+    // A missing table has no columns.
+    const rows = (await db.all(sql`SELECT name FROM pragma_table_info(${table})`)) as unknown[];
+    return namedRows<{ name: string }>(rows, ["name"]).map((x) => x.name);
+}
+
+async function schemaObjects(db: GenericDb): Promise<{ type: string; name: string }[]> {
+    // Indexes go with their tables, and sqlite_* objects are SQLite's own.
+    const rows = (await db.all(sql`SELECT type, name FROM sqlite_master
+        WHERE type IN ('table', 'view', 'trigger') AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\'`)) as unknown[];
+    return namedRows<{ type: string; name: string }>(rows, ["type", "name"]);
+}
+
+const isRescue = (name: string) => name.startsWith(RESCUE_PREFIX);
+
+async function inTransaction(db: GenericDb, work: () => Promise<void>): Promise<void> {
+    await db.run(sql`BEGIN`);
+    try {
+        await work();
+        await db.run(sql`COMMIT`);
+    } catch (e) {
+        await db.run(sql`ROLLBACK`);
+        throw e;
+    }
+}
+
+/** Renames the preserved tables out of the way and drops everything else, atomically. */
+async function setAside(db: GenericDb): Promise<void> {
+    const stamp = Date.now();
+
+    await inTransaction(db, async () => {
+        const objects = (await schemaObjects(db)).filter((x) => !isRescue(x.name));
+
+        // Views and triggers first, so nothing still refers to a table while it is renamed or dropped.
+        for (const { type, name } of objects.filter((x) => x.type != "table")) {
+            await db.run(sql.raw(`DROP ${type.toUpperCase()} IF EXISTS "${name}"`));
+        }
+        for (const { name } of objects.filter((x) => x.type == "table")) {
+            if (PRESERVED_TABLES.includes(name)) {
+                await db.run(sql`ALTER TABLE ${sql.identifier(name)} RENAME TO ${sql.identifier(`${RESCUE_PREFIX}${stamp}__${name}`)}`);
+            } else {
+                await db.run(sql`DROP TABLE IF EXISTS ${sql.identifier(name)}`);
+            }
+        }
+    });
 }
 
 /**
- * Reads the outbox tables out of a database whose migration just failed. A table that is missing (a schema older
- * than the outbox) or unreadable contributes nothing rather than stopping the rebuild: the app has to start.
+ * Moves rows out of any rescue tables into the live tables of the same name, deleting each rescued row in the
+ * same transaction that writes it, and dropping a rescue table once it is empty. Runs on every start; with no
+ * rescue tables it is one query. Never throws: a table it cannot restore stays as it is, and is logged.
  */
-export async function saveOutbox(db: GenericDb): Promise<SavedTable[]> {
-    const saved: SavedTable[] = [];
+export async function restoreRescuedTables(db: GenericDb): Promise<RescueRestore> {
+    const result: RescueRestore = { restored: 0, leftInPlace: [] };
 
-    for (const table of OUTBOX_TABLES) {
-        try {
-            const columns = await columnsOf(db, table);
-            if (columns.length == 0) {
-                continue;
-            }
-
-            const select = `SELECT ${columns.map((c) => `"${c}"`).join(", ")} FROM "${table}"`;
-            const rows = (await db.all(sql.raw(select))) as unknown[];
-            saved.push({ table, columns, rows: namedRows<Record<string, unknown>>(rows, columns) });
-        } catch (e) {
-            console.error(`Could not read ${table} before rebuilding the database; its rows are lost.`, e);
-        }
+    let rescues: string[];
+    try {
+        rescues = (await schemaObjects(db)).filter((x) => x.type == "table" && isRescue(x.name)).map((x) => x.name).sort();
+    } catch (e) {
+        console.error("Could not look for rescued tables.", e);
+        return result;
     }
 
-    return saved;
-}
+    for (const rescue of rescues) {
+        const target = rescue.slice(rescue.lastIndexOf("__") + 2);
+        let restored = 0;
+        let refused = 0;
+        let firstError: unknown;
 
-/** Writes saved outbox rows into a freshly migrated database. Never throws; anything it can't write is in `lost`. */
-export async function restoreOutbox(db: GenericDb, saved: SavedTable[]): Promise<OutboxRestore> {
-    const result: OutboxRestore = { restored: 0, lost: [] };
-
-    for (const { table, columns, rows } of saved) {
-        let shared: string[];
         try {
-            const fresh = new Set(await columnsOf(db, table));
-            shared = columns.filter((c) => fresh.has(c));
-        } catch (e) {
-            shared = [];
-        }
+            const live = new Set(await columnsOf(db, target));
+            const shared = (await columnsOf(db, rescue)).filter((c) => live.has(c));
+            if (shared.length == 0) {
+                throw new Error(`there is no ${target} table to restore into`);
+            }
 
-        for (const row of rows) {
-            try {
-                if (shared.length == 0) {
-                    throw new Error(`the rebuilt database has no ${table} table`);
+            const select = sql`SELECT rowid, ${sql.join(shared.map((c) => sql.identifier(c)), sql`, `)} FROM ${sql.identifier(rescue)}`;
+            const rows = namedRows<Record<string, unknown>>((await db.all(select)) as unknown[], ["rowid", ...shared]);
+
+            await inTransaction(db, async () => {
+                for (const row of rows) {
+                    // A savepoint per row: one the new schema refuses is rolled back alone and stays rescued.
+                    await db.run(sql`SAVEPOINT restore_row`);
+                    try {
+                        await db.run(sql`INSERT INTO ${sql.identifier(target)} (${sql.join(
+                            shared.map((c) => sql.identifier(c)),
+                            sql`, `,
+                        )}) VALUES (${sql.join(
+                            shared.map((c) => sql`${row[c]}`),
+                            sql`, `,
+                        )})`);
+                        await db.run(sql`DELETE FROM ${sql.identifier(rescue)} WHERE rowid = ${row.rowid}`);
+                        await db.run(sql`RELEASE restore_row`);
+                        restored++;
+                    } catch (e) {
+                        await db.run(sql`ROLLBACK TO restore_row`);
+                        await db.run(sql`RELEASE restore_row`);
+                        firstError ??= e;
+                        refused++;
+                    }
                 }
 
-                await db.run(sql`INSERT INTO ${sql.identifier(table)} (${sql.join(
-                    shared.map((c) => sql.identifier(c)),
-                    sql`, `,
-                )}) VALUES (${sql.join(
-                    shared.map((c) => sql`${row[c]}`),
-                    sql`, `,
-                )})`);
-                result.restored++;
-            } catch (e) {
-                result.lost.push({ table, row, error: String((e as Error)?.message ?? e) });
-            }
+                if (refused == 0) {
+                    await db.run(sql`DROP TABLE ${sql.identifier(rescue)}`);
+                }
+            });
+        } catch (e) {
+            // Nothing committed for this table; all of it is still rescued.
+            firstError = e;
+            restored = 0;
+        }
+
+        result.restored += restored;
+        if (firstError !== undefined) {
+            result.leftInPlace.push(rescue);
+            const what = refused > 0 ? `${refused} row(s) could not be restored` : "could not be restored";
+            console.error(`${rescue}: ${what}; kept in place and retried on every start.`, firstError);
         }
     }
 
-    for (const lost of result.lost) {
-        console.error(`Outbox row lost in the database rebuild (${lost.table}): ${lost.error}`, JSON.stringify(lost.row));
+    if (result.restored > 0) {
+        console.warn(`Restored ${result.restored} preserved row(s) into the rebuilt database.`);
     }
-
     return result;
 }
 
 /**
- * Save the outbox, rebuild, migrate, restore. `reset` deletes and reopens the database; `migrate` applies the
- * schema. If the rebuild itself fails, the saved rows are logged before the error propagates, since the file
- * they came from no longer exists.
+ * Rebuilds a database whose migration failed, keeping the preserved tables (see the top of this file).
+ *
+ * `deleteFile` is the fallback for a file too damaged to rename tables in: it deletes and reopens the database, and
+ * what was in the preserved tables is then lost. That is the only path that loses them, and it says so in the log.
  */
-export async function rebuildKeepingOutbox(
-    current: GenericDb,
-    reset: () => GenericDb | Promise<GenericDb>,
-    migrate: (db: GenericDb) => Promise<unknown>,
-): Promise<{ db: GenericDb; outbox: OutboxRestore }> {
-    const saved = await saveOutbox(current);
-
-    let fresh: GenericDb;
+export async function rebuildKeepingLocalData<T extends GenericDb>(
+    current: T,
+    migrate: (db: T) => Promise<unknown>,
+    deleteFile: () => T | Promise<T>,
+): Promise<T> {
+    let db = current;
     try {
-        fresh = await reset();
-        await migrate(fresh);
+        await setAside(db);
     } catch (e) {
-        console.error("Database rebuild failed; the outbox rows it was carrying:", JSON.stringify(saved));
-        throw e;
+        console.error("Could not set the outbox aside in the damaged database; deleting it. Its outbox, dead letters and genre jams are lost.", e);
+        db = await deleteFile();
     }
 
-    const outbox = await restoreOutbox(fresh, saved);
-    console.warn(`Database rebuilt; kept ${outbox.restored} outbox row(s), lost ${outbox.lost.length}.`);
-    return { db: fresh, outbox };
+    await migrate(db);
+    await restoreRescuedTables(db);
+    return db;
 }

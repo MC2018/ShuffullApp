@@ -4,7 +4,7 @@ import { sql } from "drizzle-orm";
 import migrations from "./drizzle/migrations";
 import { getDb, initDbAsync, resetDbAsync } from "./database.web";
 import { GenericDb } from "./GenericDb";
-import { rebuildKeepingOutbox } from "./recovery";
+import { rebuildKeepingLocalData, restoreRescuedTables } from "./recovery";
 import { MediaManager } from "../media-manager";
 
 const DbContext = createContext<GenericDb | null>(null);
@@ -82,12 +82,14 @@ export const DbProvider = ({ children }: DbProviderProps) => {
                 const db = await initDbAsync();
                 try {
                     await runMigrations(db);
+                    // Finishes a rebuild a crash interrupted; with nothing rescued it is one query.
+                    await restoreRescuedTables(db);
                 } catch (e) {
-                    // Same last resort as native: a schema we cannot migrate is rebuilt from scratch, carrying the
-                    // outbox across. The rest of the database is a cache of the server and comes back on a re-sync;
-                    // queued Keeps, Likes and deletes exist nowhere else yet (ShuffullApp#92).
+                    // Same last resort as native: rebuild the schema from scratch, carrying the outbox, dead letters
+                    // and genre jams across inside the file (recovery.ts). The rest is a cache of the server and
+                    // comes back on a re-sync (ShuffullApp#92).
                     console.warn("Web migrations failed; rebuilding the database.", e);
-                    await rebuildKeepingOutbox(db, resetDbAsync, runMigrations);
+                    await rebuildKeepingLocalData(db, runMigrations, resetDbAsync);
                 }
             } catch (fatal) {
                 console.error("Database unavailable.", fatal);
