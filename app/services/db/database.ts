@@ -14,14 +14,14 @@ export function getDb(): ExpoSQLiteDatabase {
 }
 
 // Tear the database down and recreate it from scratch. Used as a last resort when migrations fail to
-// apply against a corrupt/stale on-device schema. Reassigns the module-level handle, so callers must
-// read it via getDb() rather than capturing the reference.
+// apply against a corrupt/stale on-device schema; DbProvider carries the outbox across (recovery.ts).
+// Reassigns the module-level handle, so callers must read it via getDb() rather than capturing the
+// reference. The new database is EMPTY: the caller migrates it, then sets up the MediaManager.
 export function resetDb(): ExpoSQLiteDatabase {
     MediaManager.clear();
     expoDb.closeSync();
     SQLite.deleteDatabaseSync(dbName);
     expoDb = SQLite.openDatabaseSync(dbName);
     db = drizzle(expoDb);
-    MediaManager.setup(db);
     return db;
 }

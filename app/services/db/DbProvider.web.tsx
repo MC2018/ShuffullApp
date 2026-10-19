@@ -4,6 +4,7 @@ import { sql } from "drizzle-orm";
 import migrations from "./drizzle/migrations";
 import { getDb, initDbAsync, resetDbAsync } from "./database.web";
 import { GenericDb } from "./GenericDb";
+import { rebuildKeepingOutbox } from "./recovery";
 import { MediaManager } from "../media-manager";
 
 const DbContext = createContext<GenericDb | null>(null);
@@ -79,23 +80,34 @@ export const DbProvider = ({ children }: DbProviderProps) => {
         (async () => {
             try {
                 const db = await initDbAsync();
-                await runMigrations(db);
-                // Same handoff the native provider does. mediaManager keeps the handle in a module-level
-                // variable, so without this every playback path dereferenced an undefined db and threw
-                // "Cannot read properties of undefined (reading 'select')" — tapping a song did nothing.
-                await MediaManager.setup(db);
-                if (!cancelled) setReady(true);
-            } catch (e) {
-                // Same last resort as native: a schema we cannot migrate is rebuilt from scratch. The local
-                // database is a cache of the server, so losing it costs a re-sync, not data.
-                console.warn("Web migrations failed; rebuilding the database.", e);
                 try {
-                    const fresh = await resetDbAsync();
-                    await runMigrations(fresh);
-                    if (!cancelled) setReady(true);
-                } catch (fatal) {
-                    if (!cancelled) setFailure(String(fatal));
+                    await runMigrations(db);
+                } catch (e) {
+                    // Same last resort as native: a schema we cannot migrate is rebuilt from scratch, carrying the
+                    // outbox across. The rest of the database is a cache of the server and comes back on a re-sync;
+                    // queued Keeps, Likes and deletes exist nowhere else yet (ShuffullApp#92).
+                    console.warn("Web migrations failed; rebuilding the database.", e);
+                    await rebuildKeepingOutbox(db, resetDbAsync, runMigrations);
                 }
+            } catch (fatal) {
+                console.error("Database unavailable.", fatal);
+                if (!cancelled) {
+                    setFailure(String(fatal));
+                }
+                return;
+            }
+
+            // Same handoff the native provider does. mediaManager keeps the handle in a module-level variable, so
+            // without this every playback path dereferenced an undefined db and threw "Cannot read properties of
+            // undefined (reading 'select')" — tapping a song did nothing. A failure here is a playback problem,
+            // not a schema one, so it no longer sends the database through the rebuild.
+            try {
+                await MediaManager.setup(getDb());
+            } catch (e) {
+                console.error("MediaManager setup failed.", e);
+            }
+            if (!cancelled) {
+                setReady(true);
             }
         })();
 
