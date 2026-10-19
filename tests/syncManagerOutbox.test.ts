@@ -47,9 +47,9 @@ function makeApi() {
 // here, so overallSync is stubbed to succeed.
 function makeManager(db: GenericDb, api: ReturnType<typeof makeApi>, logout = vi.fn(async () => {})) {
     const manager = Object.create(SyncManager.prototype);
-    Object.assign(manager, { db, api, userId: USER, logout, syncing: false });
-    manager.overallSync = async () => 200;
-    return manager as { sync(): Promise<void> };
+    Object.assign(manager, { db, api, userId: USER, logout, syncing: false, keepRetriedAt: new Map() });
+    manager.overallSync = vi.fn(async () => 200);
+    return manager as { sync(): Promise<void>; keepRetriedAt: Map<string, number>; overallSync: () => Promise<number> };
 }
 
 async function setCurator(db: GenericDb, isCurator: boolean) {
@@ -238,6 +238,66 @@ describe("SyncManager: playlist deletes wait for every Keep (the 2026-08-22 purg
         await makeManager(db, api).sync();
 
         expect(api.playlistDelete).toHaveBeenCalledWith("mix");
+    });
+
+    it("a held Keep is re-sent at most once an hour, not on every flush", async () => {
+        await deadLetterKeep(db, api, "kept");
+        api.songKeep.mockResolvedValue({ results: [{ songId: "kept", outcome: "failed", error: "still no" }] });
+        await queueDelete(db, "mix", new Date(), ["kept"]);
+        const manager = makeManager(db, api);
+        const calls = () => api.songKeep.mock.calls.length;
+
+        await manager.sync();
+        const afterFirst = calls();
+        await manager.sync();
+        expect(calls()).toBe(afterFirst);
+
+        manager.keepRetriedAt.set("kept", Date.now() - 61 * 60 * 1000);
+        await manager.sync();
+        expect(calls()).toBe(afterFirst + 1);
+        expect(api.playlistDelete).not.toHaveBeenCalled();
+    });
+
+    it("a 401 while re-sending a held Keep logs out", async () => {
+        await deadLetterKeep(db, api, "kept");
+        await queueDelete(db, "mix", new Date(), ["kept"]);
+        api.songKeep.mockRejectedValueOnce(rejected("/api/v1/songs/keep", 401, "expired"));
+        const logout = vi.fn(async () => {});
+
+        await makeManager(db, api, logout).sync();
+
+        expect(logout).toHaveBeenCalledOnce();
+        expect(api.playlistDelete).not.toHaveBeenCalled();
+    });
+
+    it("a 5xx while re-sending a held Keep ends the flush and is retried next flush, not an hour later", async () => {
+        await deadLetterKeep(db, api, "kept");
+        await queueDelete(db, "mix", new Date(), ["kept"]);
+        api.songKeep.mockRejectedValueOnce(rejected("/api/v1/songs/keep", 503, "down"));
+        const manager = makeManager(db, api);
+
+        await manager.sync();
+        expect(api.playlistDelete).not.toHaveBeenCalled();
+        expect(manager.overallSync).not.toHaveBeenCalled();
+
+        await manager.sync();
+        expect(api.playlistDelete).toHaveBeenCalledWith("mix");
+    });
+
+    it("more than 200 held Keeps are re-sent in chunks the server accepts", async () => {
+        const songIds = Array.from({ length: 450 }, (_, i) => `s${i}`);
+        await db.insert(deadLetterRequestTable).values(songIds.map(songId => ({
+            requestId: `keep-${songId}`, requestType: RequestType.SongRetag, userId: USER, songId,
+            timeRequested: new Date(), deadLetteredAt: new Date(), reason: "nope",
+            request: { requestId: `keep-${songId}`, requestType: RequestType.SongRetag, userId: USER, songId, timeRequested: new Date() },
+        })));
+        await queueDelete(db, "legacy", new Date(), null);
+
+        await makeManager(db, api).sync();
+
+        expect(api.songKeep.mock.calls.map(([ids]) => ids.length)).toEqual([200, 200, 50]);
+        expect(api.playlistDelete).toHaveBeenCalledWith("legacy");
+        expect(await getDeadLetterRequests(db, USER)).toHaveLength(0);
     });
 
     it("with no Keep anywhere, a delete is sent straight away", async () => {

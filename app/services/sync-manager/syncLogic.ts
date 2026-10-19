@@ -1,4 +1,5 @@
 import { getProcessingMethod, ProcessingMethod, RequestType } from "@/app/enums";
+import type { DeletePlaylistPayload } from "@/app/services/db/schema";
 
 // Pure, dependency-free pieces lifted out of SyncManager.overallSync so they can be unit-tested without
 // the surrounding native deps (expo-sqlite, async-storage, the API client). Behaviour is preserved
@@ -273,7 +274,7 @@ export interface DeadLetteredRow extends BatchableRequest {
 
 /** A queued playlist delete as the hold rule needs it. */
 export interface QueuedPlaylistDelete {
-    payload?: unknown;
+    payload?: DeletePlaylistPayload | null;
 }
 
 /**
@@ -300,7 +301,7 @@ export function playlistDeleteHold(
         return { reason: "a Keep is still waiting to be recorded", retrySongIds: [] };
     }
 
-    const playlistSongIds = (deleteRequest.payload as { songIds?: string[] } | null | undefined)?.songIds;
+    const playlistSongIds = deleteRequest.payload?.songIds;
     const inPlaylist = playlistSongIds ? new Set(playlistSongIds) : undefined;
     const blocking = deadLetters
         .filter(x => x.requestType == RequestType.SongRetag && x.songId)
@@ -313,6 +314,25 @@ export function playlistDeleteHold(
 
     const retrySongIds = [...new Set(blocking)];
     return { reason: `${retrySongIds.length} song(s) in it were kept but the Keep was never recorded`, retrySongIds };
+}
+
+/**
+ * How long a delete held behind a dead-lettered Keep waits between re-sends of that Keep. The server's usual verdict
+ * ("not in your library") rarely changes, so re-sending on every 10 s flush would only add load.
+ */
+export const HELD_KEEP_RETRY_INTERVAL_MS = 60 * 60 * 1000;
+
+/** The held Keeps not re-sent within the interval, given when each was last re-sent. */
+export function keepsDueForRetry(
+    songIds: string[],
+    lastRetriedAt: ReadonlyMap<string, number>,
+    now: number,
+    intervalMs: number = HELD_KEEP_RETRY_INTERVAL_MS,
+): string[] {
+    return songIds.filter(songId => {
+        const at = lastRetriedAt.get(songId);
+        return at == undefined || now - at >= intervalMs;
+    });
 }
 
 /**

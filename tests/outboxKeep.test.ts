@@ -9,7 +9,7 @@ import { ApiClient } from "@/app/services/api/ApiClient";
 import { ApiStatusFailureError, statusOfFailure } from "@/app/services/api/errors";
 import { addRequests, deadLetterRequests, getDeadLetterRequests, getRequests } from "@/app/services/db/queries/request";
 import { deadLetterRequestTable } from "@/app/services/db/schema";
-import { failedKeeps, playlistDeleteHold, withoutPendingDeletes } from "@/app/services/sync-manager/syncLogic";
+import { failedKeeps, keepsDueForRetry, playlistDeleteHold, withoutPendingDeletes } from "@/app/services/sync-manager/syncLogic";
 import { RequestType } from "@/app/enums";
 
 describe("statusOfFailure (what the outbox acts on)", () => {
@@ -123,6 +123,15 @@ describe("playlistDeleteHold", () => {
 
     it("other queued or dead-lettered work does not hold a delete", () => {
         expect(playlistDeleteHold({}, [like], [{ ...like, songId: "a" }])).toBeNull();
+    });
+});
+
+describe("keepsDueForRetry", () => {
+    it("re-sends a held Keep never tried, or last tried an hour or more ago", () => {
+        const now = 10 * 60 * 60 * 1000;
+        const tried = new Map([["recent", now - 59 * 60 * 1000], ["stale", now - 60 * 60 * 1000]]);
+
+        expect(keepsDueForRetry(["new", "recent", "stale"], tried, now)).toEqual(["new", "stale"]);
     });
 });
 

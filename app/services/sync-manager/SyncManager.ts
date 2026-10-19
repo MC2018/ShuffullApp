@@ -10,7 +10,7 @@ import { GenericDb } from "@/app/services/db/GenericDb";
 import { Downloader } from "@/app/services/downloader/Downloader";
 import { STORAGE_KEYS } from "@/app/constants/storageKeys";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { advanceSongCursor, collectNewSongIds, failedKeeps, groupRequestsIntoBatches, partitionRejectedRequests, playlistDeleteHold, playlistsToFetch, summarizeRetagFailures, toRetagItems, withoutPendingDeletes } from "@/app/services/sync-manager/syncLogic";
+import { advanceSongCursor, collectNewSongIds, failedKeeps, groupRequestsIntoBatches, keepsDueForRetry, OUTBOX_MAX_BATCH_SIZE, partitionRejectedRequests, playlistDeleteHold, playlistsToFetch, summarizeRetagFailures, toRetagItems, withoutPendingDeletes } from "@/app/services/sync-manager/syncLogic";
 
 /** What one outbox batch came back with: the status sync() acts on, and the error text when it failed. */
 interface RunResult {
@@ -25,6 +25,8 @@ export class SyncManager {
     timerId: ReturnType<typeof setInterval>;
     syncing = false;
     logout: () => Promise<void>;
+    // When each held Keep was last re-sent (see checkDeleteHold). In memory only: a restart just retries once.
+    keepRetriedAt = new Map<string, number>();
     
     constructor(db: GenericDb, api: ApiClient, userId: string, logout: () => Promise<void>) {
         this.db = db;
@@ -66,8 +68,14 @@ export class SyncManager {
             // Run all pushing requests
             for (const requestBatch of requestBatches) {
                 if (requestBatch[0]?.requestType == RequestType.DeletePlaylist) {
-                    const hold = await this.playlistDeleteHold(requestBatch[0] as DbModels.DeletePlaylistRequest);
-                    if (hold) {
+                    const { hold, statusCode } = await this.checkDeleteHold(requestBatch[0] as DbModels.DeletePlaylistRequest);
+                    if (statusCode == HttpStatusCode.Unauthorized) {
+                        await this.logout();
+                        return;
+                    } else if (statusCode) {
+                        console.log(`Cannot access server. Status code: ${statusCode}`);
+                        return;
+                    } else if (hold) {
                         console.warn(`[sync] Holding playlist delete ${requestBatch[0].playlistId}: ${hold}.`);
                         continue;
                     }
@@ -182,26 +190,40 @@ export class SyncManager {
         }
     }
 
-    // Why this delete must wait (see playlistDeleteHold), or null. Reads fresh: a Keep sent earlier in this flush
-    // may have just been recorded or dead-lettered. A hold caused by dead-lettered Keeps re-sends them first, which
-    // is its way out: once the server records them, the delete goes.
-    private async playlistDeleteHold(request: DbModels.DeletePlaylistRequest): Promise<string | null> {
+    // Why this delete must wait (see playlistDeleteHold), or no hold. Reads fresh: a Keep sent earlier in this flush
+    // may have just been recorded or dead-lettered. A hold caused by dead-lettered Keeps re-sends them, at most once
+    // per HELD_KEEP_RETRY_INTERVAL_MS each, which is its way out: once the server records them, the delete goes.
+    // A 401 or 5xx from that re-send comes back as statusCode, for sync() to act on like any other batch's.
+    private async checkDeleteHold(request: DbModels.DeletePlaylistRequest): Promise<{ hold: string | null; statusCode?: number }> {
         const outbox = await DbQueries.getRequests(this.db);
         const hold = playlistDeleteHold(request, outbox, await DbQueries.getDeadLetterRequests(this.db, this.userId));
-        if (!hold?.retrySongIds.length) {
-            return hold?.reason ?? null;
+        const due = keepsDueForRetry(hold?.retrySongIds ?? [], this.keepRetriedAt, Date.now());
+        if (!hold || !due.length) {
+            return { hold: hold?.reason ?? null };
         }
 
-        try {
-            const response = await this.api.songKeep(hold.retrySongIds);
-            const kept = response.results.filter(x => x.outcome === "kept").map(x => x.songId);
-            await DbQueries.removeDeadLetteredKeeps(this.db, this.userId, kept);
-        } catch (e) {
-            console.warn(`[sync] Re-sending dead-lettered keeps failed with ${statusOfFailure(e)}.`, e);
+        // Chunked: /songs/keep refuses more than OUTBOX_MAX_BATCH_SIZE ids, and an older delete row is held by every
+        // dead-lettered Keep the user has.
+        for (let i = 0; i < due.length; i += OUTBOX_MAX_BATCH_SIZE) {
+            const chunk = due.slice(i, i + OUTBOX_MAX_BATCH_SIZE);
+            try {
+                const response = await this.api.songKeep(chunk);
+                const kept = response.results.filter(x => x.outcome === "kept").map(x => x.songId);
+                await DbQueries.removeDeadLetteredKeeps(this.db, this.userId, kept);
+            } catch (e) {
+                const statusCode = statusOfFailure(e);
+                if (statusCode == HttpStatusCode.Unauthorized || statusCode >= 500) {
+                    return { hold: hold.reason, statusCode };
+                }
+                console.warn(`[sync] Re-sending dead-lettered keeps was rejected with ${statusCode}.`, e);
+            }
+            // Recorded only once the server answered, so an outage doesn't push the next try out by the interval.
+            const now = Date.now();
+            chunk.forEach(songId => this.keepRetriedAt.set(songId, now));
         }
 
         const after = playlistDeleteHold(request, outbox, await DbQueries.getDeadLetterRequests(this.db, this.userId));
-        return after?.reason ?? null;
+        return { hold: after?.reason ?? null };
     }
 
     // A queued SongRetag row is a Keep (weak) or a like-promotion (strong). Either way the user's decision is
@@ -214,7 +236,8 @@ export class SyncManager {
 
         // A 200 only means the POST landed; the per-item outcomes say whether each Keep was recorded. A song the
         // server didn't keep is dead-lettered with its reason. Deleting it would be another silent loss, and
-        // retrying it would replay a verdict on the song, not a transient fault.
+        // retrying it every flush would just replay a verdict on the song, not a transient fault. A delete held
+        // behind it re-sends it now and then instead (checkDeleteHold), in case that verdict changes.
         const failures = failedKeeps(requests, response?.results);
         if (failures.length) {
             console.warn(

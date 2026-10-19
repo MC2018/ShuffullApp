@@ -210,8 +210,9 @@ export const requestTable = sqliteTable("requests", {
 });
 
 // Outbox rows the app gave up sending, kept with the reason instead of deleted. A row lands here when the server
-// rejected it (4xx) for longer than the retry window, or answered 200 but reported that item failed. Nothing
-// replays these: they are the record that queued work did not happen, so it is never silently lost.
+// rejected it (4xx) for longer than the retry window, or answered 200 but reported that item failed. They are the
+// record that queued work did not happen, so it is never silently lost. The outbox never replays them; the one
+// exception is a dead-lettered Keep holding a playlist delete, which that hold re-sends now and then.
 export const deadLetterRequestTable = sqliteTable("dead_letter_requests", {
     requestId: text("request_id").primaryKey(),
     requestType: integer("request_type").notNull(),
