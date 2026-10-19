@@ -8,6 +8,7 @@ import path from "path";
 import type { GenericDb } from "@/app/services/db/GenericDb";
 import DbQueries from "@/app/services/db/queries";
 import { localSessionDataTable, playlistSongTable, playlistTable, songTable, userTable } from "@/app/services/db/schema";
+import { enqueueSongRetag, getRequests } from "@/app/services/db/queries/request";
 import { withTransaction } from "@/app/services/db/transaction";
 
 let songCursor: string | null = null;
@@ -163,6 +164,24 @@ describe("overallSync: the write phase is all-or-nothing", () => {
         expect(await snapshot(db)).toEqual(before);
     });
 
+    it("a Keep queued while sync is writing survives the sync's rollback", async () => {
+        // The user taps Keep while the write phase is mid-way. Its outbox row must not join the sync's transaction:
+        // that would roll it back with the sync, the 2026-08-22 way of losing a Keep.
+        let keep: Promise<void> | undefined;
+        const realUpdateTags = DbQueries.updateTags;
+        vi.spyOn(DbQueries, "updateTags").mockImplementation(async (tx, tags) => {
+            await realUpdateTags(tx, tags);
+            keep = enqueueSongRetag(db, USER, "s1", "weak");
+            await new Promise(resolve => setTimeout(resolve, 0)); // give the Keep every chance to run now
+        });
+
+        const status = await makeManager(db, makeApi({ ...apiSong("s1", "Changed", "hash-s1-v2"), name: null })).overallSync();
+        await keep;
+
+        expect(status).toBe(500);
+        expect((await getRequests(db)).map(x => x.songId)).toEqual(["s1"]);
+    });
+
     it("commits everything when nothing fails", async () => {
         const status = await makeManager(db, makeApi(apiSong("s1", "Changed", "hash-s1-v2"))).overallSync();
 
@@ -201,6 +220,30 @@ describe("withTransaction", () => {
 
         await withTransaction(db, async tx => { await tx.update(userTable).set({ version: NEW_VERSION }); });
         expect(await userVersion()).toEqual(NEW_VERSION);
+    });
+
+    it("runs one transaction at a time, so a second one's writes aren't caught in the first one's rollback", async () => {
+        let second: Promise<void> | undefined;
+        await expect(withTransaction(db, async tx => {
+            await tx.update(userTable).set({ version: NEW_VERSION });
+            second = withTransaction(db, async other => { await other.update(userTable).set({ username: "renamed" }); });
+            await new Promise(resolve => setTimeout(resolve, 0));
+            throw new Error("boom");
+        })).rejects.toThrow("boom");
+        await second;
+
+        const [user] = await db.select().from(userTable);
+        expect(user.version).toEqual(OLD_VERSION);
+        expect(user.username).toBe("renamed");
+    });
+
+    it("joins the open transaction when handed its handle, and rolls back with it", async () => {
+        await expect(withTransaction(db, async tx => {
+            await withTransaction(tx, async inner => { await inner.update(userTable).set({ version: NEW_VERSION }); });
+            throw new Error("boom");
+        })).rejects.toThrow("boom");
+
+        expect(await userVersion()).toEqual(OLD_VERSION);
     });
 
     it("returns what the work returns", async () => {
