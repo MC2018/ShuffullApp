@@ -246,6 +246,26 @@ describe("withTransaction", () => {
         expect(await userVersion()).toEqual(OLD_VERSION);
     });
 
+    it("warns when a call waits on the transaction it was made from", async () => {
+        vi.useFakeTimers();
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+        try {
+            let inner: Promise<void> | undefined;
+            const outer = withTransaction(db, async () => {
+                // The plain db, not the handle: this queues behind the transaction it is inside, and can never start.
+                inner = withTransaction(db, async () => {});
+                await vi.advanceTimersByTimeAsync(10_000);
+            });
+            await vi.advanceTimersByTimeAsync(0);
+            await outer;
+            await inner;
+
+            expect(warn).toHaveBeenCalledWith(expect.stringContaining("plain db"));
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it("returns what the work returns", async () => {
         expect(await withTransaction(db, async () => 42)).toBe(42);
     });

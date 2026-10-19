@@ -33,10 +33,20 @@ export async function withTransaction<T>(db: GenericDb, work: (tx: GenericDb) =>
         return work(db);
     }
 
-    const run = queue.then(() => runTransaction(db, work));
+    // A body that breaks the handle rule waits on itself, and every outbox write after it hangs with no error. Say so.
+    const stalled = setTimeout(() => console.warn(
+        `withTransaction has waited ${STALL_WARNING_MS / 1000}s to start. Is a transaction body calling it with the plain db instead of its tx?`,
+    ), STALL_WARNING_MS);
+    const run = queue.then(() => {
+        clearTimeout(stalled);
+        return runTransaction(db, work);
+    });
     queue = run.catch(() => {});
     return run;
 }
+
+// Sync's write phase, the longest transaction, takes well under a second, so 10s of waiting means something is stuck.
+const STALL_WARNING_MS = 10_000;
 
 // Handles of the transactions currently open, so a nested call can tell it is already inside one.
 const openTransactions = new WeakSet<object>();
