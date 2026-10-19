@@ -4,6 +4,7 @@ import { Request } from "./models";
 import { namedRows } from "./queries/_rawRow";
 import { deadLetterRow } from "./queries/request";
 import { deadLetterRequestTable, requestTable } from "./schema";
+import { withTransaction } from "./transaction";
 
 /**
  * Opening the database, and the last-resort recovery when the on-device schema cannot be migrated: rebuild the
@@ -58,50 +59,46 @@ function reasonOf(e: unknown): string {
     return error?.cause?.message ?? error?.message ?? String(e);
 }
 
-// Raw BEGIN/COMMIT rather than `db.transaction()`: the native driver's transaction callback is synchronous, and
-// this has to run the same way on the async web driver.
-async function inTransaction(db: GenericDb, work: () => Promise<void>): Promise<void> {
-    await db.run(sql`BEGIN`);
-    try {
-        await work();
-        await db.run(sql`COMMIT`);
-    } catch (e) {
-        await db.run(sql`ROLLBACK`);
-        throw e;
-    }
-}
-
 /** Renames the preserved tables out of the way and drops everything else, atomically. */
 async function setAside(db: GenericDb): Promise<void> {
     const stamp = Date.now();
 
-    await inTransaction(db, async () => {
-        const objects = (await schemaObjects(db)).filter((x) => !isRescue(x.tableName));
+    await withTransaction(db, async (tx) => {
+        const objects = (await schemaObjects(tx)).filter((x) => !isRescue(x.tableName));
 
         // Triggers, views and indexes first. Index names are global in SQLite and an index follows its table
         // through a rename, so one left on a rescued table would collide with the index the migrations recreate.
         for (const type of ["trigger", "view", "index"]) {
             for (const { name } of objects.filter((x) => x.type == type)) {
-                await db.run(sql`DROP ${sql.raw(type.toUpperCase())} IF EXISTS ${sql.identifier(name)}`);
+                await tx.run(sql`DROP ${sql.raw(type.toUpperCase())} IF EXISTS ${sql.identifier(name)}`);
             }
         }
         for (const { name } of objects.filter((x) => x.type == "table")) {
             if (PRESERVED_TABLES.includes(name)) {
-                await db.run(sql`ALTER TABLE ${sql.identifier(name)} RENAME TO ${sql.identifier(`${RESCUE_PREFIX}${stamp}__${name}`)}`);
+                await tx.run(sql`ALTER TABLE ${sql.identifier(name)} RENAME TO ${sql.identifier(`${RESCUE_PREFIX}${stamp}__${name}`)}`);
             } else {
-                await db.run(sql`DROP TABLE IF EXISTS ${sql.identifier(name)}`);
+                await tx.run(sql`DROP TABLE IF EXISTS ${sql.identifier(name)}`);
             }
         }
     });
 }
 
-// A rescued outbox row (raw column values) back in the shape the request queries take.
+// A rescued outbox row (raw column values, plus its rowid) back in the shape the request queries take. Columns the
+// current schema no longer has are kept under their old names, so the dead letter holds everything the row did.
 function toRequest(row: Record<string, unknown>): Request {
     const request: Record<string, unknown> = {};
+    const known = new Set<string>(["rowid"]);
     for (const [key, column] of Object.entries(getTableColumns(requestTable))) {
         const raw = row[column.name];
         request[key] = raw == null ? null : column.mapFromDriverValue(raw);
+        known.add(column.name);
     }
+    for (const [name, raw] of Object.entries(row)) {
+        if (!known.has(name)) {
+            request[name] = raw;
+        }
+    }
+    // Shaped like a Request by the loop above; the extra old columns ride along in the dead letter's JSON.
     return request as unknown as Request;
 }
 
@@ -129,7 +126,7 @@ export async function restoreRescuedTables(db: GenericDb): Promise<RescueRestore
         let failure: unknown;
 
         try {
-            // Every column, so a dead-lettered request keeps the ones the new table no longer has.
+            // Every column, so a dead-lettered request keeps the ones the new table no longer has (toRequest).
             const columns = await columnsOf(db, rescue);
             const live = new Set(await columnsOf(db, target));
             const shared = columns.filter((c) => live.has(c));
@@ -139,15 +136,17 @@ export async function restoreRescuedTables(db: GenericDb): Promise<RescueRestore
 
             const select = sql`SELECT rowid, ${sql.join(columns.map((c) => sql.identifier(c)), sql`, `)} FROM ${sql.identifier(rescue)}`;
             const rows = namedRows<Record<string, unknown>>((await db.all(select)) as unknown[], ["rowid", ...columns]);
-            const deleteRescued = (row: Record<string, unknown>) =>
-                db.run(sql`DELETE FROM ${sql.identifier(rescue)} WHERE rowid = ${row.rowid}`);
 
-            await inTransaction(db, async () => {
+            await withTransaction(db, async (tx) => {
+                const deleteRescued = (row: Record<string, unknown>) =>
+                    tx.run(sql`DELETE FROM ${sql.identifier(rescue)} WHERE rowid = ${row.rowid}`);
+
                 for (const row of rows) {
+                    let rowError: unknown;
                     // A savepoint per row: one the new schema refuses is rolled back alone.
-                    await db.run(sql`SAVEPOINT restore_row`);
+                    await tx.run(sql`SAVEPOINT restore_row`);
                     try {
-                        await db.run(sql`INSERT INTO ${sql.identifier(target)} (${sql.join(
+                        await tx.run(sql`INSERT INTO ${sql.identifier(target)} (${sql.join(
                             shared.map((c) => sql.identifier(c)),
                             sql`, `,
                         )}) VALUES (${sql.join(
@@ -155,11 +154,12 @@ export async function restoreRescuedTables(db: GenericDb): Promise<RescueRestore
                             sql`, `,
                         )})`);
                         await deleteRescued(row);
-                        await db.run(sql`RELEASE restore_row`);
+                        await tx.run(sql`RELEASE restore_row`);
                         restored++;
                         continue;
                     } catch (e) {
-                        await db.run(sql`ROLLBACK TO restore_row`);
+                        await tx.run(sql`ROLLBACK TO restore_row`);
+                        rowError = e;
                         failure ??= e;
                     }
 
@@ -167,26 +167,27 @@ export async function restoreRescuedTables(db: GenericDb): Promise<RescueRestore
                     // it with the reason, where the playlist-delete hold and anyone reading the device can see it.
                     if (target == "requests") {
                         try {
-                            const reason = `Could not be restored after a database rebuild: ${reasonOf(failure)}`;
+                            const reason = `Could not be restored after a database rebuild: ${reasonOf(rowError)}`;
                             // Not deadLetterRequests(): it also deletes the outbox row with this id, which here may be a
                             // different, live request (the clash that refused this one). And a plain insert, so a row
                             // already dead-lettered under this id makes this one stay rescued rather than vanish.
-                            await db.insert(deadLetterRequestTable).values(deadLetterRow(toRequest(row), reason, new Date()));
+                            await tx.insert(deadLetterRequestTable).values(deadLetterRow(toRequest(row), reason, new Date()));
                             await deleteRescued(row);
-                            await db.run(sql`RELEASE restore_row`);
+                            await tx.run(sql`RELEASE restore_row`);
                             deadLettered++;
                             continue;
-                        } catch {
-                            await db.run(sql`ROLLBACK TO restore_row`);
+                        } catch (e) {
+                            await tx.run(sql`ROLLBACK TO restore_row`);
+                            console.error(`${rescue}: could not dead-letter ${String(row.request_id)}; it stays rescued.`, e);
                         }
                     }
 
-                    await db.run(sql`RELEASE restore_row`);
+                    await tx.run(sql`RELEASE restore_row`);
                     refused++;
                 }
 
                 if (refused == 0) {
-                    await db.run(sql`DROP TABLE ${sql.identifier(rescue)}`);
+                    await tx.run(sql`DROP TABLE ${sql.identifier(rescue)}`);
                 }
             });
         } catch (e) {

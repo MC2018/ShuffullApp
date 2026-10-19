@@ -311,6 +311,29 @@ describe("a rescued row whose id is already live", () => {
     });
 });
 
+describe("dead letters from a restore", () => {
+    it("each refused row carries its own reason, and keeps columns the new schema dropped", async () => {
+        const db = asDb(sqlite);
+        await migrateLatest();
+        await addRequests(db, [keep]);
+        sqlite.exec("CREATE TABLE \"__rescued_1__requests\" AS SELECT * FROM requests WHERE 0");
+        sqlite.exec("ALTER TABLE \"__rescued_1__requests\" ADD old_column text");
+        sqlite.exec(`INSERT INTO "__rescued_1__requests" (request_id, time_request, request_type, user_id, song_id, old_column)
+                     VALUES ('keep-1', 2, ${RequestType.SongRetag}, 'u1', 'clash', 'kept-a'),
+                            ('keep-9', 3, ${RequestType.SongRetag}, 'u1', 's9', 'kept-b')`);
+        sqlite.exec(`CREATE TRIGGER refuse_s9 BEFORE INSERT ON requests WHEN NEW.song_id = 's9'
+                     BEGIN SELECT RAISE(ABORT, 'song_id s9 no longer fits'); END`);
+
+        expect(await restoreRescuedTables(db)).toMatchObject({ deadLettered: 2, leftInPlace: [] });
+
+        const dead = Object.fromEntries((await getDeadLetterRequests(db, "u1")).map((x) => [x.songId, x]));
+        expect(dead["clash"].reason).toContain("UNIQUE constraint failed");
+        expect(dead["s9"].reason).toContain("song_id s9 no longer fits");
+        expect(dead["clash"].request).toMatchObject({ old_column: "kept-a" });
+        expect(dead["s9"].request).toMatchObject({ old_column: "kept-b" });
+    });
+});
+
 describe("indexes on preserved tables", () => {
     it("don't collide with the ones the migrations recreate", async () => {
         // Index names are global and follow a table through a rename. Today no preserved table is indexed; the
