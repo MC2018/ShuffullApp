@@ -9,7 +9,7 @@ import path from "path";
 import type { GenericDb } from "@/app/services/db/GenericDb";
 import { addRequests, deadLetterRequests, getDeadLetterRequests, getRequests } from "@/app/services/db/queries/request";
 import { addGenreJam, getGenreJams } from "@/app/services/db/queries/genreJam";
-import { rebuildKeepingLocalData, restoreRescuedTables } from "@/app/services/db/recovery";
+import { prepareDatabase, rebuildKeepingLocalData, restoreRescuedTables } from "@/app/services/db/recovery";
 import { RequestType } from "@/app/enums";
 
 /**
@@ -220,7 +220,7 @@ describe("the preserved rows are never only in memory", () => {
         expect(rescued()).toEqual([]);
     });
 
-    it("a row the new schema refuses stays rescued and is retried on every start; the rest restore", async () => {
+    it("a row that fits neither the outbox nor the dead letters stays rescued and is retried on every start", async () => {
         const db = asDb(sqlite);
         // A hand-made requests table where one row has no user_id, which the new table requires.
         sqlite.exec("CREATE TABLE requests (request_id text PRIMARY KEY, time_request integer, request_type integer, user_id text)");
@@ -233,7 +233,7 @@ describe("the preserved rows are never only in memory", () => {
         expect(sqlite.prepare(`SELECT request_id FROM "${table}"`).all()).toEqual([{ request_id: "orphan" }]);
         expect(console.error).toHaveBeenCalledWith(expect.stringContaining("1 row(s) could not be restored"), expect.anything());
 
-        expect(await restoreRescuedTables(restart())).toEqual({ restored: 0, leftInPlace: [table] });
+        expect(await restoreRescuedTables(restart())).toEqual({ restored: 0, deadLettered: 0, leftInPlace: [table] });
         expect(rescued()).toEqual([table]);
     });
 
@@ -251,6 +251,77 @@ describe("the preserved rows are never only in memory", () => {
 
     it("with nothing rescued, the start-up check does nothing", async () => {
         await migrateLatest();
-        expect(await restoreRescuedTables(asDb(sqlite))).toEqual({ restored: 0, leftInPlace: [] });
+        expect(await restoreRescuedTables(asDb(sqlite))).toEqual({ restored: 0, deadLettered: 0, leftInPlace: [] });
+    });
+
+    it("an outbox row the new schema refuses is dead-lettered with the reason, so the delete hold sees it", async () => {
+        const db = asDb(sqlite);
+        await migrateLatest();
+        await addRequests(db, [keep, { ...keep, requestId: "keep-2", songId: "s9" }]);
+        // Stands in for a later schema that no longer accepts this row.
+        const migrateRefusingS9 = async () => {
+            await migrateLatest();
+            sqlite.exec(`CREATE TRIGGER refuse_s9 BEFORE INSERT ON requests WHEN NEW.song_id = 's9'
+                         BEGIN SELECT RAISE(ABORT, 'song_id s9 no longer fits'); END`);
+        };
+
+        const fresh = await rebuildKeepingLocalData(db, migrateRefusingS9, deleteFile);
+
+        expect((await getRequests(fresh)).map((x) => x.requestId)).toEqual(["keep-1"]);
+        const [dead] = await getDeadLetterRequests(fresh, "u1");
+        expect(dead).toMatchObject({ requestId: "keep-2", requestType: RequestType.SongRetag, songId: "s9" });
+        expect(dead.reason).toContain("song_id s9 no longer fits");
+        expect(dead.request).toMatchObject({ requestId: "keep-2", songId: "s9", payload: { model: "weak" } });
+        expect(rescued()).toEqual([]);
+    });
+});
+
+describe("indexes on preserved tables", () => {
+    it("don't collide with the ones the migrations recreate", async () => {
+        // Index names are global and follow a table through a rename. Today no preserved table is indexed; the
+        // first migration that indexes one must not brick every later rebuild with "index already exists".
+        const db = asDb(sqlite);
+        await migrateLatest();
+        sqlite.exec("CREATE INDEX idx_requests_song ON requests (song_id)");
+        await addRequests(db, [keep]);
+        const migrateWithIndex = async () => {
+            await migrateLatest();
+            sqlite.exec("CREATE INDEX idx_requests_song ON requests (song_id)");
+        };
+
+        const fresh = await rebuildKeepingLocalData(db, migrateWithIndex, deleteFile);
+
+        expect(await getRequests(fresh)).toEqual([expect.objectContaining(keep)]);
+    });
+});
+
+describe("prepareDatabase (what both providers run on start)", () => {
+    it("a normal start migrates and finishes a rebuild a crash left behind", async () => {
+        const db = asDb(sqlite);
+        await migrateLatest();
+        await addRequests(db, [keep]);
+        await expect(rebuildKeepingLocalData(db, async () => { throw new Error("killed"); }, deleteFile)).rejects.toThrow();
+
+        const next = await prepareDatabase(restart(), migrateLatest, deleteFile);
+
+        expect(await getRequests(next)).toEqual([expect.objectContaining(keep)]);
+        expect(rescued()).toEqual([]);
+    });
+
+    it("a migration failure goes through the rebuild and keeps the outbox", async () => {
+        const db = asDb(sqlite);
+        migrateTo(migrationsUpTo("0026_add_exploratory_flags"));
+        sqlite.exec("ALTER TABLE requests ADD playlist_id text");
+        insertOldKeep();
+
+        const next = await prepareDatabase(db, migrateLatest, deleteFile);
+
+        expect(deleteFile).not.toHaveBeenCalled();
+        expect(await getRequests(next)).toEqual([expect.objectContaining(keep)]);
+    });
+
+    it("throws only if the rebuilt database can't be migrated either", async () => {
+        await expect(prepareDatabase(asDb(sqlite), async () => { throw new Error("broken bundle"); }, deleteFile))
+            .rejects.toThrow("broken bundle");
     });
 });

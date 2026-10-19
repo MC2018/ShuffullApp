@@ -4,7 +4,7 @@ import { createContext, ReactNode, useContext, useEffect, useState } from "react
 import { Text, View } from "react-native";
 import migrations from "./drizzle/migrations";
 import { getDb, resetDb } from "./database";
-import { rebuildKeepingLocalData, restoreRescuedTables } from "./recovery";
+import { prepareDatabase } from "./recovery";
 import { MediaManager } from "../media-manager";
 
 const DbContext = createContext<ExpoSQLiteDatabase | null>(null);
@@ -30,17 +30,9 @@ export const DbProvider = ({ children }: DbProviderProps) => {
 
         (async () => {
             try {
-                try {
-                    await migrate(getDb(), migrations);
-                    // Finishes a rebuild a crash interrupted; with nothing rescued it is one query.
-                    await restoreRescuedTables(getDb());
-                } catch (e) {
-                    // Last resort: rebuild the schema from scratch. The outbox, dead letters and genre jams are
-                    // carried across inside the file (recovery.ts); the rest is a cache of the server and comes
-                    // back on the next sync.
-                    console.warn("Migrations failed; rebuilding the database.", e);
-                    await rebuildKeepingLocalData(getDb(), (db) => migrate(db, migrations), resetDb);
-                }
+                // Migrates, and on failure rebuilds the schema carrying the outbox, dead letters and genre jams
+                // across inside the file (recovery.ts). The rest is a cache of the server and comes back on sync.
+                await prepareDatabase(getDb(), (db) => migrate(db, migrations), resetDb);
             } catch (fatal) {
                 console.error("Database unavailable.", fatal);
                 if (!cancelled) {
