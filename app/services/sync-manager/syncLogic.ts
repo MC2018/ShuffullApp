@@ -1,4 +1,5 @@
 import { getProcessingMethod, ProcessingMethod, RequestType } from "@/app/enums";
+import type { DeletePlaylistPayload } from "@/app/services/db/schema";
 
 // Pure, dependency-free pieces lifted out of SyncManager.overallSync so they can be unit-tested without
 // the surrounding native deps (expo-sqlite, async-storage, the API client). Behaviour is preserved
@@ -217,4 +218,134 @@ export function groupRequestsIntoBatches<T extends BatchableRequest>(
     }
 
     return batches;
+}
+
+/** One per-song outcome from POST /songs/keep. Outcome is a plain string: anything but "kept" is a failure. */
+export interface KeepOutcomeRow {
+    songId: string;
+    outcome: string;
+    error?: string | null;
+}
+
+/** A queued Keep row as the outcome rule needs it. */
+export interface QueuedKeep {
+    songId?: string | null;
+}
+
+/**
+ * The queued Keep rows the server did NOT record, each with its reason.
+ *
+ * A row counts as kept only when the response names its song as "kept". Everything else — reported failed,
+ * absent from the results, or a row with no song id — is returned here to be dead-lettered rather than deleted.
+ */
+export function failedKeeps<T extends QueuedKeep>(
+    requests: T[],
+    results: KeepOutcomeRow[] | undefined | null,
+): { request: T; reason: string }[] {
+    const outcomeBySong = new Map((results ?? []).map(r => [r.songId, r]));
+    const failures: { request: T; reason: string }[] = [];
+
+    for (const request of requests) {
+        const outcome = request.songId ? outcomeBySong.get(request.songId) : undefined;
+        if (outcome?.outcome !== "kept") {
+            failures.push({ request, reason: keepFailureReason(request, outcome) });
+        }
+    }
+
+    return failures;
+}
+
+function keepFailureReason(request: QueuedKeep, outcome: KeepOutcomeRow | undefined): string {
+    if (!request.songId) {
+        return "Keep row has no song id.";
+    }
+
+    if (outcome == undefined) {
+        return "The server returned no outcome for this song.";
+    }
+
+    return outcome.error?.trim() || "The server reported the keep as failed, with no reason.";
+}
+
+/** A dead-lettered row as the hold rule needs it. */
+export interface DeadLetteredRow extends BatchableRequest {
+    songId?: string | null;
+}
+
+/** A queued playlist delete as the hold rule needs it. */
+export interface QueuedPlaylistDelete {
+    payload?: DeletePlaylistPayload | null;
+}
+
+/**
+ * Why a queued playlist delete must wait, and which dead-lettered Keeps to re-send to lift the hold; null if it
+ * may go.
+ *
+ * Deleting an audition playlist makes the server purge every song in it that is still Exploratory. A Keep the
+ * server hasn't recorded leaves its song Exploratory, so sending the delete first is exactly how kept songs were
+ * destroyed on 2026-08-22.
+ *
+ * - While any Keep is still queued, every delete waits. That lasts at most the retry window: a Keep rejected
+ *   for longer is dead-lettered.
+ * - A dead-lettered Keep holds only a delete whose playlist held that song (every delete, for an older row that
+ *   doesn't record its songs). Its song is returned in `retrySongIds`, so the caller can re-send it and lift the
+ *   hold once the server records it. Until then the delete waits: sending it would purge a song the user kept.
+ *   A held delete loses nothing; the playlist just stays on the server.
+ */
+export function playlistDeleteHold(
+    deleteRequest: QueuedPlaylistDelete,
+    outbox: BatchableRequest[],
+    deadLetters: DeadLetteredRow[],
+): { reason: string; retrySongIds: string[] } | null {
+    if (outbox.some(x => x.requestType == RequestType.SongRetag)) {
+        return { reason: "a Keep is still waiting to be recorded", retrySongIds: [] };
+    }
+
+    const playlistSongIds = deleteRequest.payload?.songIds;
+    const inPlaylist = playlistSongIds ? new Set(playlistSongIds) : undefined;
+    const blocking = deadLetters
+        .filter(x => x.requestType == RequestType.SongRetag && x.songId)
+        .map(x => x.songId as string)
+        .filter(songId => inPlaylist == undefined || inPlaylist.has(songId));
+
+    if (!blocking.length) {
+        return null;
+    }
+
+    const retrySongIds = [...new Set(blocking)];
+    return { reason: `${retrySongIds.length} song(s) in it were kept but the Keep was never recorded`, retrySongIds };
+}
+
+/**
+ * How long a delete held behind a dead-lettered Keep waits between re-sends of that Keep. The server's usual verdict
+ * ("not in your library") rarely changes, so re-sending on every 10 s flush would only add load.
+ */
+export const HELD_KEEP_RETRY_INTERVAL_MS = 60 * 60 * 1000;
+
+/** The held Keeps not re-sent within the interval, given when each was last re-sent. */
+export function keepsDueForRetry(
+    songIds: string[],
+    lastRetriedAt: ReadonlyMap<string, number>,
+    now: number,
+    intervalMs: number = HELD_KEEP_RETRY_INTERVAL_MS,
+): string[] {
+    return songIds.filter(songId => {
+        const at = lastRetriedAt.get(songId);
+        return at == undefined || now - at >= intervalMs;
+    });
+}
+
+/**
+ * The server's playlists minus any the user has deleted locally but whose delete hasn't been sent yet.
+ *
+ * Without this a held (or merely not-yet-flushed) delete brings the playlist straight back on the next pull.
+ */
+export function withoutPendingDeletes<T extends { playlistId: string }>(
+    playlists: T[],
+    outbox: (BatchableRequest & { playlistId?: string | null })[],
+): T[] {
+    const pending = new Set(outbox
+        .filter(x => x.requestType == RequestType.DeletePlaylist && x.playlistId)
+        .map(x => x.playlistId));
+    return playlists.filter(x => !pending.has(x.playlistId));
 }

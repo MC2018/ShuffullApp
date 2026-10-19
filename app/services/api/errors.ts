@@ -1,3 +1,5 @@
+import axios, { HttpStatusCode } from "axios";
+
 export class ApiError extends Error {
     constructor(endpoint: string, message: string, response?: any, error?: Error) {
         let stringBuilder = `Problem occurred in ${endpoint}: ${message}`;
@@ -42,4 +44,26 @@ function describeBody(data: unknown): string | undefined {
     } catch {
         return String(data);
     }
+}
+
+/**
+ * The HTTP status the outbox should act on for a failed call.
+ *
+ * - The server answered: its real status, so a 4xx is retained, a 401 logs out, and only a 5xx aborts the sync.
+ * - No answer at all (offline, DNS, timeout): 503, which aborts the sync and retries everything next time.
+ * - Anything else (a response that failed to parse, a bug): 500, the same retry-later path.
+ *
+ * Every SyncManager handler used to inline the first and third branches, so a missing `instanceof` match
+ * anywhere quietly turned a rejection into "server down".
+ */
+export function statusOfFailure(error: unknown): number {
+    if (error instanceof ApiStatusFailureError) {
+        return error.status;
+    }
+
+    if (axios.isAxiosError(error)) {
+        return error.response?.status ?? HttpStatusCode.ServiceUnavailable;
+    }
+
+    return HttpStatusCode.InternalServerError;
 }
