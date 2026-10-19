@@ -276,6 +276,41 @@ describe("the preserved rows are never only in memory", () => {
     });
 });
 
+describe("a rescued row whose id is already live", () => {
+    it("is dead-lettered without touching the live row of the same id", async () => {
+        // Found on the emulator: dead-lettering went through deadLetterRequests(), which also deletes the outbox row
+        // with that id, so the LIVE request was deleted along with the clash.
+        const db = asDb(sqlite);
+        await migrateLatest();
+        await addRequests(db, [keep]);
+        sqlite.exec("CREATE TABLE \"__rescued_1__requests\" AS SELECT * FROM requests WHERE 0");
+        sqlite.exec(`INSERT INTO "__rescued_1__requests" (request_id, time_request, request_type, user_id, song_id)
+                     VALUES ('keep-1', 2, ${RequestType.SongRetag}, 'u1', 'other-song')`);
+
+        expect(await restoreRescuedTables(db)).toEqual({ restored: 0, deadLettered: 1, leftInPlace: [] });
+
+        expect(await getRequests(db)).toEqual([expect.objectContaining(keep)]);
+        const [dead] = await getDeadLetterRequests(db, "u1");
+        expect(dead).toMatchObject({ requestId: "keep-1", songId: "other-song" });
+        expect(dead.reason).toContain("UNIQUE constraint failed");
+    });
+
+    it("stays rescued if the dead letters already hold that id, rather than being dropped", async () => {
+        const db = asDb(sqlite);
+        await migrateLatest();
+        await addRequests(db, [keep]);
+        await deadLetterRequests(db, [{ request: { ...keep }, reason: "earlier" }]);
+        await addRequests(db, [keep]);
+        sqlite.exec("CREATE TABLE \"__rescued_1__requests\" AS SELECT * FROM requests WHERE 0");
+        sqlite.exec(`INSERT INTO "__rescued_1__requests" (request_id, time_request, request_type, user_id, song_id)
+                     VALUES ('keep-1', 2, ${RequestType.SongRetag}, 'u1', 'other-song')`);
+
+        expect(await restoreRescuedTables(db)).toEqual({ restored: 0, deadLettered: 0, leftInPlace: ["__rescued_1__requests"] });
+        expect(await getRequests(db)).toEqual([expect.objectContaining(keep)]);
+        expect(sqlite.prepare("SELECT song_id FROM \"__rescued_1__requests\"").all()).toEqual([{ song_id: "other-song" }]);
+    });
+});
+
 describe("indexes on preserved tables", () => {
     it("don't collide with the ones the migrations recreate", async () => {
         // Index names are global and follow a table through a rename. Today no preserved table is indexed; the

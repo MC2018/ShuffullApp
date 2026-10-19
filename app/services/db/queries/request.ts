@@ -50,15 +50,9 @@ export async function deleteRequests(db: GenericDb, requestIds: string[]): Promi
     }
 }
 
-// Moves outbox rows to the dead-letter table, each with its reason. Inserted BEFORE the outbox delete and with
-// insert-or-ignore, so neither order of failure can lose a row: a crash in between leaves it in both tables, and
-// the next attempt skips the existing dead-letter row and finishes the delete.
-export async function deadLetterRequests(db: GenericDb, failures: { request: Request; reason: string }[], now: Date = new Date()): Promise<void> {
-    if (!failures.length) {
-        return;
-    }
-
-    const rows = failures.map(({ request, reason }) => ({
+// The dead-letter row for an outbox request: its key columns, the reason, and the whole original row.
+export function deadLetterRow(request: Request, reason: string, now: Date) {
+    return {
         requestId: request.requestId,
         requestType: request.requestType,
         userId: request.userId,
@@ -68,7 +62,18 @@ export async function deadLetterRequests(db: GenericDb, failures: { request: Req
         deadLetteredAt: now,
         reason,
         request,
-    }));
+    };
+}
+
+// Moves outbox rows to the dead-letter table, each with its reason. Inserted BEFORE the outbox delete and with
+// insert-or-ignore, so neither order of failure can lose a row: a crash in between leaves it in both tables, and
+// the next attempt skips the existing dead-letter row and finishes the delete.
+export async function deadLetterRequests(db: GenericDb, failures: { request: Request; reason: string }[], now: Date = new Date()): Promise<void> {
+    if (!failures.length) {
+        return;
+    }
+
+    const rows = failures.map(({ request, reason }) => deadLetterRow(request, reason, now));
     for (const rowChunk of chunkRows(rows)) {
         await db.insert(deadLetterRequestTable).values(rowChunk).onConflictDoNothing();
     }

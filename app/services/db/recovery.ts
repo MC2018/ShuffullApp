@@ -2,8 +2,8 @@ import { getTableColumns, sql } from "drizzle-orm";
 import { GenericDb } from "./GenericDb";
 import { Request } from "./models";
 import { namedRows } from "./queries/_rawRow";
-import { deadLetterRequests } from "./queries/request";
-import { requestTable } from "./schema";
+import { deadLetterRow } from "./queries/request";
+import { deadLetterRequestTable, requestTable } from "./schema";
 
 /**
  * Opening the database, and the last-resort recovery when the on-device schema cannot be migrated: rebuild the
@@ -168,7 +168,10 @@ export async function restoreRescuedTables(db: GenericDb): Promise<RescueRestore
                     if (target == "requests") {
                         try {
                             const reason = `Could not be restored after a database rebuild: ${reasonOf(failure)}`;
-                            await deadLetterRequests(db, [{ request: toRequest(row), reason }]);
+                            // Not deadLetterRequests(): it also deletes the outbox row with this id, which here may be a
+                            // different, live request (the clash that refused this one). And a plain insert, so a row
+                            // already dead-lettered under this id makes this one stay rescued rather than vanish.
+                            await db.insert(deadLetterRequestTable).values(deadLetterRow(toRequest(row), reason, new Date()));
                             await deleteRescued(row);
                             await db.run(sql`RELEASE restore_row`);
                             deadLettered++;
