@@ -7,6 +7,7 @@ import axios, { HttpStatusCode } from "axios";
 import { RequestType } from "@/app/enums";
 import { ApiStatusFailureError, statusOfFailure } from "@/app/services/api/errors";
 import { GenericDb } from "@/app/services/db/GenericDb";
+import { withTransaction } from "@/app/services/db/transaction";
 import { Downloader } from "@/app/services/downloader/Downloader";
 import { STORAGE_KEYS } from "@/app/constants/storageKeys";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -391,8 +392,9 @@ export class SyncManager {
             const tagIdByName = new Map(tags.map(tag => [tag.name, tag.tagId]));
 
             // ── Phase 2: apply every write in a single short transaction (NO network inside) ──
-            await this.db.transaction(async (tx) => {
-                await DbQueries.updateUser(tx, user);
+            // withTransaction, not db.transaction(): on the sync drivers the latter commits before an async body runs,
+            // so none of this used to roll back (see transaction.ts).
+            await withTransaction(this.db, async (tx) => {
                 await DbQueries.updateTags(tx, tags);
 
                 await DbQueries.removeOldPlaylists(tx, accessiblePlaylists.map(x => x.playlistId));
@@ -468,8 +470,11 @@ export class SyncManager {
                 // Replaced songs' local audio no longer matches the new fileHash: drop the downloaded flag so
                 // the user can re-download the new version (the orphaned files are removed after the txn).
                 await DbQueries.removeDownloadedSongs(tx, staleSongIds);
-            }, {
-                behavior: "exclusive"
+
+                // Last: the user's version is the cursor the next sync pages user songs from (afterDate above), so it
+                // moves only once everything it covers is written. The transaction already guarantees that; writing it
+                // last keeps it true if this ever silently stops being one, as it had (ShuffullApp#91).
+                await DbQueries.updateUser(tx, user);
             });
 
             // Post-commit, outside the write txn: delete the now-orphaned local files (file I/O) and advance

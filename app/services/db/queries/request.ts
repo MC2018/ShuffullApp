@@ -5,18 +5,28 @@ import { eq, gt, lt, ExtractTablesWithRelations, inArray, sql, isNotNull, and, d
 import { RequestType } from "@/app/enums";
 import { generateId } from "@/app/tools/pure";
 import { chunkIds, chunkRows } from "./_chunk";
+import { withTransaction } from "../transaction";
 
+// An outbox row is a user decision (a Keep, a like, a delete) waiting to be pushed, so each write of one is its own
+// transaction: one queued while sync is writing waits for it, rather than being rolled back with it (transaction.ts).
 export async function addRequests(db: GenericDb, requests: Request[]): Promise<void> {
-    // The outbox flushes in bursts (a batch of Keeps/likes), so this is chunked too (see _chunk.ts).
-    for (const rowChunk of chunkRows(requests)) {
-        await db.insert(requestTable).values(rowChunk);
-    }
+    await withTransaction(db, async tx => {
+        // The outbox flushes in bursts (a batch of Keeps/likes), so this is chunked too (see _chunk.ts).
+        for (const rowChunk of chunkRows(requests)) {
+            await tx.insert(requestTable).values(rowChunk);
+        }
+    });
 }
 
 // Enqueues a re-tag for a song, maintaining ONE pending row per song with STRONGER-WINS: a Like queued
 // after a Keep upgrades the pending row weak -> strong (one AI run at the right tier, and the
 // Keep-then-Like-before-sync race can't strand a liked song on weak tags); the reverse never downgrades.
+// Its own transaction, like addRequests, which also keeps the read and the write below together.
 export async function enqueueSongRetag(db: GenericDb, userId: string, songId: string, model: RetagModel): Promise<void> {
+    await withTransaction(db, tx => enqueueSongRetagIn(tx, userId, songId, model));
+}
+
+async function enqueueSongRetagIn(db: GenericDb, userId: string, songId: string, model: RetagModel): Promise<void> {
     const existing = await db.select().from(requestTable)
         .where(and(eq(requestTable.requestType, RequestType.SongRetag), eq(requestTable.songId, songId)));
 
