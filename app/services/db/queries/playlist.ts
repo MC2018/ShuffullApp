@@ -3,7 +3,10 @@ import { Playlist, Song } from "../models";
 import { downloadedSongTable, playlistSongTable, playlistTable, songArtistTable, songTable, songTagTable, userSongTable } from "../schema";
 import { eq, gt, lt, ExtractTablesWithRelations, inArray, sql, isNotNull, and, desc, asc, or } from "drizzle-orm";
 import { generateId } from "@/app/tools/pure";
-import { AuditionProgress, auditionProgress, deriveAuditionRowState } from "@/app/tools/audition";
+import {
+    AuditionProgress, AuditionScope, auditionProgress, auditionScopePlaylistId, deriveAuditionRowState, isAuditionComplete,
+    shouldStopForFinishedAudition,
+} from "@/app/tools/audition";
 import { LikeStatus } from "@/app/enums";
 import { chunkIds } from "./_chunk";
 
@@ -110,6 +113,35 @@ export async function getAuditionProgress(db: GenericDb, userId: string, playlis
     const rows = await getPlaylistSongStates(db, userId, playlistId);
     return auditionProgress(rows.map(r =>
         deriveAuditionRowState(r.exploratory, (r.likeStatus ?? LikeStatus.Neutral) as LikeStatus, r.lastPlayed)));
+}
+
+/**
+ * The audition the player's scope is working through, if it still has songs to evaluate. The player reads this as a
+ * song starts, BEFORE the start stamps lastPlayed: the song that completes a mix has to find it unfinished, so that
+ * the mix can finish when that song ends.
+ */
+export async function getIncompleteAuditionPlaylistId(db: GenericDb, userId: string, scope: AuditionScope): Promise<string | undefined> {
+    const scopePlaylistId = auditionScopePlaylistId(scope);
+    if (scopePlaylistId == undefined) {
+        return undefined;
+    }
+    const progress = await getAuditionProgress(db, userId, scopePlaylistId);
+    return progress != undefined && !isAuditionComplete(progress) ? scopePlaylistId : undefined;
+}
+
+/**
+ * The audition the player should stop for as it moves on from the current song, or undefined to play on.
+ * `inProgressPlaylistId` is what getIncompleteAuditionPlaylistId returned when that song started.
+ */
+export async function getFinishedAuditionToStopFor(
+    db: GenericDb, userId: string, scope: AuditionScope, inProgressPlaylistId: string | undefined,
+): Promise<string | undefined> {
+    const scopePlaylistId = auditionScopePlaylistId(scope);
+    if (inProgressPlaylistId == undefined || scopePlaylistId == undefined) {
+        return undefined;
+    }
+    const progress = await getAuditionProgress(db, userId, scopePlaylistId);
+    return shouldStopForFinishedAudition(inProgressPlaylistId, scopePlaylistId, progress) ? scopePlaylistId : undefined;
 }
 
 // Deletes a playlist locally and, for an audition (exploratory) playlist, purges the songs the user never kept

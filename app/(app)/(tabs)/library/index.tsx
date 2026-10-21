@@ -10,8 +10,7 @@ import { useCurrentUser } from "@/app/services/auth/CurrentUserProvider";
 import { jamSummary, launchJam } from "@/app/services/genre-jam";
 import { AlbumArt, Divider, IconButton, ListRow, Screen, SectionHeader, Text } from "@/app/components/ui";
 import { useTheme } from "@/app/theme";
-import { LikeStatus } from "@/app/enums";
-import { auditionProgress, deriveAuditionRowState } from "@/app/tools/audition";
+import { AuditionProgress } from "@/app/tools/audition";
 import { useDownloadStatusView } from "@/app/components/downloading/useDownloadStatusView";
 import { describeDownloadsRow } from "@/app/tools/downloadStatus";
 
@@ -19,7 +18,7 @@ export default function LibraryScreen() {
     const [playlists, setPlaylists] = React.useState<Playlist[]>([]);
     const [jams, setJams] = React.useState<GenreJam[]>([]);
     const [isCurator, setIsCurator] = React.useState(false);
-    const [cohortProgress, setCohortProgress] = React.useState<Record<string, { evaluated: number; total: number }>>({});
+    const [cohortProgress, setCohortProgress] = React.useState<Record<string, AuditionProgress>>({});
     const userId = useCurrentUser();
     const db = useDb();
     const theme = useTheme();
@@ -41,11 +40,13 @@ export default function LibraryScreen() {
         // Progress bubbles for the audition cohorts, derived from synced data (lastPlayed / likeStatus /
         // exploratory) — "how many songs have had their chance?" A full bubble marks the cohort done and
         // safe to delete.
-        const progress: Record<string, { evaluated: number; total: number }> = {};
+        // Same query the player's stop-when-done rule reads, so the bubble and the stop always agree.
+        const progress: Record<string, AuditionProgress> = {};
         for (const playlist of loaded.filter(p => p.isExploratory)) {
-            const rows = await DbQueries.getPlaylistSongStates(db, userId, playlist.playlistId);
-            progress[playlist.playlistId] = auditionProgress(rows.map(r =>
-                deriveAuditionRowState(r.exploratory, (r.likeStatus ?? LikeStatus.Neutral) as LikeStatus, r.lastPlayed)));
+            const playlistProgress = await DbQueries.getAuditionProgress(db, userId, playlist.playlistId);
+            if (playlistProgress) {
+                progress[playlist.playlistId] = playlistProgress;
+            }
         }
         setCohortProgress(progress);
     }, [db, userId]);

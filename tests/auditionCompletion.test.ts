@@ -2,19 +2,18 @@ import { describe, it, expect, beforeEach } from "vitest";
 import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import type { GenericDb } from "@/app/services/db/GenericDb";
-import { getAuditionProgress } from "@/app/services/db/queries/playlist";
+import { getAuditionProgress, getFinishedAuditionToStopFor, getIncompleteAuditionPlaylistId } from "@/app/services/db/queries/playlist";
 import { markSongKept, updateSongs } from "@/app/services/db/queries/song";
 import { setUserSongLikeStatus, updateUserSongLastPlayed } from "@/app/services/db/queries/userSong";
 import { playlistSongTable, playlistTable, userSongTable } from "@/app/services/db/schema";
 import type { Song } from "@/app/services/db/models";
 import { LikeStatus } from "@/app/enums";
 import { SongFilters, SongFilterType } from "@/app/types/SongFilters";
-import { auditionScopePlaylistId, isAuditionComplete, shouldStopForFinishedAudition } from "@/app/tools/audition";
 
-// The "N/M evaluated" count and the player's stop-when-done rule, run against the real query layer. The player
-// itself (mediaManager) is React-Native-bound and can't load here, so `startSong` / `stopsAfterCurrent` below
-// replay exactly what it does: read the mix's progress BEFORE a start stamps lastPlayed, stamp it, and on
-// moving on ask shouldStopForFinishedAudition.
+// The "N/M evaluated" count and the player's stop-when-done rule, run against the real query layer. mediaManager
+// is React-Native-bound and can't load here; what it adds around these two queries is only the order (read
+// getIncompleteAuditionPlaylistId BEFORE a start stamps lastPlayed) and the storage of the result, which
+// `startSong` below reproduces.
 
 const USER = "u1";
 const SERVER_SEED = new Date(-62135596800000); // DateTime.MinValue, how the site seeds a never-played UserSong
@@ -78,18 +77,14 @@ function ordinaryScope(playlistId: string): SongFilters {
 
 /** mediaManager.startNewSong: note whether the mix is unfinished, THEN stamp the play. */
 async function startSong(db: GenericDb, scope: SongFilters, songId: string, at: Date): Promise<string | undefined> {
-    const scopeId = auditionScopePlaylistId(scope);
-    const progress = scopeId ? await getAuditionProgress(db, USER, scopeId) : undefined;
-    const inProgress = progress != undefined && !isAuditionComplete(progress) ? scopeId : undefined;
+    const inProgress = await getIncompleteAuditionPlaylistId(db, USER, scope);
     await updateUserSongLastPlayed(db, USER, songId, at);
     return inProgress;
 }
 
 /** mediaManager.skip → stopIfAuditionFinished. */
 async function stopsAfterCurrent(db: GenericDb, scope: SongFilters, inProgress: string | undefined): Promise<boolean> {
-    const scopeId = auditionScopePlaylistId(scope);
-    const progress = scopeId ? await getAuditionProgress(db, USER, scopeId) : undefined;
-    return shouldStopForFinishedAudition(inProgress, scopeId, progress);
+    return (await getFinishedAuditionToStopFor(db, USER, scope, inProgress)) != undefined;
 }
 
 describe("getAuditionProgress", () => {
@@ -177,6 +172,18 @@ describe("stopping when an audition mix is fully evaluated", () => {
         const inProgress = await startSong(db, scope, "a", new Date("2026-10-22T10:00:00Z"));
         expect(inProgress).toBeUndefined();
         expect(await stopsAfterCurrent(db, scope, inProgress)).toBe(false);
+    });
+
+    it("a resume of the last song keeps what was recorded at its first start, or it would never stop", async () => {
+        await addPlaylist(db, "mix", true, ["a", "b"]);
+        const scope = auditionScope("mix");
+        await startSong(db, scope, "a", new Date("2026-10-22T10:00:00Z"));
+        const recordedAtStart = await startSong(db, scope, "b", new Date("2026-10-22T10:04:00Z"));
+
+        // The app is killed mid-way through "b" and resumes it. Re-reading now finds the mix complete, because
+        // "b" was stamped on its first start - which is why mediaManager doesn't re-read on a resume.
+        expect(await getIncompleteAuditionPlaylistId(db, USER, scope)).toBeUndefined();
+        expect(await stopsAfterCurrent(db, scope, recordedAtStart)).toBe(true);
     });
 
     it("doesn't stop on a finished mix's account once the player has moved to another list", async () => {

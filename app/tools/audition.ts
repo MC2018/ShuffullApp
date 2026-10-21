@@ -64,7 +64,9 @@ export function isAuditionComplete(progress: AuditionProgress | undefined): bool
  * pair identifies an audition session. Ordinary playlists, artists, jams and whole-library shuffle never set it,
  * which is what keeps the stop-when-done rule below away from them.
  */
-export function auditionScopePlaylistId(scope: { unheardOnly: boolean; whitelists: { playlistIds: string[] } }): string | undefined {
+export type AuditionScope = { unheardOnly: boolean; whitelists: { playlistIds: string[] } };
+
+export function auditionScopePlaylistId(scope: AuditionScope): string | undefined {
     const playlistIds = scope.whitelists.playlistIds ?? [];
     return scope.unheardOnly && playlistIds.length === 1 ? playlistIds[0] : undefined;
 }

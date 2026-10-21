@@ -74,6 +74,16 @@ export default function PlayerBar({ floating = false }: { floating?: boolean }) 
         return null;
     }
 
+    // The artist line gives way to the player's issue, so a stalled or failed song is flagged on every screen and
+    // not only on Now Playing. Likewise when playback stopped because an audition mix is fully evaluated:
+    // otherwise the silence reads as a fault.
+    let caption = songInfo.artists.map((x) => x.name).join(", ");
+    if (issue) {
+        caption = PLAYBACK_ISSUE_LABEL[issue.kind];
+    } else if (finishedAuditionId) {
+        caption = "Audition complete";
+    }
+
     return (
         <View
             style={{
@@ -106,15 +116,8 @@ export default function PlayerBar({ floating = false }: { floating?: boolean }) 
                     <Text variant="label" numberOfLines={1}>
                         {songInfo.song.name}
                     </Text>
-                    {/* The artist line gives way to the player's issue, so a stalled or failed song is flagged
-                        on every screen and not only on Now Playing. Likewise when playback stopped because an
-                        audition mix is fully evaluated: otherwise the silence reads as a fault. */}
                     <Text variant="caption" color={issue || finishedAuditionId ? "accent" : "textMuted"} numberOfLines={1}>
-                        {issue
-                            ? PLAYBACK_ISSUE_LABEL[issue.kind]
-                            : finishedAuditionId
-                                ? "Audition complete"
-                                : songInfo.artists.map((x) => x.name).join(", ")}
+                        {caption}
                     </Text>
                 </View>
             </Pressable>

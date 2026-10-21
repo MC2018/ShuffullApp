@@ -13,7 +13,6 @@ import { create } from "zustand";
 import path from "path-browserify";
 import { SongFilters } from "../../types/SongFilters";
 import { selectNextSong } from "../../tools/shuffle";
-import { auditionScopePlaylistId, isAuditionComplete, shouldStopForFinishedAudition } from "../../tools/audition";
 import { addNetworkStateListener } from "expo-network";
 import {
     classifyPlaybackError,
@@ -51,9 +50,6 @@ let stalledSongId: string | undefined;
 let recoveryEpoch = 0;
 let retryTimer: ReturnType<typeof setTimeout> | undefined;
 let networkRecoverySubscribed = false;
-// The audition playlist that still had unheard songs when the current song started, if any. It is what lets
-// skip() stop exactly once, on the song that finishes the mix: see shouldStopForFinishedAudition.
-let auditionInProgressPlaylistId: string | undefined;
 
 interface ActiveSongState {
     songId: string | undefined;
@@ -659,22 +655,20 @@ export async function skip() {
  * the flag is cleared here, so pressing play or next afterwards carries on exactly as before.
  */
 async function stopIfAuditionFinished(): Promise<boolean> {
-    const inProgress = auditionInProgressPlaylistId;
+    const inProgress = await getAuditionInProgress();
     if (inProgress == undefined) {
         return false;
     }
 
-    const scopePlaylistId = auditionScopePlaylistId(await getSongFilters());
     const sessionData = await DbQueries.getActiveLocalSessionData(db);
-    const progress = sessionData && scopePlaylistId
-        ? await DbQueries.getAuditionProgress(db, sessionData.userId, scopePlaylistId)
+    const finishedPlaylistId = sessionData
+        ? await DbQueries.getFinishedAuditionToStopFor(db, sessionData.userId, await getSongFilters(), inProgress)
         : undefined;
-
-    if (!shouldStopForFinishedAudition(inProgress, scopePlaylistId, progress)) {
+    if (finishedPlaylistId == undefined) {
         return false;
     }
 
-    auditionInProgressPlaylistId = undefined;
+    await setAuditionInProgress(undefined);
     userPaused = true;
     clearStall();
     // A song that ENDED has nothing left to pause, and pausing it would leave play() resuming at its very end.
@@ -682,18 +676,22 @@ async function stopIfAuditionFinished(): Promise<boolean> {
     if ((await getPlaybackState()).state !== State.Ended) {
         await TrackPlayer.pause();
     }
-    useAuditionFinished.getState().setPlaylistId(scopePlaylistId);
+    useAuditionFinished.getState().setPlaylistId(finishedPlaylistId);
     return true;
 }
 
-/** The audition the current scope is in, if it still has songs to evaluate. Read before a start stamps lastPlayed. */
-async function incompleteAuditionPlaylistId(userId: string): Promise<string | undefined> {
-    const scopePlaylistId = auditionScopePlaylistId(await getSongFilters());
-    if (scopePlaylistId == undefined) {
-        return undefined;
+// The audition that was unfinished when the current song started; what lets skip() stop exactly once, on the song
+// that finishes the mix. In storage rather than memory so a restart mid-song doesn't lose it.
+async function getAuditionInProgress(): Promise<string | undefined> {
+    return (await AsyncStorage.getItem(STORAGE_KEYS.AUDITION_IN_PROGRESS)) ?? undefined;
+}
+
+async function setAuditionInProgress(playlistId: string | undefined) {
+    if (playlistId == undefined) {
+        await AsyncStorage.removeItem(STORAGE_KEYS.AUDITION_IN_PROGRESS);
+    } else {
+        await AsyncStorage.setItem(STORAGE_KEYS.AUDITION_IN_PROGRESS, playlistId);
     }
-    const progress = await DbQueries.getAuditionProgress(db, userId, scopePlaylistId);
-    return progress != undefined && !isAuditionComplete(progress) ? scopePlaylistId : undefined;
 }
 
 export async function previous() {
@@ -741,7 +739,7 @@ export async function clear() {
     clearStall();
     clearQueue();
     // A new scope is a fresh start: pressing Play on a mix that has just finished must play, not stop again.
-    auditionInProgressPlaylistId = undefined;
+    await setAuditionInProgress(undefined);
     await clearSong();
     await clearRecentlyPlayed();
 }
@@ -943,7 +941,13 @@ async function startNewSong(songId: string, recentlyPlayedSong?: RecentlyPlayedS
 
     // Read BEFORE this start stamps lastPlayed below (a new UserSong row is stamped too): if this is the song that
     // completes the mix, the mix has to count as unfinished as it starts, so that it can finish when it ends.
-    auditionInProgressPlaylistId = await incompleteAuditionPlaylistId(localSessionData.userId);
+    // A RESUME keeps what was recorded when the song first started: it was stamped then, so re-reading now would
+    // find the mix finished and never stop - the case after Android kills a paused player mid-way through the
+    // last song.
+    if (!recentlyPlayedSongFound) {
+        await setAuditionInProgress(
+            await DbQueries.getIncompleteAuditionPlaylistId(db, localSessionData.userId, await getSongFilters()));
+    }
 
     let userSong = await DbQueries.getUserSong(db, localSessionData.userId, songId);
 
