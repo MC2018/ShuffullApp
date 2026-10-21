@@ -11,7 +11,7 @@ import { withTransaction } from "@/app/services/db/transaction";
 import { Downloader } from "@/app/services/downloader/Downloader";
 import { STORAGE_KEYS } from "@/app/constants/storageKeys";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { advanceSongCursor, collectNewSongIds, failedKeeps, groupRequestsIntoBatches, keepsDueForRetry, OUTBOX_MAX_BATCH_SIZE, partitionRejectedRequests, playlistDeleteHold, playlistsToFetch, SONG_LIST_MAX_IDS, SONG_RECONCILE_INTERVAL_MS, songsGoneFromServer, summarizeRetagFailures, toRetagItems, withoutPendingDeletes } from "@/app/services/sync-manager/syncLogic";
+import { advanceSongCursor, collectNewSongIds, failedKeeps, groupRequestsIntoBatches, keepsDueForRetry, OUTBOX_MAX_BATCH_SIZE, partitionRejectedRequests, playlistDeleteHold, playlistsToFetch, pendingSongMisses, SONG_LIST_MAX_IDS, songReconcileDue, SongReconcileState, songsGoneFromServer, summarizeRetagFailures, toRetagItems, withoutPendingDeletes } from "@/app/services/sync-manager/syncLogic";
 
 /** What one outbox batch came back with: the status sync() acts on, and the error text when it failed. */
 interface RunResult {
@@ -283,36 +283,46 @@ export class SyncManager {
     // next one finds the same songs. The 573 songs one phone held after their server rows were gone heal this way.
     private async reconcileSongs() {
         const now = Date.now();
+        const host = await AsyncStorage.getItem(STORAGE_KEYS.HOST_ADDRESS);
+        const pending = pendingSongMisses(await AsyncStorage.getItem(STORAGE_KEYS.SONG_RECONCILE_STATE), host, this.userId);
         const lastRaw = await AsyncStorage.getItem(STORAGE_KEYS.SONG_RECONCILE_AT);
-        if (lastRaw != null && now - Number(lastRaw) < SONG_RECONCILE_INTERVAL_MS) {
+        if (!songReconcileDue(lastRaw == null ? null : Number(lastRaw), now, pending.length)) {
             return;
         }
         // Stamped before the fetch, so a check that fails waits out the interval instead of re-running every sync.
         await AsyncStorage.setItem(STORAGE_KEYS.SONG_RECONCILE_AT, String(now));
 
         try {
-            // Every call must succeed before anything counts as missing: a throw here leaves the misses untouched.
+            // A confirming check asks only about the songs the last one missed that are still here.
             const localSongIds = await DbQueries.getAllSongIds(this.db);
+            const local = new Set(localSongIds);
+            const checkedSongIds = pending.length ? pending.filter(x => local.has(x)) : localSongIds;
+
+            // Every call must succeed before anything counts as missing: a throw here leaves the misses untouched.
             const returnedSongIds: string[] = [];
-            for (const idChunk of chunk(localSongIds, SONG_LIST_MAX_IDS)) {
+            for (const idChunk of chunk(checkedSongIds, SONG_LIST_MAX_IDS)) {
                 returnedSongIds.push(...(await this.api.songGetList(idChunk)).map(x => x.songId));
             }
 
-            const previousMisses: string[] = JSON.parse(await AsyncStorage.getItem(STORAGE_KEYS.SONG_RECONCILE_MISSES) ?? "[]");
-            const { purge, misses } = songsGoneFromServer(localSongIds, returnedSongIds, previousMisses);
+            const { purge, misses, implausible } = songsGoneFromServer(checkedSongIds, returnedSongIds, pending);
             const { purged, filesInUse } = await withTransaction(this.db, async (tx) => {
                 const purged = await DbQueries.purgeSongs(tx, purge);
                 return { purged, filesInUse: await DbQueries.fileHashesInUse(tx, purged.map(x => x.fileHash)) };
             });
-            await AsyncStorage.setItem(STORAGE_KEYS.SONG_RECONCILE_MISSES, JSON.stringify(misses));
+            const state: SongReconcileState = { host, userId: this.userId, misses };
+            await AsyncStorage.setItem(STORAGE_KEYS.SONG_RECONCILE_STATE, JSON.stringify(state));
 
             for (const song of purged.filter(x => !filesInUse.has(x.fileHash))) {
                 await Downloader.deleteLocalSongFiles(song);
             }
-            if (purged.length || misses.length) {
+            if (implausible) {
+                console.warn(
+                    `[sync] The server has none of ${implausible}/${checkedSongIds.length} local songs. That looks like ` +
+                    "a different or broken server, not deletions, so nothing was removed.");
+            } else if (purged.length || misses.length) {
                 console.warn(
                     `[sync] ${purged.length} local song(s) no longer exist on the server and were removed; ` +
-                    `${misses.length} more are missing and go next check if still gone.`);
+                    `${misses.length} more are missing and go in an hour if still gone.`);
             }
         } catch (e) {
             console.warn(`[sync] Checking local songs against the server failed with ${statusOfFailure(e)}; nothing removed.`, e);

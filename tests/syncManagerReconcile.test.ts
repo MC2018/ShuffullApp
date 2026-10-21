@@ -9,7 +9,7 @@ import { getAllSongIds, updateSongs } from "@/app/services/db/queries/song";
 import { artistTable, downloadedSongTable, downloadQueueTable, playlistSongTable, playlistTable, recentlyPlayedSongTable, songArtistTable, songTagTable, tagTable, userSongTable, userTable } from "@/app/services/db/schema";
 import type { Song } from "@/app/services/db/models";
 import { STORAGE_KEYS } from "@/app/constants/storageKeys";
-import { SONG_RECONCILE_INTERVAL_MS } from "@/app/services/sync-manager/syncLogic";
+import { SONG_RECONCILE_INTERVAL_MS, SONG_RECONFIRM_INTERVAL_MS } from "@/app/services/sync-manager/syncLogic";
 import { ApiStatusFailureError } from "@/app/services/api/errors";
 
 const { storage, deleteLocalSongFiles } = vi.hoisted(() => ({
@@ -81,16 +81,21 @@ function makeManager(db: GenericDb, api: ReturnType<typeof makeApi>) {
     return manager as { sync(): Promise<void>; overallSync: () => Promise<number> };
 }
 
-// Moves the last check back past the interval, so the next sync checks again.
+const HOST = "https://shuffull-api.example";
+
+// Moves the last check back a day, so the next sync checks again whatever kind of check is due.
 function intervalPasses() {
     const last = Number(storage.get(STORAGE_KEYS.SONG_RECONCILE_AT));
     storage.set(STORAGE_KEYS.SONG_RECONCILE_AT, String(last - SONG_RECONCILE_INTERVAL_MS));
 }
 
+const misses = () => JSON.parse(storage.get(STORAGE_KEYS.SONG_RECONCILE_STATE)!).misses;
+
 describe("SyncManager: songs deleted on the server are removed locally", () => {
     let db: GenericDb;
     beforeEach(async () => {
         storage.clear();
+        storage.set(STORAGE_KEYS.HOST_ADDRESS, HOST);
         deleteLocalSongFiles.mockClear();
         db = makeDb();
         await db.insert(userTable).values({ userId: USER, username: "max", version: new Date(), isCurator: false });
@@ -107,30 +112,61 @@ describe("SyncManager: songs deleted on the server are removed locally", () => {
 
         await makeManager(db, api).sync();
         expect(await getAllSongIds(db)).toEqual(expect.arrayContaining(["live", "ghost"]));
-        expect(JSON.parse(storage.get(STORAGE_KEYS.SONG_RECONCILE_MISSES)!)).toEqual(["ghost"]);
+        expect(misses()).toEqual(["ghost"]);
 
         intervalPasses();
         await makeManager(db, api).sync();
 
+        // The confirming check asks only about the song the first one missed.
+        expect(api.songGetList.mock.calls[1][0]).toEqual(["ghost"]);
         expect(await getAllSongIds(db)).toEqual(["live"]);
         expect(await rowsFor(db, "ghost")).toBe(0);
         expect(await rowsFor(db, "live")).toBe(7);
         expect(deleteLocalSongFiles).toHaveBeenCalledTimes(1);
         expect(deleteLocalSongFiles.mock.calls[0][0].songId).toBe("ghost");
-        expect(JSON.parse(storage.get(STORAGE_KEYS.SONG_RECONCILE_MISSES)!)).toEqual([]);
+        expect(misses()).toEqual([]);
     });
 
     it("keeps a song that comes back after one miss", async () => {
-        await updateSongs(db, [song("flaky")]);
-        const api = makeApi([]);
+        await updateSongs(db, [song("s1"), song("flaky")]);
+        const api = makeApi(["s1"]);
 
         await makeManager(db, api).sync();
         api.server.add("flaky");
         intervalPasses();
         await makeManager(db, api).sync();
 
-        expect(await getAllSongIds(db)).toEqual(["flaky"]);
-        expect(JSON.parse(storage.get(STORAGE_KEYS.SONG_RECONCILE_MISSES)!)).toEqual([]);
+        expect(await getAllSongIds(db)).toEqual(expect.arrayContaining(["s1", "flaky"]));
+        expect(misses()).toEqual([]);
+    });
+
+    it("removes nothing when the server has almost none of the library", async () => {
+        await updateSongs(db, [song("s1"), song("s2"), song("s3")]);
+        const api = makeApi([]);
+
+        for (let i = 0; i < 3; i++) {
+            await makeManager(db, api).sync();
+            intervalPasses();
+        }
+
+        expect(await getAllSongIds(db)).toHaveLength(3);
+        expect(misses()).toEqual([]);
+        expect(deleteLocalSongFiles).not.toHaveBeenCalled();
+    });
+
+    it("does not confirm a miss seen on another server", async () => {
+        await updateSongs(db, [song("s1"), song("s2"), song("ghost")]);
+        const api = makeApi(["s1", "s2"]);
+
+        await makeManager(db, api).sync();
+        expect(misses()).toEqual(["ghost"]);
+        storage.set(STORAGE_KEYS.HOST_ADDRESS, "https://other.example");
+        intervalPasses();
+        await makeManager(db, api).sync();
+
+        // The second server's check is a fresh full one, so the song is only remembered again, not removed.
+        expect(await getAllSongIds(db)).toContain("ghost");
+        expect(misses()).toEqual(["ghost"]);
     });
 
     it("checks every local song, 500 ids per call", async () => {
@@ -146,8 +182,7 @@ describe("SyncManager: songs deleted on the server are removed locally", () => {
     it("counts nothing as missing when any call fails", async () => {
         const ids = Array.from({ length: 600 }, (_, i) => `s${i}`);
         await updateSongs(db, ids.map(x => song(x)));
-        storage.set(STORAGE_KEYS.SONG_RECONCILE_MISSES, JSON.stringify(["s599"]));
-        const api = makeApi(ids.slice(0, 500));
+        const api = makeApi(ids.slice(0, 590));
         api.songGetList
             .mockImplementationOnce(async (songIds: string[]) => songIds.map(songId => ({ songId })))
             .mockRejectedValueOnce(new ApiStatusFailureError("/api/v1/songs/list", { status: 503, data: {} }));
@@ -155,15 +190,17 @@ describe("SyncManager: songs deleted on the server are removed locally", () => {
         await makeManager(db, api).sync();
 
         expect(await getAllSongIds(db)).toHaveLength(600);
-        expect(JSON.parse(storage.get(STORAGE_KEYS.SONG_RECONCILE_MISSES)!)).toEqual(["s599"]);
+        expect(storage.has(STORAGE_KEYS.SONG_RECONCILE_STATE)).toBe(false);
         expect(deleteLocalSongFiles).not.toHaveBeenCalled();
     });
 
-    it("checks at most once per interval", async () => {
+    it("runs a full check at most once a day", async () => {
         await updateSongs(db, [song("s1")]);
         const api = makeApi(["s1"]);
 
         await makeManager(db, api).sync();
+        const last = Number(storage.get(STORAGE_KEYS.SONG_RECONCILE_AT));
+        storage.set(STORAGE_KEYS.SONG_RECONCILE_AT, String(last - SONG_RECONFIRM_INTERVAL_MS));
         await makeManager(db, api).sync();
 
         expect(api.songGetList).toHaveBeenCalledTimes(1);

@@ -62,29 +62,78 @@ export function advanceSongCursor<T extends { version: Date }>(
 /** The most ids `POST /api/v1/songs/list` takes in one call (the site's GetSongListValidator.MaxSongIds). */
 export const SONG_LIST_MAX_IDS = 500;
 
-/** How often the app checks that the songs it holds still exist on the server. */
-export const SONG_RECONCILE_INTERVAL_MS = 60 * 60 * 1000;
+/**
+ * How often the app checks every song it holds against the server. Each check is a full `/songs/list` round trip
+ * per 500 songs, artists, tags and lyrics included, for the ids alone, so it runs daily rather than every sync.
+ */
+export const SONG_RECONCILE_INTERVAL_MS = 24 * 60 * 60 * 1000;
+
+/** How soon the songs one check missed are asked about again. Only those, so this one is cheap. */
+export const SONG_RECONFIRM_INTERVAL_MS = 60 * 60 * 1000;
 
 /**
- * Which local songs the server no longer has, from one check of every local id against `/songs/list`.
+ * A full check that misses more than this share of the library removes nothing. That answer is far likelier to be
+ * a different server (logout keeps the local DB, and the login screen takes any host) or a broken one than real
+ * deletions. The one real case seen, 573 ghosts in 4,259 songs, was 13%.
+ */
+export const SONG_RECONCILE_MAX_MISS_SHARE = 0.5;
+
+/** The songs one check missed, and the server and account it asked. A miss counts only against the same pair. */
+export interface SongReconcileState {
+    host: string | null;
+    userId: string;
+    misses: string[];
+}
+
+/** Reads the stored state back, as no misses when it is absent, malformed, or from another server or account. */
+export function pendingSongMisses(raw: string | null, host: string | null, userId: string): string[] {
+    try {
+        const state = raw == null ? null : JSON.parse(raw) as Partial<SongReconcileState> | null;
+        if (state?.host !== host || state?.userId !== userId || !Array.isArray(state.misses)) {
+            return [];
+        }
+        return state.misses.filter((x): x is string => typeof x === "string");
+    } catch {
+        return [];
+    }
+}
+
+/** Whether a check is due: soon when the last one left misses to confirm, otherwise daily. */
+export function songReconcileDue(lastCheckAt: number | null, now: number, pendingMisses: number): boolean {
+    if (lastCheckAt == null || !Number.isFinite(lastCheckAt)) {
+        return true;
+    }
+    const interval = pendingMisses ? SONG_RECONFIRM_INTERVAL_MS : SONG_RECONCILE_INTERVAL_MS;
+    return now - lastCheckAt >= interval;
+}
+
+/**
+ * Which local songs the server no longer has, from one check of `checkedSongIds` against `/songs/list`.
  *
  * The incremental pull can't carry a deletion: both feeds page on `Version`, and a hard-deleted row has no Version
  * left to bump, so it just stops appearing (ShuffullApp#87). `/songs/list` returns only the ids that exist, so a
- * song missing from a complete answer is gone. A song is purged only on its SECOND miss in a row: deleting it locally
- * also deletes its download, so one odd answer must not be enough. `misses` is what the next check compares against.
+ * song missing from a complete answer is gone. Removing it locally also removes its download, so one answer is not
+ * enough, and nothing the incremental pull does brings a wrongly removed song back:
+ *
+ * - A full check (no `pendingMisses`) asks about every local song and only remembers what it missed. If it missed
+ *   more than SONG_RECONCILE_MAX_MISS_SHARE of them, it remembers nothing and reports the count as `implausible`.
+ * - A confirming check asks about the remembered songs alone, an hour later. The ones still missing are purged.
  */
 export function songsGoneFromServer(
-    localSongIds: string[],
+    checkedSongIds: string[],
     returnedSongIds: string[],
-    previousMisses: string[],
-): { purge: string[]; misses: string[] } {
+    pendingMisses: string[],
+): { purge: string[]; misses: string[]; implausible: number } {
     const returned = new Set(returnedSongIds);
-    const missedBefore = new Set(previousMisses);
-    const missing = localSongIds.filter(songId => !returned.has(songId));
-    return {
-        purge: missing.filter(songId => missedBefore.has(songId)),
-        misses: missing.filter(songId => !missedBefore.has(songId)),
-    };
+    const missing = checkedSongIds.filter(songId => !returned.has(songId));
+    if (pendingMisses.length) {
+        const pending = new Set(pendingMisses);
+        return { purge: missing.filter(songId => pending.has(songId)), misses: [], implausible: 0 };
+    }
+    if (missing.length > checkedSongIds.length * SONG_RECONCILE_MAX_MISS_SHARE) {
+        return { purge: [], misses: [], implausible: missing.length };
+    }
+    return { purge: [], misses: missing, implausible: 0 };
 }
 
 // One queued re-tag row's shape, as this helper needs it (structurally compatible with
