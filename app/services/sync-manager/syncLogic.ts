@@ -59,6 +59,34 @@ export function advanceSongCursor<T extends { version: Date }>(
     return currentCursor;
 }
 
+/** The most ids `POST /api/v1/songs/list` takes in one call (the site's GetSongListValidator.MaxSongIds). */
+export const SONG_LIST_MAX_IDS = 500;
+
+/** How often the app checks that the songs it holds still exist on the server. */
+export const SONG_RECONCILE_INTERVAL_MS = 60 * 60 * 1000;
+
+/**
+ * Which local songs the server no longer has, from one check of every local id against `/songs/list`.
+ *
+ * The incremental pull can't carry a deletion: both feeds page on `Version`, and a hard-deleted row has no Version
+ * left to bump, so it just stops appearing (ShuffullApp#87). `/songs/list` returns only the ids that exist, so a
+ * song missing from a complete answer is gone. A song is purged only on its SECOND miss in a row: deleting it locally
+ * also deletes its download, so one odd answer must not be enough. `misses` is what the next check compares against.
+ */
+export function songsGoneFromServer(
+    localSongIds: string[],
+    returnedSongIds: string[],
+    previousMisses: string[],
+): { purge: string[]; misses: string[] } {
+    const returned = new Set(returnedSongIds);
+    const missedBefore = new Set(previousMisses);
+    const missing = localSongIds.filter(songId => !returned.has(songId));
+    return {
+        purge: missing.filter(songId => missedBefore.has(songId)),
+        misses: missing.filter(songId => !missedBefore.has(songId)),
+    };
+}
+
 // One queued re-tag row's shape, as this helper needs it (structurally compatible with
 // DbModels.SongRetagRequest). Absent payload (legacy row) means strong.
 export interface QueuedRetag {

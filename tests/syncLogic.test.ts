@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { playlistsToFetch, collectNewSongIds, advanceSongCursor } from "@/app/services/sync-manager/syncLogic";
+import { playlistsToFetch, collectNewSongIds, advanceSongCursor, songsGoneFromServer } from "@/app/services/sync-manager/syncLogic";
 
 describe("playlistsToFetch", () => {
     const d = (s: string) => new Date(s);
@@ -92,5 +92,23 @@ describe("advanceSongCursor", () => {
         // The source takes the LAST item's version regardless of ordering.
         const items = [{ version: d("2024-05-01") }, { version: d("2024-02-01") }];
         expect(advanceSongCursor(items, d("2024-01-01"))).toEqual(d("2024-02-01"));
+    });
+});
+
+describe("songsGoneFromServer", () => {
+    it("only remembers a song on its first miss", () => {
+        expect(songsGoneFromServer(["s1", "s2"], ["s1"], [])).toEqual({ purge: [], misses: ["s2"] });
+    });
+
+    it("purges a song missed twice in a row", () => {
+        expect(songsGoneFromServer(["s1", "s2"], ["s1"], ["s2"])).toEqual({ purge: ["s2"], misses: [] });
+    });
+
+    it("forgets a miss once the server returns the song again", () => {
+        expect(songsGoneFromServer(["s1", "s2"], ["s1", "s2"], ["s2"])).toEqual({ purge: [], misses: [] });
+    });
+
+    it("ignores earlier misses for songs no longer held locally", () => {
+        expect(songsGoneFromServer(["s1"], ["s1"], ["gone"])).toEqual({ purge: [], misses: [] });
     });
 });
