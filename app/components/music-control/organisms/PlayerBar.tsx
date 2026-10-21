@@ -2,7 +2,7 @@ import { ImageURISource, Pressable, StyleSheet, View } from "react-native";
 import React, { useEffect, useState } from "react";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { PLAYBACK_ISSUE_LABEL, useActiveSong, useIsPlaybackActive, usePlaybackIssue } from "@/app/services/media-manager/mediaManager";
+import { PLAYBACK_ISSUE_LABEL, useActiveSong, useAuditionFinished, useIsPlaybackActive, usePlaybackIssue } from "@/app/services/media-manager/mediaManager";
 import { useDb } from "@/app/services/db/DbProvider";
 import DbQueries from "@/app/services/db/queries";
 import { Song } from "@/app/services/db/models";
@@ -42,6 +42,7 @@ export default function PlayerBar({ floating = false }: { floating?: boolean }) 
     const isPlaying = useIsPlaybackActive();
     const { songId } = useActiveSong();
     const { issue } = usePlaybackIssue();
+    const { playlistId: finishedAuditionId } = useAuditionFinished();
     const [songInfo, setSongInfo] = useState<SongDetails | null>(null);
     const [albumArt, setAlbumArt] = useState<ArtSource>(defaultArt);
 
@@ -106,9 +107,14 @@ export default function PlayerBar({ floating = false }: { floating?: boolean }) 
                         {songInfo.song.name}
                     </Text>
                     {/* The artist line gives way to the player's issue, so a stalled or failed song is flagged
-                        on every screen and not only on Now Playing. */}
-                    <Text variant="caption" color={issue ? "accent" : "textMuted"} numberOfLines={1}>
-                        {issue ? PLAYBACK_ISSUE_LABEL[issue.kind] : songInfo.artists.map((x) => x.name).join(", ")}
+                        on every screen and not only on Now Playing. Likewise when playback stopped because an
+                        audition mix is fully evaluated: otherwise the silence reads as a fault. */}
+                    <Text variant="caption" color={issue || finishedAuditionId ? "accent" : "textMuted"} numberOfLines={1}>
+                        {issue
+                            ? PLAYBACK_ISSUE_LABEL[issue.kind]
+                            : finishedAuditionId
+                                ? "Audition complete"
+                                : songInfo.artists.map((x) => x.name).join(", ")}
                     </Text>
                 </View>
             </Pressable>

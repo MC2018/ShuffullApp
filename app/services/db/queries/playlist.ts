@@ -3,6 +3,8 @@ import { Playlist, Song } from "../models";
 import { downloadedSongTable, playlistSongTable, playlistTable, songArtistTable, songTable, songTagTable, userSongTable } from "../schema";
 import { eq, gt, lt, ExtractTablesWithRelations, inArray, sql, isNotNull, and, desc, asc, or } from "drizzle-orm";
 import { generateId } from "@/app/tools/pure";
+import { AuditionProgress, auditionProgress, deriveAuditionRowState } from "@/app/tools/audition";
+import { LikeStatus } from "@/app/enums";
 import { chunkIds } from "./_chunk";
 
 export async function removeOldPlaylists(db: GenericDb, accessiblePlaylistIds: string[]): Promise<void> {
@@ -93,6 +95,21 @@ export async function getPlaylistSongStates(db: GenericDb, userId: string, playl
         .innerJoin(songTable, eq(songTable.songId, playlistSongTable.songId))
         .leftJoin(userSongTable, and(eq(userSongTable.songId, playlistSongTable.songId), eq(userSongTable.userId, userId)))
         .where(eq(playlistSongTable.playlistId, playlistId));
+}
+
+/**
+ * The evaluated/total count of an audition playlist, from the same derivation the screen and the library bubble
+ * render, so the player's stop-when-done rule agrees with the number on screen. Undefined for a playlist that is
+ * not an audition (or not on this device): ordinary playlists have no evaluation to finish.
+ */
+export async function getAuditionProgress(db: GenericDb, userId: string, playlistId: string): Promise<AuditionProgress | undefined> {
+    const playlist = await getPlaylist(db, playlistId);
+    if (!playlist?.isExploratory) {
+        return undefined;
+    }
+    const rows = await getPlaylistSongStates(db, userId, playlistId);
+    return auditionProgress(rows.map(r =>
+        deriveAuditionRowState(r.exploratory, (r.likeStatus ?? LikeStatus.Neutral) as LikeStatus, r.lastPlayed)));
 }
 
 // Deletes a playlist locally and, for an audition (exploratory) playlist, purges the songs the user never kept

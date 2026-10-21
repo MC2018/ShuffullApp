@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Alert, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { Playlist } from "@/app/services/db/models";
@@ -11,6 +11,7 @@ import { DownloadPriority, SongDetails } from "@/app/services/db/types";
 import { useDownloader } from "@/app/services/downloader/DownloaderProvider";
 import { Downloader } from "@/app/services/downloader/Downloader";
 import { MediaManager } from "@/app/services/media-manager";
+import { useSongStateRevision } from "@/app/services/media-manager/mediaManager";
 import { Button, Chip, Screen, Text, TextField } from "@/app/components/ui";
 import { useTheme } from "@/app/theme";
 import { LikeStatus, RequestType } from "@/app/enums";
@@ -29,6 +30,31 @@ export default function PlaylistScreen() {
     const [downloadLabel, setDownloadLabel] = useState<string | null>(null);
     const db = useDb();
     const downloader = useDownloader();
+    // Moves whenever a song starts, is rated or is kept, wherever that happened (this list, Now Playing, the
+    // notification, a song ending on its own).
+    const songStateRevision = useSongStateRevision((s) => s.revision);
+
+    // Per-row audition/heard states, derived entirely from synced data (identical across devices). Computed for
+    // every playlist: audition views render the full three-state treatment, and the "unheard only" chip works
+    // everywhere.
+    const loadSongStates = useCallback(async (dbPlaylist: Playlist) => {
+        const sessionData = await DbQueries.getActiveLocalSessionData(db);
+        if (!sessionData) {
+            return;
+        }
+        const rows = await DbQueries.getPlaylistSongStates(db, sessionData.userId, dbPlaylist.playlistId);
+        const states: Record<string, AuditionRowState> = {};
+        for (const row of rows) {
+            // Pass whether this IS an audition playlist: outside one, "not exploratory" cannot mean
+            // "kept via the Keep button" (nothing here was ever exploratory), and assuming it did made
+            // every row read as evaluated - which is why "Unheard only" filtered to nothing on ordinary
+            // playlists.
+            states[row.songId] = deriveAuditionRowState(
+                row.exploratory, (row.likeStatus ?? LikeStatus.Neutral) as LikeStatus, row.lastPlayed,
+                dbPlaylist.isExploratory);
+        }
+        setSongStates(states);
+    }, [db]);
 
     useEffect(() => {
         if (playlistId == undefined) {
@@ -44,27 +70,16 @@ export default function PlaylistScreen() {
             setPlaylist(dbPlaylist);
             const dbSongs = await DbQueries.getSongDetailsByPlaylist(db, playlistId);
             setSongs(dbSongs);
-
-            // Per-row audition/heard states, derived entirely from synced data (identical across devices).
-            // Computed for every playlist — audition views render the full three-state treatment, and the
-            // "unheard only" chip works everywhere.
-            const sessionData = await DbQueries.getActiveLocalSessionData(db);
-            if (sessionData) {
-                const rows = await DbQueries.getPlaylistSongStates(db, sessionData.userId, playlistId);
-                const states: Record<string, AuditionRowState> = {};
-                for (const row of rows) {
-                    // Pass whether this IS an audition playlist: outside one, "not exploratory" cannot mean
-                    // "kept via the Keep button" (nothing here was ever exploratory), and assuming it did made
-                    // every row read as evaluated - which is why "Unheard only" filtered to nothing on ordinary
-                    // playlists.
-                    states[row.songId] = deriveAuditionRowState(
-                        row.exploratory, (row.likeStatus ?? LikeStatus.Neutral) as LikeStatus, row.lastPlayed,
-                        dbPlaylist.isExploratory);
-                }
-                setSongStates(states);
-            }
         })();
     }, [playlistId]);
+
+    // Runs once the playlist loads and again on every revision, so "N/M evaluated" moves as songs play instead
+    // of only when the screen is re-opened.
+    useEffect(() => {
+        if (playlist != undefined) {
+            loadSongStates(playlist);
+        }
+    }, [playlist, songStateRevision, loadSongStates]);
 
     // Search + the unheard-only chip compose over the loaded list; both derive, never mutate.
     const visibleSongs = useMemo(() => {

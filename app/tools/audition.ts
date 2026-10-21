@@ -43,9 +43,47 @@ export function deriveAuditionRowState(
 
 // Cohort progress for the library bubble: evaluated = everything that has had its chance (anything but
 // unheard). Rendered as "12/50"; complete (and safe to delete) when evaluated === total.
-export function auditionProgress(states: AuditionRowState[]): { evaluated: number; total: number } {
+export function auditionProgress(states: AuditionRowState[]): AuditionProgress {
     return {
         evaluated: states.filter(s => s !== "unheard").length,
         total: states.length,
     };
+}
+
+export type AuditionProgress = { evaluated: number; total: number };
+
+/** Every song in the cohort has had its chance. An empty cohort is never "complete": there was nothing to hear. */
+export function isAuditionComplete(progress: AuditionProgress | undefined): boolean {
+    return progress != undefined && progress.total > 0 && progress.evaluated === progress.total;
+}
+
+/**
+ * The audition playlist a playback scope is working through, or undefined for any other scope.
+ *
+ * `unheardOnly` is set only by the audition play paths, and always together with a sole playlist filter, so the
+ * pair identifies an audition session. Ordinary playlists, artists, jams and whole-library shuffle never set it,
+ * which is what keeps the stop-when-done rule below away from them.
+ */
+export function auditionScopePlaylistId(scope: { unheardOnly: boolean; whitelists: { playlistIds: string[] } }): string | undefined {
+    const playlistIds = scope.whitelists.playlistIds ?? [];
+    return scope.unheardOnly && playlistIds.length === 1 ? playlistIds[0] : undefined;
+}
+
+/**
+ * Whether moving on from the current song should stop playback instead, because the audition just finished.
+ *
+ * `inProgressPlaylistId` is the audition that still had unheard songs when the current song STARTED (undefined if
+ * it was already complete, or the song wasn't in one). Requiring that is what makes this fire once, on the
+ * transition: a mix the user goes on playing after it finished, or opens again once complete, plays on as usual.
+ * `scopePlaylistId` is the audition the player is scoped to now, so switching to another list in between never
+ * stops on the old mix's account.
+ */
+export function shouldStopForFinishedAudition(
+    inProgressPlaylistId: string | undefined,
+    scopePlaylistId: string | undefined,
+    progressNow: AuditionProgress | undefined,
+): boolean {
+    return inProgressPlaylistId != undefined
+        && inProgressPlaylistId === scopePlaylistId
+        && isAuditionComplete(progressNow);
 }

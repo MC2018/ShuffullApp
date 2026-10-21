@@ -13,6 +13,7 @@ import { create } from "zustand";
 import path from "path-browserify";
 import { SongFilters } from "../../types/SongFilters";
 import { selectNextSong } from "../../tools/shuffle";
+import { auditionScopePlaylistId, isAuditionComplete, shouldStopForFinishedAudition } from "../../tools/audition";
 import { addNetworkStateListener } from "expo-network";
 import {
     classifyPlaybackError,
@@ -50,6 +51,9 @@ let stalledSongId: string | undefined;
 let recoveryEpoch = 0;
 let retryTimer: ReturnType<typeof setTimeout> | undefined;
 let networkRecoverySubscribed = false;
+// The audition playlist that still had unheard songs when the current song started, if any. It is what lets
+// skip() stop exactly once, on the song that finishes the mix: see shouldStopForFinishedAudition.
+let auditionInProgressPlaylistId: string | undefined;
 
 interface ActiveSongState {
     songId: string | undefined;
@@ -129,6 +133,31 @@ interface PlaybackIssueState {
 export const usePlaybackIssue = create<PlaybackIssueState>((set) => ({
     issue: undefined,
     setIssue: (issue) => set({ issue }),
+}));
+
+interface SongStateRevisionState {
+    // Bumped after every local write that can change a song's audition state: a song starting (lastPlayed), a
+    // like/dislike, a Keep. Screens that derive per-song states read it to re-derive them while open; before,
+    // the playlist screen computed its "N/M evaluated" once on mount and only moved when it was re-opened.
+    revision: number;
+    bump: () => void;
+}
+
+export const useSongStateRevision = create<SongStateRevisionState>((set) => ({
+    revision: 0,
+    bump: () => set((s) => ({ revision: s.revision + 1 })),
+}));
+
+interface AuditionFinishedState {
+    // The audition playlist playback just stopped at the end of, so the player bar can say why it went quiet.
+    // Cleared when the next song starts.
+    playlistId: string | undefined;
+    setPlaylistId: (playlistId: string | undefined) => void;
+}
+
+export const useAuditionFinished = create<AuditionFinishedState>((set) => ({
+    playlistId: undefined,
+    setPlaylistId: (playlistId) => set({ playlistId }),
 }));
 
 export async function setup(activeDb: GenericDb) {
@@ -582,6 +611,10 @@ export async function pause() {
 export async function skip() {
     beginUserInitiatedPlayback();
 
+    if (await stopIfAuditionFinished()) {
+        return;
+    }
+
     let recentlyPlayedSong: RecentlyPlayedSong | undefined;
     let songId: string | undefined;
 
@@ -615,6 +648,52 @@ export async function skip() {
     }
 
     // TODO: implement feature to track when a song is skipped early
+}
+
+/**
+ * Stops instead of moving on when the song just heard (or skipped, or disliked away) finished an audition mix,
+ * so the user can tell they are done with it and go to the next one. Without this the pool quietly fell back to
+ * replaying heard songs (see getFilteredSong) and nothing marked the end.
+ *
+ * Only for an audition scope: the rule keys off `unheardOnly`, which ordinary playlists never set. Fires once:
+ * the flag is cleared here, so pressing play or next afterwards carries on exactly as before.
+ */
+async function stopIfAuditionFinished(): Promise<boolean> {
+    const inProgress = auditionInProgressPlaylistId;
+    if (inProgress == undefined) {
+        return false;
+    }
+
+    const scopePlaylistId = auditionScopePlaylistId(await getSongFilters());
+    const sessionData = await DbQueries.getActiveLocalSessionData(db);
+    const progress = sessionData && scopePlaylistId
+        ? await DbQueries.getAuditionProgress(db, sessionData.userId, scopePlaylistId)
+        : undefined;
+
+    if (!shouldStopForFinishedAudition(inProgress, scopePlaylistId, progress)) {
+        return false;
+    }
+
+    auditionInProgressPlaylistId = undefined;
+    userPaused = true;
+    clearStall();
+    // A song that ENDED has nothing left to pause, and pausing it would leave play() resuming at its very end.
+    // One the user skipped or disliked away is still playing, so it stops where it is.
+    if ((await getPlaybackState()).state !== State.Ended) {
+        await TrackPlayer.pause();
+    }
+    useAuditionFinished.getState().setPlaylistId(scopePlaylistId);
+    return true;
+}
+
+/** The audition the current scope is in, if it still has songs to evaluate. Read before a start stamps lastPlayed. */
+async function incompleteAuditionPlaylistId(userId: string): Promise<string | undefined> {
+    const scopePlaylistId = auditionScopePlaylistId(await getSongFilters());
+    if (scopePlaylistId == undefined) {
+        return undefined;
+    }
+    const progress = await DbQueries.getAuditionProgress(db, userId, scopePlaylistId);
+    return progress != undefined && !isAuditionComplete(progress) ? scopePlaylistId : undefined;
 }
 
 export async function previous() {
@@ -661,6 +740,8 @@ export async function clear() {
     // Before anything else: a retry armed for the song being cleared would otherwise fire into an empty player.
     clearStall();
     clearQueue();
+    // A new scope is a fresh start: pressing Play on a mix that has just finished must play, not stop again.
+    auditionInProgressPlaylistId = undefined;
     await clearSong();
     await clearRecentlyPlayed();
 }
@@ -731,6 +812,7 @@ export async function applyLikeStatus(songId: string, likeStatus: LikeStatus) {
     // Mirror into the reactive store so any mounted RatingControl for this song updates, regardless of where
     // the change originated (in-app control or the notification's 👍/👎 buttons).
     useLikeStatus.getState().setLikeStatus(songId, likeStatus);
+    useSongStateRevision.getState().bump();
 
     // Keep the notification 👍/👎 icons in sync when the change is for the currently-playing song.
     const isActiveSong = useActiveSong.getState().songId === songId;
@@ -769,6 +851,7 @@ export async function keepSong(songId: string) {
 
     await DbQueries.enqueueSongRetag(db, localSessionData.userId, songId, "weak");
     await DbQueries.markSongKept(db, songId);
+    useSongStateRevision.getState().bump();
 }
 
 async function startNewSong(songId: string, recentlyPlayedSong?: RecentlyPlayedSong) {
@@ -840,6 +923,7 @@ async function startNewSong(songId: string, recentlyPlayedSong?: RecentlyPlayedS
 
     // Update state
     useActiveSong.getState().setSongId(songId);
+    useAuditionFinished.getState().setPlaylistId(undefined);
 
     if (recentlyPlayedSongFound) {
         const timestampSeconds = recentlyPlayedSong?.timestampSeconds ?? 0;
@@ -856,6 +940,10 @@ async function startNewSong(songId: string, recentlyPlayedSong?: RecentlyPlayedS
             lastPlayed: timeSongStarted
         });
     }
+
+    // Read BEFORE this start stamps lastPlayed below (a new UserSong row is stamped too): if this is the song that
+    // completes the mix, the mix has to count as unfinished as it starts, so that it can finish when it ends.
+    auditionInProgressPlaylistId = await incompleteAuditionPlaylistId(localSessionData.userId);
 
     let userSong = await DbQueries.getUserSong(db, localSessionData.userId, songId);
 
@@ -890,6 +978,7 @@ async function startNewSong(songId: string, recentlyPlayedSong?: RecentlyPlayedS
     };
     await DbQueries.updateUserSongLastPlayed(db, localSessionData.userId, songId, timeSongStarted);
     await DbQueries.addRequests(db, [updateSongLastPlayedRequest]);
+    useSongStateRevision.getState().bump();
 
     // Reflect the new active song's saved like state on the notification buttons — and offer Keep only when
     // this one is actually an audition song.
