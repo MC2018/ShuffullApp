@@ -106,7 +106,7 @@ export function getDb(): GenericDb {
     return db;
 }
 
-/** Drop and recreate — the web counterpart of the native reset, used when migrations cannot be applied. */
+/** Delete and recreate — the web counterpart of the native reset. Only for a file too damaged for recovery.ts to rebuild in place; its outbox is lost. */
 export async function resetDbAsync(): Promise<GenericDb> {
     try {
         await native?.closeAsync();
