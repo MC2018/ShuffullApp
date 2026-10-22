@@ -10,4 +10,8 @@ export const STORAGE_KEYS = {
     SONG_SYNC_CURSOR: "SONG_SYNC_CURSOR",
     // "1" while the user has paused background downloads. A user decision, so it outlives the process.
     DOWNLOADS_PAUSED: "DOWNLOADS_PAUSED",
+    // Epoch ms of the last check that every local song still exists on the server (SyncManager.reconcileSongs).
+    SONG_RECONCILE_AT: "SONG_RECONCILE_AT",
+    // JSON SongReconcileState: the song ids that check missed, purged only if the next check misses them too.
+    SONG_RECONCILE_STATE: "SONG_RECONCILE_STATE",
 }

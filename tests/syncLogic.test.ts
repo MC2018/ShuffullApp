@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { playlistsToFetch, collectNewSongIds, advanceSongCursor } from "@/app/services/sync-manager/syncLogic";
+import { playlistsToFetch, collectNewSongIds, advanceSongCursor, pendingSongMisses, SONG_RECONCILE_INTERVAL_MS, SONG_RECONFIRM_INTERVAL_MS, songReconcileDue, songsGoneFromServer } from "@/app/services/sync-manager/syncLogic";
 
 describe("playlistsToFetch", () => {
     const d = (s: string) => new Date(s);
@@ -92,5 +92,64 @@ describe("advanceSongCursor", () => {
         // The source takes the LAST item's version regardless of ordering.
         const items = [{ version: d("2024-05-01") }, { version: d("2024-02-01") }];
         expect(advanceSongCursor(items, d("2024-01-01"))).toEqual(d("2024-02-01"));
+    });
+});
+
+describe("songsGoneFromServer", () => {
+    it("a full check only remembers what it missed", () => {
+        expect(songsGoneFromServer(["s1", "s2", "s3"], ["s1", "s2"], [])).toEqual({ purge: [], misses: ["s3"], implausible: 0 });
+    });
+
+    it("a confirming check purges the songs still missing and forgets the rest", () => {
+        expect(songsGoneFromServer(["s2", "s3"], ["s2"], ["s2", "s3"])).toEqual({ purge: ["s3"], misses: [], implausible: 0 });
+    });
+
+    it("a full check that misses more than half the library removes and remembers nothing", () => {
+        expect(songsGoneFromServer(["s1", "s2", "s3"], ["s1"], [])).toEqual({ purge: [], misses: [], implausible: 2 });
+        expect(songsGoneFromServer(["s1", "s2"], [], [])).toEqual({ purge: [], misses: [], implausible: 2 });
+    });
+
+    it("exactly half missing is still believed", () => {
+        expect(songsGoneFromServer(["s1", "s2"], ["s1"], [])).toEqual({ purge: [], misses: ["s2"], implausible: 0 });
+    });
+});
+
+describe("pendingSongMisses", () => {
+    const state = (host: string | null, userId: string, misses: unknown) => JSON.stringify({ host, userId, misses });
+
+    it("returns the misses recorded against this server and account", () => {
+        expect(pendingSongMisses(state("https://a", "u1", ["s1"]), "https://a", "u1")).toEqual(["s1"]);
+    });
+
+    it("drops misses recorded against another server or account", () => {
+        expect(pendingSongMisses(state("https://a", "u1", ["s1"]), "https://b", "u1")).toEqual([]);
+        expect(pendingSongMisses(state("https://a", "u1", ["s1"]), "https://a", "u2")).toEqual([]);
+    });
+
+    it("treats a missing or malformed value as no misses", () => {
+        expect(pendingSongMisses(null, "https://a", "u1")).toEqual([]);
+        expect(pendingSongMisses("not json", "https://a", "u1")).toEqual([]);
+        expect(pendingSongMisses(JSON.stringify(["s1"]), "https://a", "u1")).toEqual([]);
+        expect(pendingSongMisses(state("https://a", "u1", "s1"), "https://a", "u1")).toEqual([]);
+        expect(pendingSongMisses(state("https://a", "u1", ["s1", 2]), "https://a", "u1")).toEqual(["s1"]);
+    });
+});
+
+describe("songReconcileDue", () => {
+    const now = 10 * SONG_RECONCILE_INTERVAL_MS;
+
+    it("is due when there has never been a check", () => {
+        expect(songReconcileDue(null, now, 0)).toBe(true);
+        expect(songReconcileDue(Number("garbage"), now, 0)).toBe(true);
+    });
+
+    it("runs a full check daily", () => {
+        expect(songReconcileDue(now - SONG_RECONCILE_INTERVAL_MS + 1, now, 0)).toBe(false);
+        expect(songReconcileDue(now - SONG_RECONCILE_INTERVAL_MS, now, 0)).toBe(true);
+    });
+
+    it("confirms pending misses an hour later", () => {
+        expect(songReconcileDue(now - SONG_RECONFIRM_INTERVAL_MS + 1, now, 3)).toBe(false);
+        expect(songReconcileDue(now - SONG_RECONFIRM_INTERVAL_MS, now, 3)).toBe(true);
     });
 });
