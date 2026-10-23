@@ -1,7 +1,7 @@
 import { SongFilters } from "@/app/types/SongFilters";
 import { GenericDb } from "../GenericDb";
 import { Artist, GenreJam, Song, UpdateSongMetadataPayload } from "../models";
-import { artistTable, downloadedSongTable, genreJamTable, playlistSongTable, playlistTable, songArtistTable, songTable, songTagTable, tagTable, userSongTable } from "../schema";
+import { artistTable, downloadedSongTable, downloadQueueTable, genreJamTable, playlistSongTable, playlistTable, recentlyPlayedSongTable, songArtistTable, songTable, songTagTable, tagTable, userSongTable } from "../schema";
 import { eq, gt, lt, ExtractTablesWithRelations, inArray, sql, isNotNull, and, desc, asc, or } from "drizzle-orm";
 import { SongDetails } from "../types";
 // Import the dependency-free helper directly (not via @/app/tools, which re-exports React-Native-bound utils)
@@ -559,6 +559,36 @@ export async function getSong(db: GenericDb, songId: string): Promise<Song | und
 
 export async function getAllSongIds(db: GenericDb): Promise<string[]> {
     return (await db.select({ songId: songTable.songId }).from(songTable)).map(x => x.songId);
+}
+
+// Deletes songs and every local row that references them: joins, sentiment, play history, download state and the
+// download queue. Returns the deleted Song rows so the caller can remove their media files. Leaves the outbox alone:
+// a queued request for a gone song still goes to the server, which answers for it.
+export async function purgeSongs(db: GenericDb, songIds: string[]): Promise<Song[]> {
+    const purged: Song[] = [];
+    for (const idChunk of chunkIds(songIds)) {
+        purged.push(...await db.select().from(songTable).where(inArray(songTable.songId, idChunk)));
+        await db.delete(songArtistTable).where(inArray(songArtistTable.songId, idChunk));
+        await db.delete(songTagTable).where(inArray(songTagTable.songId, idChunk));
+        await db.delete(userSongTable).where(inArray(userSongTable.songId, idChunk));
+        await db.delete(playlistSongTable).where(inArray(playlistSongTable.songId, idChunk));
+        await db.delete(downloadedSongTable).where(inArray(downloadedSongTable.songId, idChunk));
+        await db.delete(downloadQueueTable).where(inArray(downloadQueueTable.songId, idChunk));
+        await db.delete(recentlyPlayedSongTable).where(inArray(recentlyPlayedSongTable.songId, idChunk));
+        await db.delete(songTable).where(inArray(songTable.songId, idChunk));
+    }
+    return purged;
+}
+
+// Which of these file hashes a local song still uses. Media is stored by hash, so a purged song's file may belong
+// to another song too (the same audio re-imported under a new id).
+export async function fileHashesInUse(db: GenericDb, fileHashes: string[]): Promise<Set<string>> {
+    const inUse = new Set<string>();
+    for (const hashChunk of chunkIds(fileHashes)) {
+        const rows = await db.select({ fileHash: songTable.fileHash }).from(songTable).where(inArray(songTable.fileHash, hashChunk));
+        rows.forEach(x => inUse.add(x.fileHash));
+    }
+    return inUse;
 }
 
 // Optimistic local promote: clear the audition + stale-tags flags right away so the song drops out of the

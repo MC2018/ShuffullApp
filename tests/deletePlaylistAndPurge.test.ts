@@ -13,6 +13,8 @@ import {
     songTagTable,
     userSongTable,
     downloadedSongTable,
+    downloadQueueTable,
+    recentlyPlayedSongTable,
 } from "@/app/services/db/schema";
 import type { Song } from "@/app/services/db/models";
 
@@ -40,6 +42,10 @@ function makeDb(): GenericDb {
             like_status INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (user_id, song_id)
         );
         CREATE TABLE downloaded_songs ( downloaded_song_id TEXT PRIMARY KEY, song_id TEXT NOT NULL );
+        CREATE TABLE download_queue ( download_queue_id TEXT PRIMARY KEY, song_id TEXT NOT NULL UNIQUE, priority INTEGER NOT NULL );
+        CREATE TABLE recently_played_songs (
+            recently_played_song_id TEXT PRIMARY KEY, song_id TEXT NOT NULL, timestamp_seconds INTEGER, last_played INTEGER NOT NULL
+        );
     `);
     return drizzle(sqlite) as unknown as GenericDb;
 }
@@ -68,6 +74,8 @@ async function addChildren(db: GenericDb, songId: string) {
     await db.insert(songTagTable).values([{ songTagId: `st-${songId}`, songId, tagId: "t1" }]);
     await db.insert(userSongTable).values([{ userId: "u1", songId, lastPlayed: new Date(), version: new Date(), likeStatus: 0 }]);
     await db.insert(downloadedSongTable).values([{ downloadedSongId: `d-${songId}`, songId }]);
+    await db.insert(downloadQueueTable).values([{ downloadQueueId: `q-${songId}`, songId, priority: 0 }]);
+    await db.insert(recentlyPlayedSongTable).values([{ recentlyPlayedSongId: `r-${songId}`, songId, timestampSeconds: 0, lastPlayed: new Date() }]);
 }
 
 const exists = async (db: GenericDb, table: any, col: any, value: string) =>
@@ -94,6 +102,9 @@ describe("deletePlaylistAndPurge", () => {
         expect(await exists(db, songTagTable, songTagTable.songId, "unkept")).toBe(false);
         expect(await exists(db, userSongTable, userSongTable.songId, "unkept")).toBe(false);
         expect(await exists(db, downloadedSongTable, downloadedSongTable.songId, "unkept")).toBe(false);
+        // A queued download of a purged song would only 404.
+        expect(await exists(db, downloadQueueTable, downloadQueueTable.songId, "unkept")).toBe(false);
+        expect(await exists(db, recentlyPlayedSongTable, recentlyPlayedSongTable.songId, "unkept")).toBe(false);
     });
 
     it("does not purge an audition song still on another playlist", async () => {

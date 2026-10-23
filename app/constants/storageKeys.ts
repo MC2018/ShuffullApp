@@ -13,4 +13,8 @@ export const STORAGE_KEYS = {
     // The audition playlist that still had unheard songs when the current song started. Kept across restarts so
     // that resuming the mix's last song after the app was killed still stops when it ends.
     AUDITION_IN_PROGRESS: "AUDITION_IN_PROGRESS",
+    // Epoch ms of the last check that every local song still exists on the server (SyncManager.reconcileSongs).
+    SONG_RECONCILE_AT: "SONG_RECONCILE_AT",
+    // JSON SongReconcileState: the song ids that check missed, purged only if the next check misses them too.
+    SONG_RECONCILE_STATE: "SONG_RECONCILE_STATE",
 }

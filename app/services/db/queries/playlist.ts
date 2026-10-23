@@ -1,6 +1,6 @@
 import { GenericDb } from "../GenericDb";
 import { Playlist, Song } from "../models";
-import { downloadedSongTable, playlistSongTable, playlistTable, songArtistTable, songTable, songTagTable, userSongTable } from "../schema";
+import { playlistSongTable, playlistTable, songTable, userSongTable } from "../schema";
 import { eq, gt, lt, ExtractTablesWithRelations, inArray, sql, isNotNull, and, desc, asc, or } from "drizzle-orm";
 import { generateId } from "@/app/tools/pure";
 import {
@@ -9,6 +9,7 @@ import {
 } from "@/app/tools/audition";
 import { LikeStatus } from "@/app/enums";
 import { chunkIds } from "./_chunk";
+import { purgeSongs } from "./song";
 
 export async function removeOldPlaylists(db: GenericDb, accessiblePlaylistIds: string[]): Promise<void> {
     // Drop only the local playlists the user no longer has access to (NOT in the server's accessible set).
@@ -184,12 +185,7 @@ export async function deletePlaylistAndPurge(db: GenericDb, playlistId: string):
             continue;
         }
 
-        await db.delete(songArtistTable).where(eq(songArtistTable.songId, songId));
-        await db.delete(songTagTable).where(eq(songTagTable.songId, songId));
-        await db.delete(userSongTable).where(eq(userSongTable.songId, songId));
-        await db.delete(downloadedSongTable).where(eq(downloadedSongTable.songId, songId));
-        await db.delete(songTable).where(eq(songTable.songId, songId));
-        purged.push(song);
+        purged.push(...await purgeSongs(db, [songId]));
     }
 
     return purged;

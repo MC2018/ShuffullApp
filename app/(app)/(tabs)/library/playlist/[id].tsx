@@ -159,7 +159,9 @@ export default function PlaylistScreen() {
                     const songIds = await DbQueries.getPlaylistSongIds(db, playlist.playlistId);
                     // Purge locally (mirrors the server) and clean up any downloaded media for the removed songs.
                     const purged = await DbQueries.deletePlaylistAndPurge(db, playlist.playlistId);
-                    for (const song of purged) {
+                    // Media is stored by hash: leave a file another local song still plays.
+                    const filesInUse = await DbQueries.fileHashesInUse(db, purged.map(x => x.fileHash));
+                    for (const song of purged.filter(x => !filesInUse.has(x.fileHash))) {
                         await Downloader.deleteLocalSongFiles(song);
                     }
                     // Tell the server (also performs the purge). Queued so a delete made offline still lands.
