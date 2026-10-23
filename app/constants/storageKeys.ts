@@ -10,6 +10,9 @@ export const STORAGE_KEYS = {
     SONG_SYNC_CURSOR: "SONG_SYNC_CURSOR",
     // "1" while the user has paused background downloads. A user decision, so it outlives the process.
     DOWNLOADS_PAUSED: "DOWNLOADS_PAUSED",
+    // The audition playlist that still had unheard songs when the current song started. Kept across restarts so
+    // that resuming the mix's last song after the app was killed still stops when it ends.
+    AUDITION_IN_PROGRESS: "AUDITION_IN_PROGRESS",
     // Epoch ms of the last check that every local song still exists on the server (SyncManager.reconcileSongs).
     SONG_RECONCILE_AT: "SONG_RECONCILE_AT",
     // JSON SongReconcileState: the song ids that check missed, purged only if the next check misses them too.

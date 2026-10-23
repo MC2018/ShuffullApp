@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { LikeStatus } from "@/app/enums";
-import { auditionProgress, deriveAuditionRowState, hasBeenPlayed } from "@/app/tools/audition";
+import { auditionProgress, auditionScopePlaylistId, deriveAuditionRowState, hasBeenPlayed, isAuditionComplete, shouldStopForFinishedAudition } from "@/app/tools/audition";
+import { SongFilters, SongFilterType } from "@/app/types/SongFilters";
 
 // The four-state row derivation for audition playlists, computed entirely from synced fields so it is
 // identical across devices: unheard (dot) / heard incl. disliked (dimmed) / kept (bookmark) / liked (heart).
@@ -91,5 +92,45 @@ describe("row state outside an audition playlist", () => {
             deriveAuditionRowState(false, LikeStatus.Like, played, false),
         ];
         expect(auditionProgress(rows)).toEqual({ evaluated: 2, total: 3 });
+    });
+});
+
+describe("auditionScopePlaylistId", () => {
+    it("identifies the audition play scope: a sole playlist with unheardOnly", () => {
+        const scope = new SongFilters();
+        scope.setSoleFilter(SongFilterType.Playlist, ["mix"]);
+        scope.unheardOnly = true;
+        expect(auditionScopePlaylistId(scope)).toBe("mix");
+    });
+
+    it("is undefined for an ordinary playlist scope and for whole-library shuffle", () => {
+        const playlist = new SongFilters();
+        playlist.setSoleFilter(SongFilterType.Playlist, ["classic-rock"]);
+        expect(auditionScopePlaylistId(playlist)).toBeUndefined();
+        expect(auditionScopePlaylistId(new SongFilters())).toBeUndefined();
+    });
+});
+
+describe("shouldStopForFinishedAudition", () => {
+    const done = { evaluated: 110, total: 110 };
+    const notDone = { evaluated: 109, total: 110 };
+
+    it("stops when the mix that was unfinished at the song's start is now complete", () => {
+        expect(shouldStopForFinishedAudition("mix", "mix", done)).toBe(true);
+    });
+
+    it("plays on while songs are left, or when the mix was already done at the start", () => {
+        expect(shouldStopForFinishedAudition("mix", "mix", notDone)).toBe(false);
+        expect(shouldStopForFinishedAudition(undefined, "mix", done)).toBe(false);
+    });
+
+    it("plays on once the scope is something else, or the mix has gone", () => {
+        expect(shouldStopForFinishedAudition("mix", undefined, done)).toBe(false);
+        expect(shouldStopForFinishedAudition("mix", "other-mix", done)).toBe(false);
+        expect(shouldStopForFinishedAudition("mix", "mix", undefined)).toBe(false);
+    });
+
+    it("an empty mix is never complete", () => {
+        expect(isAuditionComplete({ evaluated: 0, total: 0 })).toBe(false);
     });
 });
