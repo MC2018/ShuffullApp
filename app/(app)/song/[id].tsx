@@ -160,7 +160,7 @@ export default function SongScreen() {
         if (editEnergy.trim().length > 0) {
             const parsed = Number(editEnergy);
             if (!Number.isInteger(parsed) || parsed < 1 || parsed > 10) {
-                Alert.alert("Invalid energy", "Energy must be a whole number between 1 and 10.");
+                Alert.alert("Invalid heaviness", "Heaviness must be a whole number between 1 and 10.");
                 return;
             }
             energy = parsed;
@@ -244,7 +244,7 @@ export default function SongScreen() {
         { label: "Released", value: eras.join(", ") || "—" },
         { label: "Language", value: languages.join(", ") || "—" },
         { label: "BPM", value: details.song.bpm != null ? String(details.song.bpm) : "—" },
-        { label: "Energy", value: details.song.energy != null ? `${details.song.energy}/10` : "—" },
+        { label: "Heaviness", value: details.song.energy != null ? `${details.song.energy}/10` : "—" },
         { label: "Lyrics", value: details.song.syncedLyrics ? "Synced" : details.song.plainLyrics ? "Plain" : "None" },
     ];
 
@@ -454,7 +454,7 @@ function EditForm(props: EditFormProps) {
                     </Field>
                 </View>
                 <View style={{ flex: 1 }}>
-                    <Field label="Energy (1-10)">
+                    <Field label="Heaviness (1-10)">
                         <TextField value={props.energy} onChangeText={props.onEnergy} placeholder="—" keyboardType="number-pad" />
                     </Field>
                 </View>

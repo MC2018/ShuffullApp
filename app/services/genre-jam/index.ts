@@ -19,7 +19,7 @@ export function jamSummary(jam: GenreJam): string {
         parts.push(`${moods} mood${moods > 1 ? "s" : ""}`);
     }
     if (jam.energyMin && jam.energyMax) {
-        parts.push(`energy ${jam.energyMin}–${jam.energyMax}`);
+        parts.push(`heaviness ${jam.energyMin}–${jam.energyMax}`);
     }
     return parts.length ? parts.join(" · ") : "Tap to play";
 }

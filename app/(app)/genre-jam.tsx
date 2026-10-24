@@ -41,7 +41,7 @@ function emptyWhitelist(): WhitelistSetting {
 }
 
 // The reworked Genre Jam builder/editor. An empty jam already means "whole library, minus dislikes, leaning to
-// loved". Filters narrow it: Mood (chips), Energy (min, BPM-independent AI score), and per-category
+// loved". Filters narrow it: Mood (chips), Heaviness (a 3-wide band over the 1-10 AI score, stored as energyMin/energyMax), and per-category
 // Include/Exclude. Jams are nameable + savable. Passing ?id loads an existing jam for editing instead.
 export default function GenreJamEditor() {
     const theme = useTheme();
@@ -244,18 +244,18 @@ export default function GenreJamEditor() {
                     </>
                 )}
 
-                <SectionHeader title="Energy" actionLabel={energyEnabled ? "On" : "Off"} onAction={() => setEnergyEnabled((v) => !v)} />
+                <SectionHeader title="Heaviness" actionLabel={energyEnabled ? "On" : "Off"} onAction={() => setEnergyEnabled((v) => !v)} />
                 {energyEnabled ? (
                     <>
                         <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: theme.space.xs }}>
                             <Text variant="caption" color="textFaint">
-                                Mellow
+                                Soft
                             </Text>
                             <Text variant="caption" color="accent">
-                                Energy {energyStart}–{energyStart + 2}
+                                Heaviness {energyStart}–{energyStart + 2}
                             </Text>
                             <Text variant="caption" color="textFaint">
-                                Driving
+                                Heavy
                             </Text>
                         </View>
                         <Slider
@@ -271,7 +271,7 @@ export default function GenreJamEditor() {
                     </>
                 ) : (
                     <Text variant="caption" color="textFaint">
-                        Any energy.
+                        Any heaviness.
                     </Text>
                 )}
 
