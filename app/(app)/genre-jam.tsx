@@ -41,7 +41,7 @@ function emptyWhitelist(): WhitelistSetting {
 }
 
 // The reworked Genre Jam builder/editor. An empty jam already means "whole library, minus dislikes, leaning to
-// loved". Filters narrow it: Mood (chips), Energy (min, BPM-independent AI score), and per-category
+// loved". Filters narrow it: Mood (chips), Heaviness (a 3-wide band over the 1-10 AI score, stored as energyMin/energyMax), and per-category
 // Include/Exclude. Jams are nameable + savable. Passing ?id loads an existing jam for editing instead.
 export default function GenreJamEditor() {
     const theme = useTheme();

@@ -138,7 +138,7 @@ via `@expo/vector-icons` (replacing the hand-rolled SVGs in the mockups).
 | `Divider` | Hairline using `color.line` |
 | `TabBar` | Custom themed bottom bar (Songs · Home · Library) |
 | `MiniPlayer` | Persistent now-playing bar above the tab bar (replaces `PlayerBar` styling) |
-| `Slider` | Wraps `@react-native-community/slider` for skimmer + Energy |
+| `Slider` | Wraps `@react-native-community/slider` for skimmer + Heaviness |
 
 ---
 
@@ -184,7 +184,7 @@ preference toward Loved tracks.* Filters only narrow it.
 **Editor (replaces the pill-grid):**
 1. Big **Start a Jam** button + a live pool estimate (e.g. "≈ 2,140 songs in this jam").
 2. **Mood** chips (new dimension — see §10).
-3. **Energy** slider (mellow → driving).
+3. **Heaviness** slider (soft → heavy).
 4. **Include / Exclude** rows for Genres, Artists, Decades, Languages (friendly add +
    include/exclude state, not a raw whitelist/blacklist grid).
 5. **Save & name** the jam; saved jams resurface on Home and in Library → Jams.
