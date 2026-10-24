@@ -48,7 +48,8 @@ export const songTable = sqliteTable("songs", {
     lyricsInstrumental: integer("lyrics_instrumental", { mode: "boolean" }).notNull().default(false),
     lyricsSource: text("lyrics_source"),
     bpm: integer("bpm"),
-    // Best-effort 1-10 perceived intensity/drive score from the producer's AI (null when unknown).
+    // Best-effort 1-10 HEAVINESS score from the producer's AI (null when unknown): one absolute scale across
+    // genres, shown as "Heaviness". The column keeps its old name, as does the API.
     energy: integer("energy"),
     // Un-vetted "audition" song imported with no AI tags. Liking it enqueues a re-tag that promotes it
     // (clears this + adds tags); deleting its audition playlist purges it if never kept.

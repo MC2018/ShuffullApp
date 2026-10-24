@@ -244,18 +244,18 @@ export default function GenreJamEditor() {
                     </>
                 )}
 
-                <SectionHeader title="Energy" actionLabel={energyEnabled ? "On" : "Off"} onAction={() => setEnergyEnabled((v) => !v)} />
+                <SectionHeader title="Heaviness" actionLabel={energyEnabled ? "On" : "Off"} onAction={() => setEnergyEnabled((v) => !v)} />
                 {energyEnabled ? (
                     <>
                         <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: theme.space.xs }}>
                             <Text variant="caption" color="textFaint">
-                                Mellow
+                                Soft
                             </Text>
                             <Text variant="caption" color="accent">
-                                Energy {energyStart}–{energyStart + 2}
+                                Heaviness {energyStart}–{energyStart + 2}
                             </Text>
                             <Text variant="caption" color="textFaint">
-                                Driving
+                                Heavy
                             </Text>
                         </View>
                         <Slider
@@ -271,7 +271,7 @@ export default function GenreJamEditor() {
                     </>
                 ) : (
                     <Text variant="caption" color="textFaint">
-                        Any energy.
+                        Any heaviness.
                     </Text>
                 )}
 
