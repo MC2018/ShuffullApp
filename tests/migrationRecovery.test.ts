@@ -117,8 +117,8 @@ const jam = {
     name: "Morning",
     whitelists: { artistIds: ["a1"], playlistIds: [], genreIds: [], timePeriodIds: [], languageIds: [], moodIds: [], themeIds: [] },
     blacklists: { artistIds: [], playlistIds: [], genreIds: [], timePeriodIds: [], languageIds: [], moodIds: [], themeIds: [] },
-    energyMin: 3,
-    energyMax: 7,
+    heavinessMin: 3,
+    heavinessMax: 7,
 };
 
 // A Keep written by hand on an older schema, which the app's queries can't write to.
@@ -175,6 +175,20 @@ describe("a failed migration rebuilds the database and keeps the data only this 
         const [row] = await getRequests(fresh);
         expect(row).toMatchObject(keep);
         expect(row.playlistId).toBeNull();
+    });
+
+    it("a genre jam from before the heaviness rename keeps its band under the new column names", async () => {
+        // energy_min/energy_max became heaviness_min/heaviness_max (shuffull-workspace#50). Matched by name only,
+        // the band would be dropped.
+        const db = asDb(sqlite);
+        migrateTo(migrationsUpTo("0030_add_dead_letter_requests"));
+        sqlite.prepare(`INSERT INTO genre_jam (genre_jam_id, name, whitelists, blacklists, energy_min, energy_max)
+                        VALUES ('jam-1', 'Morning', ?, ?, 3, 5)`).run(JSON.stringify(jam.whitelists), JSON.stringify(jam.blacklists));
+
+        const fresh = await rebuildKeepingLocalData(db, migrateLatest, deleteFile);
+
+        expect(await getGenreJams(fresh)).toEqual([expect.objectContaining({ genreJamId: "jam-1", heavinessMin: 3, heavinessMax: 5 })]);
+        expect(rescued()).toEqual([]);
     });
 
     it("works on the web driver, whose raw rows are arrays rather than objects", async () => {

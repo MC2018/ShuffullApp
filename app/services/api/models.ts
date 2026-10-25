@@ -46,7 +46,7 @@ export const SongSchema = z.object({
     lyricsInstrumental: z.boolean().default(false),
     lyricsSource: z.string().nullable().default(null),
     bpm: z.number().nullable().default(null),
-    energy: z.number().nullable().default(null),
+    heaviness: z.number().nullable().default(null),
     // Un-vetted audition song imported with no AI tags. Defaulted so older API responses still parse.
     exploratory: z.boolean().default(false),
     // Tags produced by a weaker model than the server's current strong one (e.g. a Standard-tier import).

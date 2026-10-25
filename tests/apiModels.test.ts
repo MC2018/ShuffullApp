@@ -67,7 +67,7 @@ describe("SongSchema", () => {
         expect(s.lyricsInstrumental).toBe(false);
         expect(s.lyricsSource).toBeNull();
         expect(s.bpm).toBeNull();
-        expect(s.energy).toBeNull();
+        expect(s.heaviness).toBeNull();
     });
 
     it("accepts a fully populated song", () => {
@@ -81,7 +81,7 @@ describe("SongSchema", () => {
             lyricsInstrumental: true,
             lyricsSource: "LRCLIB",
             bpm: 120,
-            energy: 7,
+            heaviness: 7,
         });
         expect(s.artists).toEqual(["A", "B"]);
         expect(s.bpm).toBe(120);
@@ -94,7 +94,7 @@ describe("SongSchema", () => {
     });
 
     it("allows nullable lyric/tempo fields to be explicitly null", () => {
-        const s = SongSchema.parse({ ...minimal, syncedLyrics: null, bpm: null, energy: null });
+        const s = SongSchema.parse({ ...minimal, syncedLyrics: null, bpm: null, heaviness: null });
         expect(s.syncedLyrics).toBeNull();
         expect(s.bpm).toBeNull();
     });

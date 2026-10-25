@@ -245,7 +245,7 @@ consuming the same API.
 ### Phase 3 — Genre Jam rework
 - [ ] Empty-jam semantics + like-weighting + recency in `getFilteredSong`
 - [ ] Saved-jams list query + Jams surface + relaunch
-- [ ] New editor UI (Mood + Energy + Include/Exclude) replacing the pill-grid
+- [ ] New editor UI (Mood + Heaviness + Include/Exclude) replacing the pill-grid
 - [ ] Mood stubbed in-app; backend Mood dimension as a follow-up task
 
 ### Phase 4 — Extras (deferred)

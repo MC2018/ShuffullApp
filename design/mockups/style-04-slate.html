@@ -128,11 +128,11 @@
   .moods{display:flex;flex-wrap:wrap;gap:7px}
   .mood{font-size:12px;font-weight:600;padding:7px 12px;border-radius:6px;background:var(--panel);border:1px solid var(--line-2);color:var(--muted)}
   .mood.on{background:var(--blue);color:#fff;border-color:transparent}
-  .energy{margin-top:4px}
-  .energy .lab{display:flex;justify-content:space-between;font-family:var(--mono);font-size:10px;color:var(--faint);margin-bottom:8px}
-  .energy .track{height:4px;border-radius:2px;background:var(--line-2);position:relative}
-  .energy .track i{position:absolute;left:0;height:100%;width:62%;border-radius:2px;background:var(--blue)}
-  .energy .track i::after{content:"";position:absolute;right:-6px;top:50%;transform:translateY(-50%);width:13px;height:13px;border-radius:3px;background:#fff;border:1px solid var(--blue)}
+  .heaviness{margin-top:4px}
+  .heaviness .lab{display:flex;justify-content:space-between;font-family:var(--mono);font-size:10px;color:var(--faint);margin-bottom:8px}
+  .heaviness .track{height:4px;border-radius:2px;background:var(--line-2);position:relative}
+  .heaviness .track i{position:absolute;left:0;height:100%;width:62%;border-radius:2px;background:var(--blue)}
+  .heaviness .track i::after{content:"";position:absolute;right:-6px;top:50%;transform:translateY(-50%);width:13px;height:13px;border-radius:3px;background:#fff;border:1px solid var(--blue)}
   .inc-row{display:flex;align-items:center;justify-content:space-between;padding:11px 0;border-bottom:1px solid var(--line)}
   .inc-row .l{font-size:13px;font-weight:600}
   .inc-row .l small{display:block;font-family:var(--mono);color:var(--faint);font-size:10px;font-weight:400;margin-top:3px}
@@ -261,8 +261,8 @@
           </div>
           <div class="field-h">Mood</div>
           <div class="moods"><span class="mood on">Chill</span><span class="mood">Hype</span><span class="mood on">Dreamy</span><span class="mood">Focus</span><span class="mood">Dark</span><span class="mood">Bright</span></div>
-          <div class="field-h">Energy</div>
-          <div class="energy"><div class="lab"><span>mellow</span><span>driving</span></div><div class="track"><i></i></div></div>
+          <div class="field-h">Heaviness</div>
+          <div class="heaviness"><div class="lab"><span>mellow</span><span>driving</span></div><div class="track"><i></i></div></div>
           <div class="field-h">Include / Exclude</div>
           <div class="inc-row"><div class="l">Genres<small>synthwave, indie · −country</small></div><div class="pillset"><span class="mini-pill inc">2</span><span class="mini-pill exc">−1</span></div></div>
           <div class="inc-row"><div class="l">Artists<small>none</small></div><div class="pillset"><span class="mini-pill add">add</span></div></div>

@@ -191,13 +191,13 @@ export async function getFilteredSong(db: GenericDb, songFilters: SongFilters) {
                 )
             )
             AND (
-                -- With no band set, energy is not a filter and unknown-energy songs stay eligible. Once a bound
-                -- IS set, unknown energy is a NON-match rather than a free pass. The old form led with
-                -- a bare "s.energy IS NULL OR ...", which short-circuited the whole condition, so an energy jam matched
+                -- With no band set, heaviness is not a filter and unknown-heaviness songs stay eligible. Once a bound
+                -- IS set, unknown heaviness is a NON-match rather than a free pass. The old form led with
+                -- a bare "s.heaviness IS NULL OR ...", which short-circuited the whole condition, so a heaviness jam matched
                 -- every untagged song in the library; combined with ORDER BY last_played ASC + LIMIT 500 the
-                -- pool then contained NOTHING BUT unknown-energy songs -- the exact opposite of the filter.
-                (${songFilters.energyMin == null ? 1 : 0} = 1 OR (s.energy IS NOT NULL AND s.energy >= ${songFilters.energyMin ?? 0}))
-                AND (${songFilters.energyMax == null ? 1 : 0} = 1 OR (s.energy IS NOT NULL AND s.energy <= ${songFilters.energyMax ?? 10}))
+                -- pool then contained NOTHING BUT unknown-heaviness songs -- the exact opposite of the filter.
+                (${songFilters.heavinessMin == null ? 1 : 0} = 1 OR (s.heaviness IS NOT NULL AND s.heaviness >= ${songFilters.heavinessMin ?? 0}))
+                AND (${songFilters.heavinessMax == null ? 1 : 0} = 1 OR (s.heaviness IS NOT NULL AND s.heaviness <= ${songFilters.heavinessMax ?? 10}))
             )
             AND (
                 -- Audition songs are unvetted imports that belong to their own cohort playlist, and carry no
@@ -508,7 +508,7 @@ export async function fetchSongDetails(db: GenericDb, songId: string): Promise<S
             lyricsInstrumental: songTable.lyricsInstrumental,
             lyricsSource: songTable.lyricsSource,
             bpm: songTable.bpm,
-            energy: songTable.energy,
+            heaviness: songTable.heaviness,
             exploratory: songTable.exploratory,
             tagsStale: songTable.tagsStale,
             artist: {
@@ -613,7 +613,7 @@ export async function markSongKept(db: GenericDb, songId: string): Promise<void>
 // avoid fabricating a local id that wouldn't match the server's.
 export async function applySongMetadataEdit(db: GenericDb, songId: string, payload: UpdateSongMetadataPayload): Promise<void> {
     await db.update(songTable)
-        .set({ name: payload.name, bpm: payload.bpm, energy: payload.energy })
+        .set({ name: payload.name, bpm: payload.bpm, heaviness: payload.heaviness })
         .where(eq(songTable.songId, songId));
 
     await db.delete(songArtistTable).where(eq(songArtistTable.songId, songId));

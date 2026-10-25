@@ -134,11 +134,11 @@
   .moods{display:flex;flex-wrap:wrap;gap:8px}
   .mood{font-family:var(--mono);font-size:12px;font-weight:600;text-transform:uppercase;padding:9px 13px;border-radius:9px;background:var(--panel);border:1px solid var(--line);color:var(--muted)}
   .mood.on{background:linear-gradient(120deg,var(--magenta),var(--violet));color:#fff;border-color:transparent;box-shadow:0 0 18px -4px rgba(255,43,214,.5)}
-  .energy{margin-top:6px}
-  .energy .lab{display:flex;justify-content:space-between;font-family:var(--mono);font-size:10px;color:var(--faint);margin-bottom:9px;text-transform:uppercase}
-  .energy .track{height:6px;border-radius:4px;background:rgba(157,75,255,.16);position:relative}
-  .energy .track i{position:absolute;left:0;height:100%;width:66%;border-radius:4px;background:linear-gradient(90deg,var(--magenta),var(--cyan))}
-  .energy .track i::after{content:"";position:absolute;right:-7px;top:50%;transform:translateY(-50%);width:16px;height:16px;border-radius:5px;background:#fff;box-shadow:0 0 14px rgba(34,231,255,.8)}
+  .heaviness{margin-top:6px}
+  .heaviness .lab{display:flex;justify-content:space-between;font-family:var(--mono);font-size:10px;color:var(--faint);margin-bottom:9px;text-transform:uppercase}
+  .heaviness .track{height:6px;border-radius:4px;background:rgba(157,75,255,.16);position:relative}
+  .heaviness .track i{position:absolute;left:0;height:100%;width:66%;border-radius:4px;background:linear-gradient(90deg,var(--magenta),var(--cyan))}
+  .heaviness .track i::after{content:"";position:absolute;right:-7px;top:50%;transform:translateY(-50%);width:16px;height:16px;border-radius:5px;background:#fff;box-shadow:0 0 14px rgba(34,231,255,.8)}
   .inc-row{display:flex;align-items:center;justify-content:space-between;padding:12px 13px;border-radius:12px;background:var(--panel);border:1px solid var(--line);margin-bottom:9px}
   .inc-row .l{font-size:13px;font-weight:700}
   .inc-row .l small{display:block;font-family:var(--mono);color:var(--faint);font-size:10px;font-weight:400;margin-top:3px}
@@ -264,8 +264,8 @@
           </div>
           <div class="field-h">// mood</div>
           <div class="moods"><span class="mood on">chill</span><span class="mood">hype</span><span class="mood on">dreamy</span><span class="mood">focus</span><span class="mood">dark</span></div>
-          <div class="field-h">// energy</div>
-          <div class="energy"><div class="lab"><span>mellow</span><span>driving</span></div><div class="track"><i></i></div></div>
+          <div class="field-h">// heaviness</div>
+          <div class="heaviness"><div class="lab"><span>mellow</span><span>driving</span></div><div class="track"><i></i></div></div>
           <div class="field-h">// include &amp; exclude</div>
           <div class="inc-row"><div class="l">Genres<small>synthwave, indie · -country</small></div><div class="pillset"><span class="mini-pill inc">+2</span><span class="mini-pill exc">-1</span></div></div>
           <div class="inc-row"><div class="l">Artists<small>none</small></div><div class="pillset"><span class="mini-pill add">+add</span></div></div>

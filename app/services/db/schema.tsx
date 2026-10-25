@@ -49,8 +49,8 @@ export const songTable = sqliteTable("songs", {
     lyricsSource: text("lyrics_source"),
     bpm: integer("bpm"),
     // Best-effort 1-10 HEAVINESS score from the producer's AI (null when unknown): one absolute scale across
-    // genres, shown as "Heaviness". The column keeps its old name, as does the API.
-    energy: integer("energy"),
+    // genres. Called energy until shuffull-workspace#50.
+    heaviness: integer("heaviness"),
     // Un-vetted "audition" song imported with no AI tags. Liking it enqueues a re-tag that promotes it
     // (clears this + adds tags); deleting its audition playlist purges it if never kept.
     exploratory: integer("exploratory", { mode: "boolean" }).notNull().default(false),
@@ -173,7 +173,7 @@ export interface SongTagEdit {
 export interface UpdateSongMetadataPayload {
     name: string;
     bpm: number | null;
-    energy: number | null;
+    heaviness: number | null;
     artists: string[];
     tags: SongTagEdit[];
 }
@@ -239,9 +239,9 @@ export const genreJamTable = sqliteTable("genre_jam", {
     name: text("name").notNull(),
     whitelists: text("whitelists", { mode: "json" }).$type<WhitelistSetting>().notNull(),
     blacklists: text("blacklists", { mode: "json" }).$type<WhitelistSetting>().notNull(),
-    // Energy band [energyMin, energyMax] (1-10); null = any. A song with unknown (null) energy is excluded
+    // Heaviness band [heavinessMin, heavinessMax] (1-10); null = any. A song with unknown (null) heaviness is excluded
     // once either bound is set -- see getFilteredSong.
     // Stored as explicit min/max so moving to a fully custom range later is a trivial change.
-    energyMin: integer("energy_min"),
-    energyMax: integer("energy_max"),
+    heavinessMin: integer("heaviness_min"),
+    heavinessMax: integer("heaviness_max"),
 });
