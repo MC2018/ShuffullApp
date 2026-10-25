@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useDb } from "@/app/services/db/DbProvider";
 import { useApi } from "@/app/services/api/ApiProvider";
@@ -8,6 +8,7 @@ import DbQueries from "@/app/services/db/queries";
 import { Playlist } from "@/app/services/db/models";
 import { Button, ListRow, SectionHeader, Text, TextField } from "@/app/components/ui";
 import { useTheme } from "@/app/theme";
+import { showAlert } from "@/app/tools/dialog";
 
 interface Props {
     songId: string;
@@ -74,7 +75,7 @@ export default function AddToPlaylistSheet({ songId, visible, onClose }: Props) 
             }
         } catch {
             setMember(playlist.playlistId, wasMember); // revert
-            Alert.alert("Couldn't update playlist", "Please try again.");
+            showAlert("Couldn't update playlist", "Please try again.");
         }
     };
 
@@ -99,7 +100,7 @@ export default function AddToPlaylistSheet({ songId, visible, onClose }: Props) 
             setNewName("");
             await load();
         } catch {
-            Alert.alert("Couldn't create playlist", "Please try again.");
+            showAlert("Couldn't create playlist", "Please try again.");
         } finally {
             setCreating(false);
         }

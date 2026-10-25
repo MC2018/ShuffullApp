@@ -1,5 +1,5 @@
 import React, { useCallback } from "react";
-import { Alert, ScrollView, View } from "react-native";
+import { ScrollView, View } from "react-native";
 import { router, useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { GenreJam, Playlist } from "@/app/services/db/models";
@@ -13,6 +13,7 @@ import { useTheme } from "@/app/theme";
 import { AuditionProgress } from "@/app/tools/audition";
 import { useDownloadStatusView } from "@/app/components/downloading/useDownloadStatusView";
 import { describeDownloadsRow } from "@/app/tools/downloadStatus";
+import { showAlert } from "@/app/tools/dialog";
 
 export default function LibraryScreen() {
     const [playlists, setPlaylists] = React.useState<Playlist[]>([]);
@@ -71,7 +72,7 @@ export default function LibraryScreen() {
     );
 
     const confirmDelete = (jam: GenreJam) => {
-        Alert.alert("Delete jam", `Delete "${jam.name}"?`, [
+        showAlert("Delete jam", `Delete "${jam.name}"?`, [
             { text: "Cancel", style: "cancel" },
             {
                 text: "Delete",

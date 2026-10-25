@@ -46,5 +46,19 @@ module.exports = defineConfig([{
         "indent": ["warn", 4, { "SwitchCase": 1 }],
         "@typescript-eslint/no-unused-vars": "off",
         "eol-last": ["error", "always"],
+        // react-native-web's Alert.alert is an empty stub: on desktop it shows nothing and never runs a button.
+        "no-restricted-imports": ["error", {
+            paths: [{
+                name: "react-native",
+                importNames: ["Alert"],
+                message: "Use showAlert from @/app/tools/dialog; Alert.alert does nothing on web/desktop.",
+            }],
+        }],
+    },
+}, {
+    // The one place allowed to call Alert.alert: the native build of showAlert.
+    files: ["app/tools/dialog.ts"],
+    rules: {
+        "no-restricted-imports": "off",
     },
 }]);

@@ -28,6 +28,9 @@ export function SongList({ songs, onSelectSong, onShowInfo, onKeepSong, audition
     const theme = useTheme();
     return (
         <FlatList
+            // Take only the space left over. Without this the list's base size on web is its full content height,
+            // and the column shrinks the screen's header (a one-line title is overflow:hidden there) to make room.
+            style={{ flex: 1 }}
             data={songs}
             ListHeaderComponent={ListHeaderComponent}
             ListEmptyComponent={ListEmptyComponent}

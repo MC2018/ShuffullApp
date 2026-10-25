@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Alert, View } from "react-native";
+import { View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { Playlist } from "@/app/services/db/models";
 import DbQueries from "@/app/services/db/queries";
@@ -17,6 +17,7 @@ import { useTheme } from "@/app/theme";
 import { LikeStatus, RequestType } from "@/app/enums";
 import { generateId } from "@/app/tools";
 import { AuditionRowState, auditionProgress, deriveAuditionRowState } from "@/app/tools/audition";
+import { showAlert } from "@/app/tools/dialog";
 
 export default function PlaylistScreen() {
     const theme = useTheme();
@@ -148,7 +149,7 @@ export default function PlaylistScreen() {
         const message = playlist.isExploratory
             ? "Delete this audition playlist? Songs you didn't keep will be removed from your library; kept (liked) songs stay."
             : "Delete this playlist? Its songs stay in your library.";
-        Alert.alert("Delete playlist", message, [
+        showAlert("Delete playlist", message, [
             { text: "Cancel", style: "cancel" },
             {
                 text: "Delete",

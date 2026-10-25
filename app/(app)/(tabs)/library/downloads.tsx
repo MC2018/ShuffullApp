@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Alert, View } from "react-native";
+import { View } from "react-native";
 import { router, useFocusEffect } from "expo-router";
 import DbQueries from "@/app/services/db/queries";
 import { useDb } from "@/app/services/db/DbProvider";
@@ -13,6 +13,7 @@ import { useDownloader } from "@/app/services/downloader/DownloaderProvider";
 import { useDownloadStatus } from "@/app/services/downloader/downloadStatus";
 import { IconButton, ListRow, Screen, SectionHeader, Text, TextField } from "@/app/components/ui";
 import { useTheme } from "@/app/theme";
+import { showAlert } from "@/app/tools/dialog";
 
 // The queue can be an entire playlist; show its head and a "+N more" line rather than a second full list.
 const QUEUE_PREVIEW_LIMIT = 8;
@@ -70,7 +71,7 @@ export default function LocalDownloadsScreen() {
     };
 
     const confirmClearQueue = () => {
-        Alert.alert("Clear queue", `Remove all ${status.queuedCount} queued songs? Nothing already saved is affected.`, [
+        showAlert("Clear queue", `Remove all ${status.queuedCount} queued songs? Nothing already saved is affected.`, [
             { text: "Cancel", style: "cancel" },
             { text: "Clear", style: "destructive", onPress: () => downloader?.clearQueue() },
         ]);
