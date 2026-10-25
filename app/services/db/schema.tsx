@@ -170,6 +170,8 @@ export interface SongTagEdit {
     name: string;
     type: TagType;
 }
+// Rows queued before shuffull-workspace#50 say `energy` instead of `heaviness`. They are sent as stored, and the
+// site's UpdateSongRequest reads both names until Shuffull#69.
 export interface UpdateSongMetadataPayload {
     name: string;
     bpm: number | null;

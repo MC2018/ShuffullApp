@@ -31,7 +31,7 @@ export const TagListResponseSchema = z.object({
 // The API returns songs denormalized: `artists` and `tags` are plain name strings with no IDs.
 // The app re-normalizes these into its local artist/tag/join tables during sync (see SyncManager).
 // `externalSongId` has no local column and is intentionally not consumed here.
-export const SongSchema = z.object({
+const SongFields = z.object({
     songId: z.string(),
     name: z.string(),
     fileExtension: z.string(),
@@ -53,6 +53,16 @@ export const SongSchema = z.object({
     // Treated like exploratory for promote-on-like: liking enqueues a re-tag that upgrades the tags.
     tagsStale: z.boolean().default(false)
 });
+
+// Heaviness was called `energy` until shuffull-workspace#50, and a site from before the rename sends only that.
+// Read as missing, it would blank every synced score, so take `energy` when `heaviness` is absent. Remove with
+// Shuffull#69.
+const withLegacyHeaviness = (raw: unknown) =>
+    raw !== null && typeof raw === "object" && !("heaviness" in raw) && "energy" in raw
+        ? { ...raw, heaviness: raw.energy }
+        : raw;
+
+export const SongSchema = z.preprocess(withLegacyHeaviness, SongFields);
 export const SongListSchema = SongSchema.array();
 export type Song = z.infer<typeof SongSchema>;
 
@@ -63,9 +73,9 @@ export const SongListResponseSchema = z.object({
 
 // A song from the incremental-changes feed: the same shape plus its server-side `version`, used as the sync
 // cursor and to detect a changed fileHash (e.g. a song replaced in place with better audio).
-export const ChangedSongSchema = SongSchema.extend({
+export const ChangedSongSchema = z.preprocess(withLegacyHeaviness, SongFields.extend({
     version: z.coerce.date()
-});
+}));
 export type ChangedSong = z.infer<typeof ChangedSongSchema>;
 
 // GET /api/v1/songs/changed?afterDate=... -> { songs: [...], endOfList }

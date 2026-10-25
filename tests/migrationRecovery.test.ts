@@ -213,6 +213,23 @@ describe("a failed migration rebuilds the database and keeps the data only this 
     });
 });
 
+describe("upgrading across the heaviness rename", () => {
+    it("a song's score and a genre jam's band move to the new columns with their values", async () => {
+        // Migration 0031 renames songs.energy and genre_jam.energy_min/max (shuffull-workspace#50). Nothing is
+        // rebuilt on this path, so the rename itself has to carry the values.
+        const db = asDb(sqlite);
+        migrateTo(migrationsUpTo("0030_add_dead_letter_requests"));
+        sqlite.prepare("INSERT INTO songs (song_id, file_extension, file_hash, name, energy) VALUES ('s1', '.mp3', 'h', 'Song', 7)").run();
+        sqlite.prepare(`INSERT INTO genre_jam (genre_jam_id, name, whitelists, blacklists, energy_min, energy_max)
+                        VALUES ('jam-1', 'Morning', ?, ?, 3, 5)`).run(JSON.stringify(jam.whitelists), JSON.stringify(jam.blacklists));
+
+        await migrateLatest();
+
+        expect(sqlite.prepare("SELECT heaviness FROM songs WHERE song_id = 's1'").get()).toEqual({ heaviness: 7 });
+        expect(await getGenreJams(db)).toEqual([expect.objectContaining({ genreJamId: "jam-1", heavinessMin: 3, heavinessMax: 5 })]);
+    });
+});
+
 describe("the preserved rows are never only in memory", () => {
     it("if the rebuild dies before restoring, the rows are still in the file, and the next start restores them", async () => {
         const db = asDb(sqlite);

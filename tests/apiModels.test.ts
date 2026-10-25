@@ -85,6 +85,7 @@ describe("SongSchema", () => {
         });
         expect(s.artists).toEqual(["A", "B"]);
         expect(s.bpm).toBe(120);
+        expect(s.heaviness).toBe(7);
         expect(s.lyricsInstrumental).toBe(true);
     });
 
@@ -97,6 +98,18 @@ describe("SongSchema", () => {
         const s = SongSchema.parse({ ...minimal, syncedLyrics: null, bpm: null, heaviness: null });
         expect(s.syncedLyrics).toBeNull();
         expect(s.bpm).toBeNull();
+    });
+
+    it("reads heaviness from energy, its name on a site from before the rename", () => {
+        const s = SongSchema.parse({ ...minimal, energy: 8 });
+        expect(s.heaviness).toBe(8);
+        expect(s).not.toHaveProperty("energy");
+        expect(ChangedSongSchema.parse({ ...minimal, energy: 8, version: "2024-05-05T00:00:00Z" }).heaviness).toBe(8);
+    });
+
+    it("prefers heaviness when a song carries both names", () => {
+        expect(SongSchema.parse({ ...minimal, heaviness: 4, energy: 9 }).heaviness).toBe(4);
+        expect(SongSchema.parse({ ...minimal, heaviness: null, energy: 9 }).heaviness).toBeNull();
     });
 
     it("rejects when a required field is missing", () => {
