@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Alert, ImageURISource, Pressable, ScrollView, useWindowDimensions, View } from "react-native";
+import { ImageURISource, Pressable, ScrollView, useWindowDimensions, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -21,6 +21,7 @@ import FlagForReplacementControl from "@/app/components/replacement/atoms/FlagFo
 import AddToPlaylistSheet from "@/app/components/playlists/AddToPlaylistSheet";
 import { AlbumArt, Button, Chip, IconButton, Screen, SectionHeader, Text, TextField } from "@/app/components/ui";
 import { useTheme } from "@/app/theme";
+import { showAlert } from "@/app/tools/dialog";
 
 const defaultArt: ImageURISource = require("@/assets/images/default-album-art.jpg");
 type ArtSource = ImageURISource | { uri: string };
@@ -142,7 +143,7 @@ export default function SongScreen() {
 
         const name = editName.trim();
         if (name.length === 0) {
-            Alert.alert("Name required", "The song must have a name.");
+            showAlert("Name required", "The song must have a name.");
             return;
         }
 
@@ -150,7 +151,7 @@ export default function SongScreen() {
         if (editBpm.trim().length > 0) {
             const parsed = Number(editBpm);
             if (!Number.isInteger(parsed) || parsed <= 0 || parsed > 1000) {
-                Alert.alert("Invalid BPM", "BPM must be a whole number between 1 and 1000.");
+                showAlert("Invalid BPM", "BPM must be a whole number between 1 and 1000.");
                 return;
             }
             bpm = parsed;
@@ -160,7 +161,7 @@ export default function SongScreen() {
         if (editEnergy.trim().length > 0) {
             const parsed = Number(editEnergy);
             if (!Number.isInteger(parsed) || parsed < 1 || parsed > 10) {
-                Alert.alert("Invalid heaviness", "Heaviness must be a whole number between 1 and 10.");
+                showAlert("Invalid heaviness", "Heaviness must be a whole number between 1 and 10.");
                 return;
             }
             energy = parsed;
@@ -190,7 +191,7 @@ export default function SongScreen() {
             setEditing(false);
         } catch (e) {
             console.log(e);
-            Alert.alert("Couldn't save", "Something went wrong applying the edit.");
+            showAlert("Couldn't save", "Something went wrong applying the edit.");
         } finally {
             setSaving(false);
         }
