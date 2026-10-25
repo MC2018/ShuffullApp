@@ -153,11 +153,11 @@
   .moods{display:flex;flex-wrap:wrap;gap:9px}
   .mood{font-size:13px;font-weight:600;padding:9px 14px;border-radius:999px;background:var(--surface);border:1px solid var(--line);color:var(--muted)}
   .mood.on{background:linear-gradient(120deg,var(--teal),var(--violet));color:#06241f;border-color:transparent}
-  .energy{margin-top:18px}
-  .energy .lab{display:flex;justify-content:space-between;font-size:11.5px;color:var(--faint);margin-bottom:9px}
-  .energy .track{height:6px;border-radius:4px;background:rgba(255,255,255,.1);position:relative}
-  .energy .track i{position:absolute;left:0;height:100%;width:64%;border-radius:4px;background:linear-gradient(90deg,#5eea c4,var(--violet));background:linear-gradient(90deg,var(--teal),var(--violet))}
-  .energy .track i::after{content:"";position:absolute;right:-7px;top:50%;transform:translateY(-50%);width:15px;height:15px;border-radius:50%;background:#fff;box-shadow:0 2px 8px rgba(0,0,0,.5)}
+  .heaviness{margin-top:18px}
+  .heaviness .lab{display:flex;justify-content:space-between;font-size:11.5px;color:var(--faint);margin-bottom:9px}
+  .heaviness .track{height:6px;border-radius:4px;background:rgba(255,255,255,.1);position:relative}
+  .heaviness .track i{position:absolute;left:0;height:100%;width:64%;border-radius:4px;background:linear-gradient(90deg,#5eea c4,var(--violet));background:linear-gradient(90deg,var(--teal),var(--violet))}
+  .heaviness .track i::after{content:"";position:absolute;right:-7px;top:50%;transform:translateY(-50%);width:15px;height:15px;border-radius:50%;background:#fff;box-shadow:0 2px 8px rgba(0,0,0,.5)}
   .incl{margin-top:8px;display:flex;flex-direction:column;gap:9px}
   .inc-row{display:flex;align-items:center;justify-content:space-between;padding:13px 14px;border-radius:14px;background:var(--surface);border:1px solid var(--line)}
   .inc-row .l{font-size:13.5px;font-weight:600}
@@ -343,8 +343,8 @@
               <span class="mood">Focus</span><span class="mood">Melancholy</span><span class="mood">Upbeat</span>
             </div>
 
-            <div class="energy">
-              <div class="field-h" style="margin-bottom:0">Energy</div>
+            <div class="heaviness">
+              <div class="field-h" style="margin-bottom:0">Heaviness</div>
               <div class="lab"><span>Mellow</span><span>Driving</span></div>
               <div class="track"><i></i></div>
             </div>
@@ -375,7 +375,7 @@
           </div>
         </div>
       </div></div>
-      <div class="cap"><b>Genre Jam</b> · mood, energy, include/exclude, save</div>
+      <div class="cap"><b>Genre Jam</b> · mood, heaviness, include/exclude, save</div>
     </div>
 
     <!-- ============ LIBRARY ============ -->

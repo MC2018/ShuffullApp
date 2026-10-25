@@ -66,7 +66,7 @@ function apiSong(songId: string, name: string, fileHash = `hash-${songId}`) {
     return {
         songId, name, fileHash, fileExtension: "mp3", artists: [], tags: [],
         syncedLyrics: null, plainLyrics: null, lyricsInstrumental: false, lyricsSource: null,
-        bpm: null, energy: null, exploratory: false, tagsStale: false,
+        bpm: null, heaviness: null, exploratory: false, tagsStale: false,
     };
 }
 

@@ -41,7 +41,7 @@ function song(id: string, fileHash = `hash-${id}`): Song {
     return {
         songId: id, fileExtension: ".mp3", fileHash, name: `Song ${id}`,
         syncedLyrics: null, plainLyrics: null, lyricsInstrumental: false, lyricsSource: null,
-        bpm: null, energy: null, exploratory: false, tagsStale: false,
+        bpm: null, heaviness: null, exploratory: false, tagsStale: false,
     };
 }
 

@@ -33,7 +33,7 @@ function makeDb(): GenericDb {
             lyrics_instrumental INTEGER NOT NULL DEFAULT 0,
             lyrics_source TEXT,
             bpm INTEGER,
-            energy INTEGER,
+            heaviness INTEGER,
             exploratory INTEGER NOT NULL DEFAULT 0,
             tags_stale INTEGER NOT NULL DEFAULT 0
         );
@@ -61,7 +61,7 @@ function song(id: string, name = `Song ${id}`): Song {
         lyricsInstrumental: false,
         lyricsSource: null,
         bpm: null,
-        energy: null,
+        heaviness: null,
         exploratory: false,
         tagsStale: false,
     } as Song;

@@ -23,10 +23,15 @@ import { withTransaction } from "./transaction";
  * the reason, like any other request that can't be sent; anything else it refuses stays in its rescue table.
  *
  * Rows copy RAW, column by column, rather than through the Drizzle schema, because the rescued table is on an
- * older schema than the code. Only columns both sides have are copied; a column the new table added takes its
- * default.
+ * older schema than the code. Only columns both sides have are copied, after RENAMED_COLUMNS; a column the new table
+ * added takes its default.
  */
 const PRESERVED_TABLES = ["requests", "dead_letter_requests", "genre_jam"];
+// Preserved-table columns renamed by a migration, old name -> new. A rescue can come from before the rename (it may be
+// the migration that failed), and without this the row would restore without that column's value.
+const RENAMED_COLUMNS: Record<string, Record<string, string>> = {
+    genre_jam: { energy_min: "heaviness_min", energy_max: "heaviness_max" }, // shuffull-workspace#50
+};
 const RESCUE_PREFIX = "__rescued_";
 
 export interface RescueRestore {
@@ -129,7 +134,11 @@ export async function restoreRescuedTables(db: GenericDb): Promise<RescueRestore
             // Every column, so a dead-lettered request keeps the ones the new table no longer has (toRequest).
             const columns = await columnsOf(db, rescue);
             const live = new Set(await columnsOf(db, target));
-            const shared = columns.filter((c) => live.has(c));
+            const renamed = RENAMED_COLUMNS[target] ?? {};
+            // [rescued column, live column] for every value that has somewhere to go.
+            const shared = columns
+                .map((c) => [c, live.has(c) ? c : renamed[c]] as const)
+                .filter((pair): pair is readonly [string, string] => pair[1] != null && live.has(pair[1]));
             if (shared.length == 0) {
                 throw new Error(`there is no ${target} table to restore into`);
             }
@@ -147,10 +156,10 @@ export async function restoreRescuedTables(db: GenericDb): Promise<RescueRestore
                     await tx.run(sql`SAVEPOINT restore_row`);
                     try {
                         await tx.run(sql`INSERT INTO ${sql.identifier(target)} (${sql.join(
-                            shared.map((c) => sql.identifier(c)),
+                            shared.map(([, to]) => sql.identifier(to)),
                             sql`, `,
                         )}) VALUES (${sql.join(
-                            shared.map((c) => sql`${row[c]}`),
+                            shared.map(([from]) => sql`${row[from]}`),
                             sql`, `,
                         )})`);
                         await deleteRescued(row);

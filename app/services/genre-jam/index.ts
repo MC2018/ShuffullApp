@@ -18,8 +18,8 @@ export function jamSummary(jam: GenreJam): string {
     if (moods > 0) {
         parts.push(`${moods} mood${moods > 1 ? "s" : ""}`);
     }
-    if (jam.energyMin && jam.energyMax) {
-        parts.push(`heaviness ${jam.energyMin}–${jam.energyMax}`);
+    if (jam.heavinessMin && jam.heavinessMax) {
+        parts.push(`heaviness ${jam.heavinessMin}–${jam.heavinessMax}`);
     }
     return parts.length ? parts.join(" · ") : "Tap to play";
 }

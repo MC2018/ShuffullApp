@@ -33,11 +33,11 @@ export class SongFilters {
     localOnly = false;
     whitelists: WhitelistSetting = emptyWhitelist();
     blacklists: WhitelistSetting = emptyWhitelist();
-    // Energy band [energyMin, energyMax] (1-10); null = no bound. A song with unknown (null) energy matches
+    // Heaviness band [heavinessMin, heavinessMax] (1-10); null = no bound. A song with unknown (null) heaviness matches
     // only while BOTH bounds are null -- setting either one excludes it, since an unrated song cannot be shown
     // to fall in the band.
-    energyMin: number | null = null;
-    energyMax: number | null = null;
+    heavinessMin: number | null = null;
+    heavinessMax: number | null = null;
     // Audition-only narrowing: restrict the shuffle pool to songs that have NEVER been played, so a cohort
     // gives every track its first listen before repeating any. Set solely by the audition playlist play paths;
     // setSoleFilter clears it, so it can never leak from an audition session into an ordinary playlist.
@@ -50,8 +50,8 @@ export class SongFilters {
         songFilters.localOnly = localOnly;
         songFilters.whitelists = normalizeWhitelist(genreJam.whitelists);
         songFilters.blacklists = normalizeWhitelist(genreJam.blacklists);
-        songFilters.energyMin = genreJam.energyMin ?? null;
-        songFilters.energyMax = genreJam.energyMax ?? null;
+        songFilters.heavinessMin = genreJam.heavinessMin ?? null;
+        songFilters.heavinessMax = genreJam.heavinessMax ?? null;
 
         return songFilters;
     }
@@ -94,7 +94,7 @@ export class SongFilters {
     }
 
     hasAnyFilter(): boolean {
-        return this.localOnly || this.hasAnyWhitelistFilter() || this.hasAnyBlacklistFilter() || this.energyMin != null || this.energyMax != null;
+        return this.localOnly || this.hasAnyWhitelistFilter() || this.hasAnyBlacklistFilter() || this.heavinessMin != null || this.heavinessMax != null;
     }
 
     hasAnyWhitelistFilter(): boolean {

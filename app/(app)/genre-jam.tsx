@@ -41,7 +41,7 @@ function emptyWhitelist(): WhitelistSetting {
 }
 
 // The reworked Genre Jam builder/editor. An empty jam already means "whole library, minus dislikes, leaning to
-// loved". Filters narrow it: Mood (chips), Heaviness (a 3-wide band over the 1-10 AI score, stored as energyMin/energyMax), and per-category
+// loved". Filters narrow it: Mood (chips), Heaviness (a 3-wide band over the 1-10 AI score, stored as heavinessMin/heavinessMax), and per-category
 // Include/Exclude. Jams are nameable + savable. Passing ?id loads an existing jam for editing instead.
 export default function GenreJamEditor() {
     const theme = useTheme();
@@ -67,8 +67,8 @@ export default function GenreJamEditor() {
         languages: false,
         playlists: false,
     });
-    const [energyEnabled, setEnergyEnabled] = useState(false);
-    const [energyStart, setEnergyStart] = useState(4); // band start; band = [energyStart, energyStart + 2]
+    const [heavinessEnabled, setHeavinessEnabled] = useState(false);
+    const [heavinessStart, setHeavinessStart] = useState(4); // band start; band = [heavinessStart, heavinessStart + 2]
     const [jamName, setJamName] = useState("");
     const [saved, setSaved] = useState(false);
 
@@ -120,9 +120,9 @@ export default function GenreJamEditor() {
 
             if (editing) {
                 setJamName(editing.name);
-                if (editing.energyMin != null) {
-                    setEnergyEnabled(true);
-                    setEnergyStart(editing.energyMin);
+                if (editing.heavinessMin != null) {
+                    setHeavinessEnabled(true);
+                    setHeavinessStart(editing.heavinessMin);
                 }
             }
         })();
@@ -163,8 +163,8 @@ export default function GenreJamEditor() {
             name,
             whitelists,
             blacklists,
-            energyMin: energyEnabled ? energyStart : null,
-            energyMax: energyEnabled ? energyStart + 2 : null,
+            heavinessMin: heavinessEnabled ? heavinessStart : null,
+            heavinessMax: heavinessEnabled ? heavinessStart + 2 : null,
         };
     };
 
@@ -244,15 +244,15 @@ export default function GenreJamEditor() {
                     </>
                 )}
 
-                <SectionHeader title="Heaviness" actionLabel={energyEnabled ? "On" : "Off"} onAction={() => setEnergyEnabled((v) => !v)} />
-                {energyEnabled ? (
+                <SectionHeader title="Heaviness" actionLabel={heavinessEnabled ? "On" : "Off"} onAction={() => setHeavinessEnabled((v) => !v)} />
+                {heavinessEnabled ? (
                     <>
                         <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: theme.space.xs }}>
                             <Text variant="caption" color="textFaint">
                                 Soft
                             </Text>
                             <Text variant="caption" color="accent">
-                                Heaviness {energyStart}–{energyStart + 2}
+                                Heaviness {heavinessStart}–{heavinessStart + 2}
                             </Text>
                             <Text variant="caption" color="textFaint">
                                 Heavy
@@ -262,8 +262,8 @@ export default function GenreJamEditor() {
                             minimumValue={1}
                             maximumValue={8}
                             step={1}
-                            value={energyStart}
-                            onValueChange={setEnergyStart}
+                            value={heavinessStart}
+                            onValueChange={setHeavinessStart}
                             minimumTrackTintColor={theme.color.accent}
                             maximumTrackTintColor={theme.color.line}
                             thumbTintColor={theme.color.accent}

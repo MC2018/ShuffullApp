@@ -125,11 +125,11 @@
   .moods{display:flex;flex-wrap:wrap;gap:9px}
   .mood{font-family:var(--serif);font-size:16px;font-weight:600;padding:7px 15px;border:1px solid var(--line);border-radius:3px;color:var(--muted)}
   .mood.on{background:var(--gold);color:#1a140a;border-color:transparent}
-  .energy{margin-top:6px}
-  .energy .lab{display:flex;justify-content:space-between;font-size:10.5px;letter-spacing:.08em;color:var(--faint);margin-bottom:10px}
-  .energy .track{height:2px;background:rgba(224,177,94,.18);position:relative}
-  .energy .track i{position:absolute;left:0;height:100%;width:60%;background:var(--gold)}
-  .energy .track i::after{content:"";position:absolute;right:-7px;top:50%;transform:translateY(-50%);width:14px;height:14px;border-radius:50%;background:var(--gold)}
+  .heaviness{margin-top:6px}
+  .heaviness .lab{display:flex;justify-content:space-between;font-size:10.5px;letter-spacing:.08em;color:var(--faint);margin-bottom:10px}
+  .heaviness .track{height:2px;background:rgba(224,177,94,.18);position:relative}
+  .heaviness .track i{position:absolute;left:0;height:100%;width:60%;background:var(--gold)}
+  .heaviness .track i::after{content:"";position:absolute;right:-7px;top:50%;transform:translateY(-50%);width:14px;height:14px;border-radius:50%;background:var(--gold)}
   .inc-row{display:flex;align-items:center;justify-content:space-between;padding:13px 0;border-bottom:1px solid var(--line)}
   .inc-row .l{font-family:var(--serif);font-size:18px;font-weight:600}
   .inc-row .l small{display:block;font-family:var(--sans);color:var(--faint);font-size:11px;font-weight:400;margin-top:3px;letter-spacing:.03em}
@@ -251,8 +251,8 @@
           <div class="field-h">Mood</div>
           <div class="moods"><span class="mood on">Chill</span><span class="mood">Driving</span><span class="mood on">Dreamy</span><span class="mood">Wistful</span><span class="mood">Bright</span></div>
 
-          <div class="field-h">Energy</div>
-          <div class="energy"><div class="lab"><span>MELLOW</span><span>DRIVING</span></div><div class="track"><i></i></div></div>
+          <div class="field-h">Heaviness</div>
+          <div class="heaviness"><div class="lab"><span>MELLOW</span><span>DRIVING</span></div><div class="track"><i></i></div></div>
 
           <div class="field-h">Include &amp; Exclude</div>
           <div class="inc-row"><div class="l">Genres<small>Synthwave, Indie · excluding Country</small></div><div class="pillset"><span class="mini-pill inc">2 in</span><span class="mini-pill exc">1 out</span></div></div>

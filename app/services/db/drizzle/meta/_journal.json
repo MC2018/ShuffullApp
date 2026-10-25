@@ -218,6 +218,13 @@
       "when": 1792334482737,
       "tag": "0030_add_dead_letter_requests",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "6",
+      "when": 1792923987904,
+      "tag": "0031_rename_energy_to_heaviness",
+      "breakpoints": true
     }
   ]
 }

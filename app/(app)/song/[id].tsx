@@ -53,7 +53,7 @@ export default function SongScreen() {
     const [saving, setSaving] = useState(false);
     const [editName, setEditName] = useState("");
     const [editBpm, setEditBpm] = useState("");
-    const [editEnergy, setEditEnergy] = useState("");
+    const [editHeaviness, setEditHeaviness] = useState("");
     const [editArtists, setEditArtists] = useState<string[]>([]);
     const [editTags, setEditTags] = useState<{ name: string; type: TagType }[]>([]);
     const [tagDrafts, setTagDrafts] = useState<Record<number, string>>({});
@@ -112,7 +112,7 @@ export default function SongScreen() {
         }
         setEditName(details.song.name);
         setEditBpm(details.song.bpm != null ? String(details.song.bpm) : "");
-        setEditEnergy(details.song.energy != null ? String(details.song.energy) : "");
+        setEditHeaviness(details.song.heaviness != null ? String(details.song.heaviness) : "");
         setEditArtists(details.artists.map((a) => a.name));
         setEditTags(tags.map((t) => ({ name: t.name, type: t.type })));
         setTagDrafts({});
@@ -157,14 +157,14 @@ export default function SongScreen() {
             bpm = parsed;
         }
 
-        let energy: number | null = null;
-        if (editEnergy.trim().length > 0) {
-            const parsed = Number(editEnergy);
+        let heaviness: number | null = null;
+        if (editHeaviness.trim().length > 0) {
+            const parsed = Number(editHeaviness);
             if (!Number.isInteger(parsed) || parsed < 1 || parsed > 10) {
                 showAlert("Invalid heaviness", "Heaviness must be a whole number between 1 and 10.");
                 return;
             }
-            energy = parsed;
+            heaviness = parsed;
         }
 
         const artists = editArtists.map((a) => a.trim()).filter((a) => a.length > 0);
@@ -172,7 +172,7 @@ export default function SongScreen() {
             .map((t) => ({ name: t.name.trim(), type: t.type }))
             .filter((t) => t.name.length > 0);
 
-        const payload: UpdateSongMetadataPayload = { name, bpm, energy, artists, tags: cleanedTags };
+        const payload: UpdateSongMetadataPayload = { name, bpm, heaviness, artists, tags: cleanedTags };
 
         setSaving(true);
         try {
@@ -245,7 +245,7 @@ export default function SongScreen() {
         { label: "Released", value: eras.join(", ") || "—" },
         { label: "Language", value: languages.join(", ") || "—" },
         { label: "BPM", value: details.song.bpm != null ? String(details.song.bpm) : "—" },
-        { label: "Heaviness", value: details.song.energy != null ? `${details.song.energy}/10` : "—" },
+        { label: "Heaviness", value: details.song.heaviness != null ? `${details.song.heaviness}/10` : "—" },
         { label: "Lyrics", value: details.song.syncedLyrics ? "Synced" : details.song.plainLyrics ? "Plain" : "None" },
     ];
 
@@ -266,8 +266,8 @@ export default function SongScreen() {
                             onBpm={setEditBpm}
                             onBpmTap={handleBpmTap}
                             tapCount={bpmTaps.length}
-                            energy={editEnergy}
-                            onEnergy={setEditEnergy}
+                            heaviness={editHeaviness}
+                            onHeaviness={setEditHeaviness}
                             artists={editArtists}
                             onAddArtist={addArtist}
                             onArtistAt={setArtistAt}
@@ -402,8 +402,8 @@ interface EditFormProps {
     onBpm: (v: string) => void;
     onBpmTap: () => void;
     tapCount: number;
-    energy: string;
-    onEnergy: (v: string) => void;
+    heaviness: string;
+    onHeaviness: (v: string) => void;
     artists: string[];
     onAddArtist: () => void;
     onArtistAt: (index: number, value: string) => void;
@@ -456,7 +456,7 @@ function EditForm(props: EditFormProps) {
                 </View>
                 <View style={{ flex: 1 }}>
                     <Field label="Heaviness (1-10)">
-                        <TextField value={props.energy} onChangeText={props.onEnergy} placeholder="—" keyboardType="number-pad" />
+                        <TextField value={props.heaviness} onChangeText={props.onHeaviness} placeholder="—" keyboardType="number-pad" />
                     </Field>
                 </View>
             </View>

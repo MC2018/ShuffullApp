@@ -15,7 +15,7 @@ function makeDb(): GenericDb {
         CREATE TABLE songs (
             song_id TEXT PRIMARY KEY, file_extension TEXT NOT NULL, file_hash TEXT NOT NULL, name TEXT NOT NULL,
             synced_lyrics TEXT, plain_lyrics TEXT, lyrics_instrumental INTEGER NOT NULL DEFAULT 0,
-            lyrics_source TEXT, bpm INTEGER, energy INTEGER, exploratory INTEGER NOT NULL DEFAULT 0,
+            lyrics_source TEXT, bpm INTEGER, heaviness INTEGER, exploratory INTEGER NOT NULL DEFAULT 0,
             tags_stale INTEGER NOT NULL DEFAULT 0
         );
         CREATE TABLE artists ( artist_id TEXT PRIMARY KEY, name TEXT NOT NULL );
@@ -26,17 +26,17 @@ function makeDb(): GenericDb {
     return drizzle(sqlite) as unknown as GenericDb;
 }
 
-function song(id: string, name = `Song ${id}`, bpm: number | null = 120, energy: number | null = 5): Song {
+function song(id: string, name = `Song ${id}`, bpm: number | null = 120, heaviness: number | null = 5): Song {
     return {
         songId: id, fileExtension: "mp3", fileHash: `hash-${id}`, name,
-        syncedLyrics: null, plainLyrics: null, lyricsInstrumental: false, lyricsSource: null, bpm, energy,
+        syncedLyrics: null, plainLyrics: null, lyricsInstrumental: false, lyricsSource: null, bpm, heaviness,
         exploratory: false,
         tagsStale: false,
     };
 }
 
 function payload(over: Partial<UpdateSongMetadataPayload> = {}): UpdateSongMetadataPayload {
-    return { name: "Edited", bpm: 140, energy: 8, artists: [], tags: [], ...over };
+    return { name: "Edited", bpm: 140, heaviness: 8, artists: [], tags: [], ...over };
 }
 
 async function artistNames(db: GenericDb, songId: string): Promise<string[]> {
@@ -66,18 +66,18 @@ describe("applySongMetadataEdit (optimistic local apply)", () => {
     });
 
     it("updates scalar fields", async () => {
-        await applySongMetadataEdit(db, "s1", payload({ name: "New Title", bpm: 90, energy: 3 }));
+        await applySongMetadataEdit(db, "s1", payload({ name: "New Title", bpm: 90, heaviness: 3 }));
         const s = await db.select().from(songTable).where(eq(songTable.songId, "s1"));
         expect(s[0].name).toBe("New Title");
         expect(s[0].bpm).toBe(90);
-        expect(s[0].energy).toBe(3);
+        expect(s[0].heaviness).toBe(3);
     });
 
-    it("clears scalar bpm/energy when null", async () => {
-        await applySongMetadataEdit(db, "s1", payload({ bpm: null, energy: null }));
+    it("clears scalar bpm/heaviness when null", async () => {
+        await applySongMetadataEdit(db, "s1", payload({ bpm: null, heaviness: null }));
         const s = await db.select().from(songTable).where(eq(songTable.songId, "s1"));
         expect(s[0].bpm).toBeNull();
-        expect(s[0].energy).toBeNull();
+        expect(s[0].heaviness).toBeNull();
     });
 
     it("rewrites artists (reuses by name, creates new, drops removed)", async () => {

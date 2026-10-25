@@ -25,7 +25,7 @@ function makeDb(): GenericDb {
             lyrics_instrumental INTEGER NOT NULL DEFAULT 0,
             lyrics_source TEXT,
             bpm INTEGER,
-            energy INTEGER,
+            heaviness INTEGER,
             exploratory INTEGER NOT NULL DEFAULT 0,
             tags_stale INTEGER NOT NULL DEFAULT 0
         );
@@ -181,46 +181,46 @@ describe("scoped next-song pool", () => {
     });
 
     /**
-     * An unrated song cannot be shown to fall inside a requested energy band, so it must not match one. The
-     * original condition led with `s.energy IS NULL OR ...`, which short-circuited the band entirely: an energy
+     * An unrated song cannot be shown to fall inside a requested heaviness band, so it must not match one. The
+     * original condition led with `s.heaviness IS NULL OR ...`, which short-circuited the band entirely: a heaviness
      * jam admitted every untagged song, and because those sort first under ORDER BY last_played ASC the 500-row
-     * pool ended up holding nothing but unknown-energy songs.
+     * pool ended up holding nothing but unknown-heaviness songs.
      */
-    describe("energy band", () => {
+    describe("heaviness band", () => {
         beforeEach(() => {
-            // s1..s3 from makeDb have no energy; these two are the only rated songs.
+            // s1..s3 from makeDb have no heaviness; these two are the only rated songs.
             (db as any).$client.exec(`
-                INSERT INTO songs (song_id, file_extension, file_hash, name, energy) VALUES
-                    ('e5','mp3','h5','Energy Five',5),
-                    ('e9','mp3','h9','Energy Nine',9)`);
+                INSERT INTO songs (song_id, file_extension, file_hash, name, heaviness) VALUES
+                    ('e5','mp3','h5','Heaviness Five',5),
+                    ('e9','mp3','h9','Heaviness Nine',9)`);
         });
 
-        it("excludes unknown-energy songs once a band is set", async () => {
+        it("excludes unknown-heaviness songs once a band is set", async () => {
             const filters = new SongFilters();
-            filters.energyMin = 4;
-            filters.energyMax = 6;
+            filters.heavinessMin = 4;
+            filters.heavinessMax = 6;
 
             const pool = await getFilteredSong(db, filters);
             expect(pool.map((x) => x.songId)).toEqual(["e5"]);
         });
 
-        it("excludes unknown-energy songs when only a lower bound is set", async () => {
+        it("excludes unknown-heaviness songs when only a lower bound is set", async () => {
             const filters = new SongFilters();
-            filters.energyMin = 4;
+            filters.heavinessMin = 4;
 
             const pool = await getFilteredSong(db, filters);
             expect(pool.map((x) => x.songId).sort()).toEqual(["e5", "e9"]);
         });
 
-        it("excludes unknown-energy songs when only an upper bound is set", async () => {
+        it("excludes unknown-heaviness songs when only an upper bound is set", async () => {
             const filters = new SongFilters();
-            filters.energyMax = 6;
+            filters.heavinessMax = 6;
 
             const pool = await getFilteredSong(db, filters);
             expect(pool.map((x) => x.songId)).toEqual(["e5"]);
         });
 
-        it("keeps unknown-energy songs eligible while no bound is set", async () => {
+        it("keeps unknown-heaviness songs eligible while no bound is set", async () => {
             const filters = new SongFilters();
 
             const pool = await getFilteredSong(db, filters);
@@ -236,7 +236,7 @@ describe("scoped next-song pool", () => {
     describe("audition songs outside their cohort", () => {
         beforeEach(() => {
             (db as any).$client.exec(`
-                INSERT INTO songs (song_id, file_extension, file_hash, name, exploratory, energy)
+                INSERT INTO songs (song_id, file_extension, file_hash, name, exploratory, heaviness)
                     VALUES ('x1','mp3','hx','Audition Track',1,5);
                 INSERT INTO playlist_songs (playlist_song_id, playlist_id, song_id) VALUES ('psx','pl-x','x1');
                 INSERT INTO song_tags (song_tag_id, song_id, tag_id) VALUES ('stx','x1','g1')`);
@@ -255,10 +255,10 @@ describe("scoped next-song pool", () => {
             expect(pool.map((x) => x.songId)).not.toContain("x1");
         });
 
-        it("are excluded from an energy band they would otherwise match", async () => {
+        it("are excluded from a heaviness band they would otherwise match", async () => {
             const filters = new SongFilters();
-            filters.energyMin = 4;
-            filters.energyMax = 6;
+            filters.heavinessMin = 4;
+            filters.heavinessMax = 6;
 
             const pool = await getFilteredSong(db, filters);
             expect(pool.map((x) => x.songId)).not.toContain("x1");

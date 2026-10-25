@@ -28,8 +28,8 @@ export async function updateGenreJam(db: GenericDb, genreJam: GenreJam): Promise
             name: genreJam.name,
             whitelists: genreJam.whitelists,
             blacklists: genreJam.blacklists,
-            energyMin: genreJam.energyMin,
-            energyMax: genreJam.energyMax,
+            heavinessMin: genreJam.heavinessMin,
+            heavinessMax: genreJam.heavinessMax,
         })
         .where(eq(genreJamTable.genreJamId, genreJam.genreJamId));
 }
