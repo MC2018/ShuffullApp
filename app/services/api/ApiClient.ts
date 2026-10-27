@@ -1,4 +1,4 @@
-import axios, { AxiosInstance } from "axios";
+import axios, { AxiosHeaders, AxiosInstance } from "axios";
 import { AuthenticateResponse, AuthenticateResponseSchema, ChangedSongPageSchema, CreatePlaylistResponseSchema, KeepResponse, KeepResponseSchema, Playlist, PlaylistListResponseSchema, RetagResponse, RetagStaleResponse, SongListResponseSchema, SongRetagWireItem, Tag, TagListResponseSchema, UserResponseSchema, UserSongPageSchema } from "./models";
 import { ApiStatusFailureError } from "./errors";
 import { UpdateSongLastPlayedRequest, UpdateSongMetadataPayload } from "../db/models";
@@ -17,6 +17,7 @@ export class ApiClient {
             // real status and wedged the outbox, because a 500 aborts the whole sync while a 4xx/401 does not.
             validateStatus: () => true
         });
+        this.client.interceptors.response.use(undefined, redactCredentials);
         this.updateAuthHeader(token);
         this.url = url;
     }
@@ -44,7 +45,7 @@ export class ApiClient {
             console.log(`[API] Endpoint ${endpoint} succeeded`);
             return AuthenticateResponseSchema.parse(response.data);
         } catch (error) {
-            console.log(`[API] Endpoint ${endpoint} failed with error: ${describeCredentialFailure(error)}`);
+            console.log(`[API] Endpoint ${endpoint} failed with error:`, error);
             throw error;
         }
     }
@@ -66,7 +67,7 @@ export class ApiClient {
             // successful registration can log the user straight in.
             return AuthenticateResponseSchema.parse(response.data);
         } catch (error) {
-            console.log(`[API] Endpoint ${endpoint} failed with error: ${describeCredentialFailure(error)}`);
+            console.log(`[API] Endpoint ${endpoint} failed with error:`, error);
             throw error;
         }
     }
@@ -483,8 +484,18 @@ export class ApiClient {
 function isSuccessfulStatus(status: number) {
     return 200 <= status && status < 300;
 }
-// A failed login or sign-up is logged by its message only. Logging the error object itself prints an AxiosError's
-// request config, body included, so the credential would land in logcat.
-function describeCredentialFailure(error: unknown) {
-    return error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+
+// A request that fails without an answer (offline, timeout) rejects with an AxiosError that carries its request
+// config: the Authorization header, and for login and sign-up the password hash in the body. Callers log these
+// errors whole, so both are stripped before the error leaves the client.
+function redactCredentials(error: unknown) {
+    if (axios.isAxiosError(error)) {
+        if (error.config) {
+            const headers = AxiosHeaders.from(error.config.headers);
+            headers.delete("Authorization");
+            error.config = { ...error.config, headers, data: undefined };
+        }
+        error.request = undefined;
+    }
+    return Promise.reject(error);
 }
