@@ -33,7 +33,8 @@ export class ApiClient {
         const endpoint = "/api/v1/users/authenticate";
         console.log(`[API] Calling endpoint: ${endpoint}`);
         try {
-            const response = await this.client.post(`${endpoint}?username=${username}&userHash=${userHash}`);
+            // In the body, never the URL: the hash is all it takes to log in, and URLs end up in proxy logs.
+            const response = await this.client.post(endpoint, { username, userHash });
 
             if (!isSuccessfulStatus(response.status)) {
                 console.log(`[API] Endpoint ${endpoint} failed with status: ${response.status}`);
@@ -43,7 +44,7 @@ export class ApiClient {
             console.log(`[API] Endpoint ${endpoint} succeeded`);
             return AuthenticateResponseSchema.parse(response.data);
         } catch (error) {
-            console.log(`[API] Endpoint ${endpoint} failed with error:`, error);
+            console.log(`[API] Endpoint ${endpoint} failed with error: ${describeCredentialFailure(error)}`);
             throw error;
         }
     }
@@ -52,7 +53,8 @@ export class ApiClient {
         const endpoint = "/api/v1/users";
         console.log(`[API] Calling endpoint: ${endpoint}`);
         try {
-            const response = await this.client.post(`${endpoint}?username=${username}&userHash=${userHash}`);
+            // In the body, never the URL: the hash is all it takes to log in, and URLs end up in proxy logs.
+            const response = await this.client.post(endpoint, { username, userHash });
 
             if (!isSuccessfulStatus(response.status)) {
                 console.log(`[API] Endpoint ${endpoint} failed with status: ${response.status}`);
@@ -64,7 +66,7 @@ export class ApiClient {
             // successful registration can log the user straight in.
             return AuthenticateResponseSchema.parse(response.data);
         } catch (error) {
-            console.log(`[API] Endpoint ${endpoint} failed with error:`, error);
+            console.log(`[API] Endpoint ${endpoint} failed with error: ${describeCredentialFailure(error)}`);
             throw error;
         }
     }
@@ -480,4 +482,9 @@ export class ApiClient {
 
 function isSuccessfulStatus(status: number) {
     return 200 <= status && status < 300;
+}
+// A failed login or sign-up is logged by its message only. Logging the error object itself prints an AxiosError's
+// request config, body included, so the credential would land in logcat.
+function describeCredentialFailure(error: unknown) {
+    return error instanceof Error ? `${error.name}: ${error.message}` : String(error);
 }
