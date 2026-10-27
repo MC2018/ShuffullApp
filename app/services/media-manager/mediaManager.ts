@@ -54,9 +54,10 @@ let networkRecoverySubscribed = false;
 // play, pause, skip, previous and every other track change run one at a time through this (ShuffullApp#22). Each
 // reads the current song and playback state, then awaits the database and the player several times before it
 // writes; two at once interleave at every await. Two quick skips both read the same current song and both rewrite
-// the recently-played rows, and a pause during a skip is undone when that skip starts the next track. The
-// exported functions take the lock; code already holding it calls the `...Locked` bodies, since it isn't
-// re-entrant.
+// the recently-played rows, and a pause during a skip is undone when that skip starts the next track. Every
+// transport call returns once playback is REQUESTED (native RNTP, and the web shim's requestPlay), so nothing
+// holds the lock while a stream buffers. The exported functions take the lock; code already holding it calls the
+// `...Locked` bodies, since it isn't re-entrant.
 const transportLock = createSerialLock({ name: "player" });
 
 interface ActiveSongState {
@@ -82,17 +83,21 @@ export async function getSongFilters(): Promise<SongFilters> {
 
 export async function setSongFilters(songFilters: SongFilters, clearAndPlay: boolean = false): Promise<void> {
     if (!clearAndPlay) {
-        await AsyncStorage.setItem(STORAGE_KEYS.CURRENT_SONG_FILTERS, JSON.stringify(songFilters));
+        await saveSongFilters(songFilters);
         return;
     }
 
     // A new scope is a track change. Inside the lock, so a skip still running can't pick its song from the new
     // scope and then have it cleared away from under it.
     await transportLock.run(async () => {
-        await AsyncStorage.setItem(STORAGE_KEYS.CURRENT_SONG_FILTERS, JSON.stringify(songFilters));
+        await saveSongFilters(songFilters);
         await clear();
         await playLocked();
     });
+}
+
+async function saveSongFilters(songFilters: SongFilters) {
+    await AsyncStorage.setItem(STORAGE_KEYS.CURRENT_SONG_FILTERS, JSON.stringify(songFilters));
 }
 
 export const useActiveSong = create<ActiveSongState>((set) => ({
@@ -297,7 +302,7 @@ async function setupEventListeners() {
             return;
         }
 
-        await skip();
+        await skipFrom(useActiveSong.getState().songId);
     });
     // A track that FAILS to load lands in State.Error, not State.Ended, so the handler above never fires and
     // playback just stops dead with nothing logged -- which is how a song deleted server-side, a dropped
@@ -581,7 +586,7 @@ async function playSpecificSongLocked(songId: string, scope?: SongFilters) {
     // Deliberately NOT setSongFilters(..., clearAndPlay: true): that starts a RANDOM song from the new scope,
     // which would race the song the user actually tapped. Set the scope, reset the queue/history to it, then
     // start the chosen song.
-    await setSongFilters(scope ?? new SongFilters());
+    await saveSongFilters(scope ?? new SongFilters());
     await clear();
     await startNewSong(songId);
 }
@@ -636,6 +641,22 @@ async function pauseLocked() {
  */
 export function skip(): Promise<void> {
     return transportLock.run(skipLocked);
+}
+
+/**
+ * Skips off `songId` only if it is still the current song once the lock is free. For skips the player decides on
+ * (a song ending, a dislike): their reason applies to the song that was current when they were decided. Queued
+ * behind a user's skip, a plain skip() would move straight off the song the user had just picked, and stamp it
+ * as played.
+ */
+function skipFrom(songId: string | undefined): Promise<void> {
+    return transportLock.run(async () => {
+        if (useActiveSong.getState().songId !== songId) {
+            return;
+        }
+
+        await skipLocked();
+    });
 }
 
 async function skipLocked() {
@@ -864,7 +885,7 @@ export async function applyLikeStatus(songId: string, likeStatus: LikeStatus) {
     const playbackState = (await getPlaybackState()).state;
     const isPlaying = playbackState === State.Playing || playbackState === State.Buffering || playbackState === State.Loading;
     if (shouldSkipOnDislike(isActiveSong, likeStatus, isPlaying)) {
-        await skip();
+        await skipFrom(songId);
     }
 }
 

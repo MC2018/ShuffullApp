@@ -244,6 +244,22 @@ function el(): HTMLAudioElement {
     return audio;
 }
 
+/**
+ * Asks the element to play and returns at once, as native RNTP does: its play() resolves once the request is
+ * queued, not once audio starts. Awaiting the element's promise kept mediaManager's transport lock held for as
+ * long as the stream buffered, so pause and skip went dead on a slow connection (ShuffullApp#22).
+ *
+ * A refusal is still State.Error, except AbortError: that is a pause() or a new src interrupting this request,
+ * and the element's own `pause` event has already reported the state.
+ */
+function requestPlay(a: HTMLAudioElement) {
+    a.play().catch((e: unknown) => {
+        if ((e as { name?: string })?.name !== "AbortError") {
+            setState(State.Error);
+        }
+    });
+}
+
 async function load(index: number, autoplay: boolean) {
     const track = queue[index];
     if (!track) return;
@@ -256,7 +272,7 @@ async function load(index: number, autoplay: boolean) {
     // A rejected play() is deliberately NOT reported as a playback error: it means the browser refused the
     // gesture (autoplay policy), not that the source failed. A source that genuinely fails also fires the
     // element's `error` event, which is where PlaybackError comes from.
-    if (autoplay) await a.play().catch(() => setState(State.Error));
+    if (autoplay) requestPlay(a);
 }
 
 const TrackPlayer = {
@@ -327,7 +343,7 @@ const TrackPlayer = {
 
     async play() {
         if (activeIndex === -1 && queue.length > 0) return load(0, true);
-        await el().play().catch(() => setState(State.Error));
+        requestPlay(el());
     },
     async pause() { el().pause(); },
 
@@ -358,7 +374,7 @@ const TrackPlayer = {
             a.addEventListener("loadedmetadata", restore);
         }
 
-        await a.play().catch(() => setState(State.Error));
+        requestPlay(a);
     },
     /**
      * Does NOT emit Event.RemoteSeek. In RNTP the Remote* events are INPUT - "the OS/lock-screen asked us to

@@ -1,11 +1,6 @@
 /**
- * Runs async tasks one at a time, in the order they were requested.
- *
- * Built for the media manager's transport controls (ShuffullApp#22). play, pause, skip and previous each read
- * state, await the database and the player several times, then write. Two of them overlapping interleave at
- * every await: two fast skip taps both read the same current song and both rewrite the recently-played rows,
- * and a pause landing while a skip is loading the next track is undone by that skip's own play(). Running them
- * in sequence means each one starts from the state the previous one left.
+ * Runs async tasks one at a time, in the order they were requested, each starting from the state the previous
+ * one left. A task that fails rejects only its own caller; the ones behind it still run.
  *
  * NOT re-entrant: a task that calls `run` on its own lock waits for itself until the hold limit. Code already
  * inside the lock calls the unlocked implementation instead.
@@ -15,12 +10,10 @@
  */
 
 /**
- * How long a task may hold the lock before the next one stops waiting for it. Every transport action is a few
- * local reads and writes plus native calls that return once the work is queued, so a holder this slow is stuck,
- * not busy. Without a limit, one native call that never settles would leave every control dead until the app
- * restarts, which is worse than the race the lock prevents.
+ * How long a task may hold the lock before the next one stops waiting for it. A task this slow is stuck, not
+ * busy. Without a limit, one call that never settles would block every task behind it for good.
  */
-export const DEFAULT_MAX_HOLD_MS = 15_000;
+const DEFAULT_MAX_HOLD_MS = 15_000;
 
 export interface SerialLock {
     run<T>(task: () => Promise<T>): Promise<T>;
