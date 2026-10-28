@@ -19,8 +19,9 @@ import {
     decidePlaybackRecovery,
     PlaybackErrorLike,
 } from "../../tools/playbackFailure";
+import { Platform } from "react-native";
 import { createSerialLock } from "../../tools/serialLock";
-import { PLAYER_SETUP_OPTIONS } from "../../tools/playerSetup";
+import { playerSetupOptions } from "../../tools/playerSetup";
 
 let queue: string[] = [];
 let db: GenericDb;
@@ -252,7 +253,7 @@ async function initTrackPlayer() {
         await TrackPlayer.getActiveTrack(); // error if not set up
     } catch {
         TrackPlayer.registerPlaybackService(() => setupEventListeners);
-        await TrackPlayer.setupPlayer(PLAYER_SETUP_OPTIONS); // TODO: ensure safety for this to be run when app is in foreground
+        await TrackPlayer.setupPlayer(playerSetupOptions(Platform.OS)); // TODO: ensure safety for this to be run when app is in foreground
         // Start with both buttons in the neutral (outline) state; refreshed once a song becomes active.
         await TrackPlayer.updateOptions(buildPlayerOptions(LikeStatus.Neutral));
     }
