@@ -127,7 +127,15 @@ export default function NowPlayingScreen() {
     return (
         <Screen>
             <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: theme.space.sm }}>
-                <IconButton name="chevron-down" size={26} color={theme.color.textMuted} onPress={() => router.back()} accessibilityLabel="Close" />
+                {/* With lyrics open, the chevron steps back to the art view (same as "Hide lyrics") rather
+                    than closing the player outright. */}
+                <IconButton
+                    name="chevron-down"
+                    size={26}
+                    color={theme.color.textMuted}
+                    onPress={showLyrics ? toggleLyrics : () => router.back()}
+                    accessibilityLabel={showLyrics ? "Hide lyrics" : "Close"}
+                />
                 {/* Deliberately the SAME slot as "Now Playing" rather than a banner of its own: this screen
                     reserves layout instead of mounting and unmounting, so that anything appearing cannot
                     shift the art and title. */}
