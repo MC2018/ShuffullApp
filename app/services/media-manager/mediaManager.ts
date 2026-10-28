@@ -19,6 +19,7 @@ import {
     decidePlaybackRecovery,
     PlaybackErrorLike,
 } from "../../tools/playbackFailure";
+import { createSerialLock } from "../../tools/serialLock";
 
 let queue: string[] = [];
 let db: GenericDb;
@@ -50,6 +51,14 @@ let stalledSongId: string | undefined;
 let recoveryEpoch = 0;
 let retryTimer: ReturnType<typeof setTimeout> | undefined;
 let networkRecoverySubscribed = false;
+// play, pause, skip, previous and every other track change run one at a time through this (ShuffullApp#22). Each
+// reads the current song and playback state, then awaits the database and the player several times before it
+// writes; two at once interleave at every await. Two quick skips both read the same current song and both rewrite
+// the recently-played rows, and a pause during a skip is undone when that skip starts the next track. Every
+// transport call returns once playback is REQUESTED (native RNTP, and the web shim's requestPlay), so nothing
+// holds the lock while a stream buffers. The exported functions take the lock; code already holding it calls the
+// `...Locked` bodies, since it isn't re-entrant.
+const transportLock = createSerialLock({ name: "player" });
 
 interface ActiveSongState {
     songId: string | undefined;
@@ -73,12 +82,22 @@ export async function getSongFilters(): Promise<SongFilters> {
 }
 
 export async function setSongFilters(songFilters: SongFilters, clearAndPlay: boolean = false): Promise<void> {
-    await AsyncStorage.setItem(STORAGE_KEYS.CURRENT_SONG_FILTERS, JSON.stringify(songFilters));
-
-    if (clearAndPlay) {
-        await clear();
-        await play();
+    if (!clearAndPlay) {
+        await saveSongFilters(songFilters);
+        return;
     }
+
+    // A new scope is a track change. Inside the lock, so a skip still running can't pick its song from the new
+    // scope and then have it cleared away from under it.
+    await transportLock.run(async () => {
+        await saveSongFilters(songFilters);
+        await clear();
+        await playLocked();
+    });
+}
+
+async function saveSongFilters(songFilters: SongFilters) {
+    await AsyncStorage.setItem(STORAGE_KEYS.CURRENT_SONG_FILTERS, JSON.stringify(songFilters));
 }
 
 export const useActiveSong = create<ActiveSongState>((set) => ({
@@ -283,7 +302,7 @@ async function setupEventListeners() {
             return;
         }
 
-        await skip();
+        await skipFrom(useActiveSong.getState().songId);
     });
     // A track that FAILS to load lands in State.Error, not State.Ended, so the handler above never fires and
     // playback just stops dead with nothing logged -- which is how a song deleted server-side, a dropped
@@ -492,7 +511,11 @@ function beginUserInitiatedPlayback() {
     clearStall();
 }
 
-export async function play() {
+export function play(): Promise<void> {
+    return transportLock.run(playLocked);
+}
+
+async function playLocked() {
     beginUserInitiatedPlayback();
     const playbackState = (await getPlaybackState()).state;
 
@@ -528,10 +551,10 @@ export async function play() {
         if (currentlyPlayingSong != null) {
             await startNewSong(currentlyPlayingSong.songId, currentlyPlayingSong);
         } else {
-            await skip();
+            await skipLocked();
         }
     } else {
-        await skip();
+        await skipLocked();
     }
 }
 
@@ -544,14 +567,18 @@ export async function play() {
  * gets the next song from that same list. Previously this ALWAYS cleared the filters, so tapping any song
  * anywhere played exactly that song and then stopped dead.
  */
-export async function playSpecificSong(songId: string, scope?: SongFilters) {
+export function playSpecificSong(songId: string, scope?: SongFilters): Promise<void> {
+    return transportLock.run(() => playSpecificSongLocked(songId, scope));
+}
+
+async function playSpecificSongLocked(songId: string, scope?: SongFilters) {
     beginUserInitiatedPlayback();
 
     // Activating the song that's already current must never restart it: resume if paused, otherwise leave it
     // playing (don't disturb the existing queue/scope). A different song plays fresh from the start.
     if (useActiveSong.getState().songId === songId) {
         if ((await getPlaybackState()).state !== State.Playing) {
-            await play();
+            await playLocked();
         }
         return;
     }
@@ -559,7 +586,7 @@ export async function playSpecificSong(songId: string, scope?: SongFilters) {
     // Deliberately NOT setSongFilters(..., clearAndPlay: true): that starts a RANDOM song from the new scope,
     // which would race the song the user actually tapped. Set the scope, reset the queue/history to it, then
     // start the chosen song.
-    await setSongFilters(scope ?? new SongFilters());
+    await saveSongFilters(scope ?? new SongFilters());
     await clear();
     await startNewSong(songId);
 }
@@ -581,17 +608,25 @@ export function useIsPlaybackActive(): boolean {
     return isPlaybackActive(state, issue);
 }
 
-export async function togglePlayback() {
-    const state = (await getPlaybackState()).state;
+export function togglePlayback(): Promise<void> {
+    // The state is read INSIDE the lock, so a double tap toggles twice: the second tap sees what the first one
+    // left, rather than both reading "playing" and both pausing.
+    return transportLock.run(async () => {
+        const state = (await getPlaybackState()).state;
 
-    if (isPlaybackActive(state, usePlaybackIssue.getState().issue)) {
-        await pause();
-    } else {
-        await play();
-    }
+        if (isPlaybackActive(state, usePlaybackIssue.getState().issue)) {
+            await pauseLocked();
+        } else {
+            await playLocked();
+        }
+    });
 }
 
-export async function pause() {
+export function pause(): Promise<void> {
+    return transportLock.run(pauseLocked);
+}
+
+async function pauseLocked() {
     userPaused = true;
     // Disarms recovery. A retry queued for a stalled song would otherwise fire seconds later and start audio
     // the user has just stopped - and so would the network-came-back listener, at any point afterwards.
@@ -604,7 +639,27 @@ export async function pause() {
  * Every caller is a person or a finished song. A failed load never calls this (ShuffullApp#103): the player
  * stops and flags the song instead, and moving on is left to the user.
  */
-export async function skip() {
+export function skip(): Promise<void> {
+    return transportLock.run(skipLocked);
+}
+
+/**
+ * Skips off `songId` only if it is still the current song once the lock is free. For skips the player decides on
+ * (a song ending, a dislike): their reason applies to the song that was current when they were decided. Queued
+ * behind a user's skip, a plain skip() would move straight off the song the user had just picked, and stamp it
+ * as played.
+ */
+function skipFrom(songId: string | undefined): Promise<void> {
+    return transportLock.run(async () => {
+        if (useActiveSong.getState().songId !== songId) {
+            return;
+        }
+
+        await skipLocked();
+    });
+}
+
+async function skipLocked() {
     beginUserInitiatedPlayback();
 
     if (await stopIfAuditionFinished()) {
@@ -694,7 +749,11 @@ async function setAuditionInProgress(playlistId: string | undefined) {
     }
 }
 
-export async function previous() {
+export function previous(): Promise<void> {
+    return transportLock.run(previousLocked);
+}
+
+async function previousLocked() {
     beginUserInitiatedPlayback();
     const recentlyPlayedSong = await DbQueries.checkForLastRecentlyPlayedSong(db);
 
@@ -826,7 +885,7 @@ export async function applyLikeStatus(songId: string, likeStatus: LikeStatus) {
     const playbackState = (await getPlaybackState()).state;
     const isPlaying = playbackState === State.Playing || playbackState === State.Buffering || playbackState === State.Loading;
     if (shouldSkipOnDislike(isActiveSong, likeStatus, isPlaying)) {
-        await skip();
+        await skipFrom(songId);
     }
 }
 
