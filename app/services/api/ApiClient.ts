@@ -1,4 +1,4 @@
-import axios, { AxiosInstance } from "axios";
+import axios, { AxiosHeaders, AxiosInstance } from "axios";
 import { AuthenticateResponse, AuthenticateResponseSchema, ChangedSongPageSchema, CreatePlaylistResponseSchema, KeepResponse, KeepResponseSchema, Playlist, PlaylistListResponseSchema, RetagResponse, RetagStaleResponse, SongListResponseSchema, SongRetagWireItem, Tag, TagListResponseSchema, UserResponseSchema, UserSongPageSchema } from "./models";
 import { ApiStatusFailureError } from "./errors";
 import { UpdateSongLastPlayedRequest, UpdateSongMetadataPayload } from "../db/models";
@@ -17,6 +17,7 @@ export class ApiClient {
             // real status and wedged the outbox, because a 500 aborts the whole sync while a 4xx/401 does not.
             validateStatus: () => true
         });
+        this.client.interceptors.response.use(undefined, redactCredentials);
         this.updateAuthHeader(token);
         this.url = url;
     }
@@ -33,7 +34,8 @@ export class ApiClient {
         const endpoint = "/api/v1/users/authenticate";
         console.log(`[API] Calling endpoint: ${endpoint}`);
         try {
-            const response = await this.client.post(`${endpoint}?username=${username}&userHash=${userHash}`);
+            // In the body, never the URL: the hash is all it takes to log in, and URLs end up in proxy logs.
+            const response = await this.client.post(endpoint, { username, userHash });
 
             if (!isSuccessfulStatus(response.status)) {
                 console.log(`[API] Endpoint ${endpoint} failed with status: ${response.status}`);
@@ -52,7 +54,8 @@ export class ApiClient {
         const endpoint = "/api/v1/users";
         console.log(`[API] Calling endpoint: ${endpoint}`);
         try {
-            const response = await this.client.post(`${endpoint}?username=${username}&userHash=${userHash}`);
+            // In the body, never the URL: the hash is all it takes to log in, and URLs end up in proxy logs.
+            const response = await this.client.post(endpoint, { username, userHash });
 
             if (!isSuccessfulStatus(response.status)) {
                 console.log(`[API] Endpoint ${endpoint} failed with status: ${response.status}`);
@@ -480,4 +483,19 @@ export class ApiClient {
 
 function isSuccessfulStatus(status: number) {
     return 200 <= status && status < 300;
+}
+
+// A request that fails without an answer (offline, timeout) rejects with an AxiosError that carries its request
+// config: the Authorization header, and for login and sign-up the password hash in the body. Callers log these
+// errors whole, so both are stripped before the error leaves the client.
+function redactCredentials(error: unknown) {
+    if (axios.isAxiosError(error)) {
+        if (error.config) {
+            const headers = AxiosHeaders.from(error.config.headers);
+            headers.delete("Authorization");
+            error.config = { ...error.config, headers, data: undefined };
+        }
+        error.request = undefined;
+    }
+    return Promise.reject(error);
 }
