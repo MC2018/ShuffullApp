@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from "react";
-import { Animated, Easing, ImageURISource, LayoutChangeEvent, Pressable, useWindowDimensions, View } from "react-native";
-import { router } from "expo-router";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Animated, BackHandler, Easing, ImageURISource, LayoutChangeEvent, Pressable, useWindowDimensions, View } from "react-native";
+import { router, useFocusEffect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { PLAYBACK_ISSUE_LABEL, useActiveSong, usePlaybackIssue } from "@/app/services/media-manager/mediaManager";
@@ -77,20 +77,39 @@ export default function NowPlayingScreen() {
         };
     }, [songId]);
 
+    const closeLyrics = useCallback(() => {
+        setShowLyrics(false);
+        Animated.timing(progress, { toValue: 0, duration: CLOSE_MS, easing: CLOSE_EASING, useNativeDriver: true }).start(({ finished }) => {
+            if (finished) {
+                setLyricsMounted(false);
+            }
+        });
+    }, [progress]);
+
     const toggleLyrics = () => {
         if (!showLyrics) {
             setShowLyrics(true);
             setLyricsMounted(true);
             Animated.timing(progress, { toValue: 1, duration: OPEN_MS, easing: OPEN_EASING, useNativeDriver: true }).start();
         } else {
-            setShowLyrics(false);
-            Animated.timing(progress, { toValue: 0, duration: CLOSE_MS, easing: CLOSE_EASING, useNativeDriver: true }).start(({ finished }) => {
-                if (finished) {
-                    setLyricsMounted(false);
-                }
-            });
+            closeLyrics();
         }
     };
+
+    // Android back does what the chevron does: with lyrics open it hides them instead of leaving the player.
+    // Registered only while this screen is focused, so back on a screen pushed on top (the song page) still pops it.
+    useFocusEffect(
+        useCallback(() => {
+            if (!showLyrics) {
+                return;
+            }
+            const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+                closeLyrics();
+                return true;
+            });
+            return () => sub.remove();
+        }, [showLyrics, closeLyrics]),
+    );
 
     const onUpperLayout = (e: LayoutChangeEvent) => {
         const { width: w, height: h } = e.nativeEvent.layout;
@@ -133,7 +152,7 @@ export default function NowPlayingScreen() {
                     name="chevron-down"
                     size={26}
                     color={theme.color.textMuted}
-                    onPress={showLyrics ? toggleLyrics : () => router.back()}
+                    onPress={showLyrics ? closeLyrics : () => router.back()}
                     accessibilityLabel={showLyrics ? "Hide lyrics" : "Close"}
                 />
                 {/* Deliberately the SAME slot as "Now Playing" rather than a banner of its own: this screen
