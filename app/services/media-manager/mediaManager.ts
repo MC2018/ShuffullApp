@@ -85,7 +85,11 @@ let lookaheadRefreshAgain = false;
 // One listen per play, synced to the server (ShuffullApp#57). The player only tells it when a song starts or ends
 // and when playback state changes; it never affects playback. Every track change ends the open listen before the
 // next song's track is loaded, with the reason it ended (startNewSong's `endReason`).
-const listenRecorder = new ListenRecorder({ trackDuration: async () => (await TrackPlayer.getProgress()).duration });
+const listenRecorder = new ListenRecorder({
+    trackDuration: async songId => (await TrackPlayer.getActiveTrack())?.id === songId
+        ? (await TrackPlayer.getProgress()).duration
+        : undefined,
+});
 
 /**
  * Audition mode (ShuffullApp#125) while its screen is open. The deck decides what plays next, so every way of moving
@@ -782,8 +786,6 @@ async function skipLocked(endReason: ListenEndReason = "skipped") {
     }
 
     await startNewSong(songId, recentlyPlayedSong, endReason);
-
-    // TODO: implement feature to track when a song is skipped early
 }
 
 /**

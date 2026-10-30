@@ -21,8 +21,11 @@ export interface ListenStart {
 
 export interface ListenRecorderDeps {
     now?: () => number;
-    /** The loaded track's duration in seconds, or anything not above 0 when unknown. */
-    trackDuration?: () => Promise<number | undefined>;
+    /**
+     * The duration in seconds of `songId`'s track, or anything not above 0 when unknown. Unknown unless that song is
+     * the loaded track: a listen opens before its track loads, and the previous song's duration must not stick to it.
+     */
+    trackDuration?: (songId: string) => Promise<number | undefined>;
     checkpointIntervalMs?: number;
 }
 
@@ -48,7 +51,7 @@ export class ListenRecorder {
     private timer: ReturnType<typeof setInterval> | undefined;
     private readonly lock = createSerialLock({ name: "listens" });
     private readonly now: () => number;
-    private readonly trackDuration: () => Promise<number | undefined>;
+    private readonly trackDuration: (songId: string) => Promise<number | undefined>;
     private readonly checkpointIntervalMs: number;
 
     constructor(deps: ListenRecorderDeps = {}) {
@@ -119,7 +122,7 @@ export class ListenRecorder {
         this.syncTimer();
 
         await this.guarded("close", async db => {
-            const row = { ...current.row, songDurationSeconds: current.row.songDurationSeconds ?? await this.knownDuration() };
+            const row = { ...current.row, songDurationSeconds: current.row.songDurationSeconds ?? await this.knownDuration(current.row.songId) };
             await closeListen(db, finishedListen(row, endedAt, seconds, reason));
         });
     }
@@ -153,7 +156,7 @@ export class ListenRecorder {
             current.row = {
                 ...current.row,
                 secondsListened: clockSeconds(current.clock, now),
-                songDurationSeconds: current.row.songDurationSeconds ?? await this.knownDuration(),
+                songDurationSeconds: current.row.songDurationSeconds ?? await this.knownDuration(current.row.songId),
                 checkpointedAt: new Date(now),
             };
             await saveOpenListen(db, current.row);
@@ -171,9 +174,9 @@ export class ListenRecorder {
         }
     }
 
-    private async knownDuration(): Promise<number | null> {
+    private async knownDuration(songId: string): Promise<number | null> {
         try {
-            const duration = await this.trackDuration();
+            const duration = await this.trackDuration(songId);
             return duration != undefined && Number.isFinite(duration) && duration > 0 ? duration : null;
         } catch {
             return null;

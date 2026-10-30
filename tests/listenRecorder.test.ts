@@ -133,6 +133,21 @@ describe("ListenRecorder", () => {
         expect(await queuedListens(db)).toHaveLength(1);
     });
 
+    it("a duration is taken only for the listen's own song, so the previous track's never sticks to it", async () => {
+        const loaded: Record<string, number> = {};
+        const recorder = new ListenRecorder({ now: () => now, trackDuration: async songId => loaded[songId] });
+        recorder.attach(db);
+        loaded.a = 100;
+        await recorder.begin(start({ songId: "a", playing: true }));
+        await recorder.begin(start({ songId: "b" }));  // opens while track a is still the loaded one
+        loaded.b = 250;                                 // b's track loads
+        await recorder.playbackStateChanged(true);
+        await recorder.end("skipped");
+
+        const listens = await queuedListens(db);
+        expect(listens.map(x => [x.songId, x.payload.songDurationSeconds])).toEqual([["a", 100], ["b", 250]]);
+    });
+
     it("an unknown track duration is sent as null", async () => {
         duration = undefined;
         const recorder = makeRecorder();

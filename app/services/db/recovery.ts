@@ -14,7 +14,8 @@ import { withTransaction } from "./transaction";
  *   requests              the outbox. A queued Keep, Like or playlist delete exists nowhere else until it is sent.
  *   dead_letter_requests  the only record that queued work did not happen.
  *   genre_jam             user-made presets. Nothing syncs them.
- * Deleting the database file used to take all three with it (ShuffullApp#92).
+ *   listens               a listen left open by a run that died, which the next start closes into the outbox.
+ * Deleting the database file used to take the first three with it (ShuffullApp#92).
  *
  * The rows never leave the file. In ONE transaction the preserved tables are renamed to `__rescued_<ts>__<table>`
  * and everything else is dropped; the emptied file is then migrated, and `restoreRescuedTables` moves the rows into
@@ -26,7 +27,7 @@ import { withTransaction } from "./transaction";
  * older schema than the code. Only columns both sides have are copied, after RENAMED_COLUMNS; a column the new table
  * added takes its default.
  */
-const PRESERVED_TABLES = ["requests", "dead_letter_requests", "genre_jam"];
+const PRESERVED_TABLES = ["requests", "dead_letter_requests", "genre_jam", "listens"];
 // Preserved-table columns renamed by a migration, old name -> new. A rescue can come from before the rename (it may be
 // the migration that failed), and without this the row would restore without that column's value.
 const RENAMED_COLUMNS: Record<string, Record<string, string>> = {
