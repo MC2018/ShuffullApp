@@ -1,7 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
+import axios, { InternalAxiosRequestConfig } from "axios";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
+import { ApiClient } from "@/app/services/api/ApiClient";
 import {
     AuthenticateResponseSchema,
     ChangedSongKeysSchema,
@@ -22,6 +24,8 @@ import {
     UserSongPageSchema,
 } from "@/app/services/api/models";
 import { TagType } from "@/app/services/db/schema";
+import { LikeStatus, RequestType } from "@/app/enums";
+import { RecordListenPayload, UpdateSongLastPlayedRequest } from "@/app/services/db/models";
 import { failedKeeps, failedListens, summarizeRetagFailures } from "@/app/services/sync-manager/syncLogic";
 import { finishedListen } from "@/app/tools/listens";
 
@@ -224,3 +228,92 @@ describe("API contract: the listen log (ShuffullApp#57)", () => {
         expect(Date.parse(sent.endedAt)).toBe(Date.parse(full.endedAt as string));
     });
 });
+
+/**
+ * What the app sends, against the request bodies the API binds (the `*-request` files and the others the Golden README
+ * marks "app sends"). The API reads an unknown key as nothing, so a field renamed on either side would land as a quiet
+ * null; these fail instead (shuffull-workspace#92). Requests go through the real ApiClient with axios's adapter stubbed.
+ *
+ * The listen log above already checks each listen's fields (finishedListen); the listens row here pins only the
+ * `{ listens }` envelope and the URL ApiClient puts them under.
+ */
+describe("API contract: request bodies the app sends (shuffull-workspace#92)", () => {
+    const originalAdapter = axios.defaults.adapter;
+    afterEach(() => { axios.defaults.adapter = originalAdapter; });
+
+    /** A client whose every call answers 200 with `data`, and the requests it sent. Set before the client is made. */
+    function stubbedClient(data: unknown = {}) {
+        const sent: InternalAxiosRequestConfig[] = [];
+        axios.defaults.adapter = async (config) => {
+            sent.push(config);
+            return { data, status: 200, statusText: "OK", headers: {}, config };
+        };
+        return { api: new ApiClient("http://api", "t"), sent };
+    }
+
+    /** The body as sent, without its null-valued keys: the API binds an optional field left out and one sent as null alike. */
+    const body = (config: InternalAxiosRequestConfig) => withoutNulls(JSON.parse(config.data));
+
+    const cases: [string, string, string, (api: ApiClient) => Promise<unknown>, string?][] = [
+        ["users-authenticate-request", "post", "/api/v1/users/authenticate",
+            api => api.userAuthenticate("listener", "hash-abc"), "users-authenticate"],
+        ["users-authenticate-request", "post", "/api/v1/users", api => api.userCreate("listener", "hash-abc"), "users-authenticate"],
+        ["songs-list-request", "post", "/api/v1/songs/list", api => api.songGetList(["song-full", "song-sparse"]), "songs-list"],
+        ["playlists-list-request", "post", "/api/v1/playlists/list",
+            api => api.playlistGetList(["playlist-full", "playlist-audition"]), "playlists-list"],
+        ["user-songs-create", "put", "/api/v1/user-songs", api => api.userSongCreateMany(["song-full", "song-sparse"])],
+        ["user-songs-like", "post", "/api/v1/user-songs/song-full/like", api => api.userSongSetLikeStatus("song-full", LikeStatus.Like)],
+        ["songs-update", "put", "/api/v1/songs/song-full", api => api.songUpdate("song-full", {
+            name: "Everybody Wants You",
+            bpm: 128,
+            heaviness: 6,
+            artists: ["Billy Squier"],
+            tags: [{ name: "Rock", type: TagType.Genre }, { name: "1980s", type: TagType.TimePeriod }],
+        })],
+        ["songs-keep-request", "post", "/api/v1/songs/keep", api => api.songKeep(["song-full", "song-sparse"]), "songs-keep"],
+        ["songs-retag-request", "post", "/api/v1/songs/retag",
+            api => api.songRetag([{ songId: "song-full", model: "strong" }, { songId: "song-sparse", model: "weak" }]), "songs-retag"],
+        ["replacements-request", "post", "/api/v1/replacements", api => api.flagSongForReplacement("song-full")],
+        ["listens-request", "post", "/api/v1/listens",
+            api => api.listenRecord((golden("listens-request") as { listens: RecordListenPayload[] }).listens), "listens"],
+    ];
+
+    it.each(cases)("%s: %s %s sends the body the API binds", async (name, method, url, call, response) => {
+        const { api, sent } = stubbedClient(response ? golden(response) : {});
+
+        await call(api);
+
+        expect(sent).toHaveLength(1);
+        expect([sent[0].method, sent[0].url]).toEqual([method, url]);
+        expect(body(sent[0])).toStrictEqual(withoutNulls(golden(name)));
+    });
+
+    it("user-songs-last-played: the outbox's rows carry the two fields the API binds", async () => {
+        // SyncManager hands ApiClient the outbox rows whole, so the body also carries the row's own columns. The API
+        // ignores those; what it binds must still match.
+        const row = (songId: string, lastPlayed: string): UpdateSongLastPlayedRequest => ({
+            requestId: `request-${songId}`,
+            timeRequested: new Date(lastPlayed),
+            requestType: RequestType.UpdateSongLastPlayed,
+            userId: "user-1",
+            songId,
+            lastPlayed: new Date(lastPlayed),
+        });
+        const { api, sent } = stubbedClient();
+
+        await api.userSongUpdateLastPlayed([row("song-full", "2026-10-01T12:34:56.123Z"), row("song-sparse", "2026-10-01T12:38:56.123Z")]);
+
+        expect([sent[0].method, sent[0].url]).toEqual(["post", "/api/v1/user-songs/last-played"]);
+        expect(JSON.parse(sent[0].data)).toMatchObject(golden("user-songs-last-played") as object[]);
+    });
+});
+
+function withoutNulls(value: unknown): unknown {
+    if (Array.isArray(value)) {
+        return value.map(withoutNulls);
+    }
+    if (value !== null && typeof value === "object") {
+        return Object.fromEntries(Object.entries(value).filter(([, v]) => v !== null).map(([k, v]) => [k, withoutNulls(v)]));
+    }
+    return value;
+}

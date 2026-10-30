@@ -1,0 +1,10 @@
+[
+  {
+    "songId": "song-full",
+    "lastPlayed": "2026-10-01T12:34:56.123Z"
+  },
+  {
+    "songId": "song-sparse",
+    "lastPlayed": "2026-10-01T12:38:56.123Z"
+  }
+]

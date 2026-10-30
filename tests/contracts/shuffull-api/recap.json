@@ -1,0 +1,468 @@
+{
+  "year": 2026,
+  "timeZone": "America/New_York",
+  "from": "2026-01-01T05:00:00Z",
+  "to": "2027-01-01T05:00:00Z",
+  "totalMinutes": 125.5,
+  "plays": 40,
+  "minutesByMonth": [
+    10,
+    20.5,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    45,
+    50
+  ],
+  "heatmap": [
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      125.5,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ]
+  ],
+  "topSongsByMinutes": [
+    {
+      "songId": "song-full",
+      "name": "Song Full",
+      "artists": [
+        "Artist A",
+        "Artist B"
+      ],
+      "minutes": 80,
+      "plays": 25
+    }
+  ],
+  "topSongsByPlays": [
+    {
+      "songId": "song-sparse",
+      "name": null,
+      "artists": [],
+      "minutes": 45.5,
+      "plays": 30
+    }
+  ],
+  "topArtistsByMinutes": [
+    {
+      "artistId": "artist-a",
+      "name": "Artist A",
+      "minutes": 80,
+      "plays": 25
+    }
+  ],
+  "topArtistsByPlays": [
+    {
+      "artistId": "artist-a",
+      "name": "Artist A",
+      "minutes": 80,
+      "plays": 25
+    }
+  ],
+  "topGenres": [
+    {
+      "tagId": "tag-rock",
+      "name": "Rock",
+      "minutes": 80
+    }
+  ],
+  "genresByMonth": [
+    {
+      "month": 1,
+      "totalMinutes": 10,
+      "genres": [
+        {
+          "tagId": "tag-rock",
+          "name": "Rock",
+          "minutes": 2.5,
+          "percent": 25
+        }
+      ]
+    },
+    {
+      "month": 2,
+      "totalMinutes": 0,
+      "genres": [
+        {
+          "tagId": "tag-rock",
+          "name": "Rock",
+          "minutes": 0,
+          "percent": 0
+        }
+      ]
+    },
+    {
+      "month": 3,
+      "totalMinutes": 0,
+      "genres": [
+        {
+          "tagId": "tag-rock",
+          "name": "Rock",
+          "minutes": 0,
+          "percent": 0
+        }
+      ]
+    },
+    {
+      "month": 4,
+      "totalMinutes": 0,
+      "genres": [
+        {
+          "tagId": "tag-rock",
+          "name": "Rock",
+          "minutes": 0,
+          "percent": 0
+        }
+      ]
+    },
+    {
+      "month": 5,
+      "totalMinutes": 0,
+      "genres": [
+        {
+          "tagId": "tag-rock",
+          "name": "Rock",
+          "minutes": 0,
+          "percent": 0
+        }
+      ]
+    },
+    {
+      "month": 6,
+      "totalMinutes": 0,
+      "genres": [
+        {
+          "tagId": "tag-rock",
+          "name": "Rock",
+          "minutes": 0,
+          "percent": 0
+        }
+      ]
+    },
+    {
+      "month": 7,
+      "totalMinutes": 0,
+      "genres": [
+        {
+          "tagId": "tag-rock",
+          "name": "Rock",
+          "minutes": 0,
+          "percent": 0
+        }
+      ]
+    },
+    {
+      "month": 8,
+      "totalMinutes": 0,
+      "genres": [
+        {
+          "tagId": "tag-rock",
+          "name": "Rock",
+          "minutes": 0,
+          "percent": 0
+        }
+      ]
+    },
+    {
+      "month": 9,
+      "totalMinutes": 0,
+      "genres": [
+        {
+          "tagId": "tag-rock",
+          "name": "Rock",
+          "minutes": 0,
+          "percent": 0
+        }
+      ]
+    },
+    {
+      "month": 10,
+      "totalMinutes": 0,
+      "genres": [
+        {
+          "tagId": "tag-rock",
+          "name": "Rock",
+          "minutes": 0,
+          "percent": 0
+        }
+      ]
+    },
+    {
+      "month": 11,
+      "totalMinutes": 0,
+      "genres": [
+        {
+          "tagId": "tag-rock",
+          "name": "Rock",
+          "minutes": 0,
+          "percent": 0
+        }
+      ]
+    },
+    {
+      "month": 12,
+      "totalMinutes": 0,
+      "genres": [
+        {
+          "tagId": "tag-rock",
+          "name": "Rock",
+          "minutes": 0,
+          "percent": 0
+        }
+      ]
+    }
+  ],
+  "auditionMinutes": 12.5,
+  "keepRate": {
+    "auditionedSongs": 4,
+    "keptSongs": 1,
+    "percent": 25
+  },
+  "longestStreak": {
+    "days": 3,
+    "start": "2026-11-02",
+    "end": "2026-11-04"
+  },
+  "longestSession": {
+    "start": "2026-10-01T12:34:56.123456Z",
+    "end": "2026-10-01T14:09:56.123456Z",
+    "minutes": 90,
+    "plays": 22
+  },
+  "biggestGrower": {
+    "song": {
+      "songId": "song-full",
+      "name": "Song Full",
+      "artists": [
+        "Artist A"
+      ],
+      "minutes": 50,
+      "plays": 15
+    },
+    "month": 12,
+    "previousMonthMinutes": 5
+  },
+  "songOfEachSeason": [
+    {
+      "season": "winter",
+      "song": {
+        "songId": "song-full",
+        "name": "Song Full",
+        "artists": [
+          "Artist A"
+        ],
+        "minutes": 80,
+        "plays": 25
+      }
+    },
+    {
+      "season": "spring",
+      "song": null
+    },
+    {
+      "season": "summer",
+      "song": null
+    },
+    {
+      "season": "autumn",
+      "song": {
+        "songId": "song-sparse",
+        "name": null,
+        "artists": [],
+        "minutes": 45,
+        "plays": 29
+      }
+    }
+  ],
+  "mostSkipped": {
+    "song": {
+      "songId": "song-sparse",
+      "name": null,
+      "artists": [],
+      "minutes": 45.5,
+      "plays": 30
+    },
+    "skips": 7
+  }
+}

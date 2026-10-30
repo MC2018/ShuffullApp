@@ -1,0 +1,50 @@
+{
+  "externalSongId": "dQw4w9WgXcQ",
+  "fileExtension": ".mp3",
+  "externalPlaylistId": "LL",
+  "targetUserId": "user-1",
+  "targetPlaylistId": "playlist-full",
+  "targetPlaylistName": "Road trip",
+  "externalSource": 1,
+  "generatedTags": {
+    "mainGenres": [
+      "Rock"
+    ],
+    "subGenres": [
+      "Arena Rock"
+    ],
+    "languages": [
+      "English"
+    ],
+    "timePeriod": "1980s",
+    "moods": [
+      "Energetic"
+    ],
+    "heaviness": 6,
+    "themes": [
+      "Rebellion"
+    ]
+  },
+  "markAsLiked": true,
+  "bpm": 128,
+  "lyrics": {
+    "synced": "[00:01.00] First line",
+    "plain": "First line",
+    "instrumental": false,
+    "source": "lrclib"
+  },
+  "replacesSongId": "song-old",
+  "name": "Everybody Wants You",
+  "artists": [
+    "Billy Squier"
+  ],
+  "tagModel": "gpt-5.6-terra",
+  "measuredBpm": 126,
+  "loudnessRangeLu": 6.25,
+  "crestFactorDb": 9.5,
+  "onsetsPerSecond": 3.75,
+  "originalReleaseYear": 1982,
+  "exploratory": true,
+  "tagRevision": 3,
+  "hookStartPercent": 37.5
+}
