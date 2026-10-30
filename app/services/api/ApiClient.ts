@@ -3,6 +3,17 @@ import { AuthenticateResponse, AuthenticateResponseSchema, ChangedSongKeysSchema
 import { ApiStatusFailureError } from "./errors";
 import { UpdateSongLastPlayedRequest, UpdateSongMetadataPayload } from "../db/models";
 
+// How long a call may take before it counts as no answer (a 503 to the sync, which then backs off and retries).
+// One 3 s limit for everything was too short for the big calls: a 500-id song list or a 200-song keep on a slow
+// link could time out on every try, so the first sync never finished, and each retry replayed work the server had
+// already done.
+// - Single-item calls and logins get DEFAULT.
+// - Calls that carry or return a whole page or batch (SONG_LIST_MAX_IDS, OUTBOX_MAX_BATCH_SIZE) get BULK.
+// - Re-tags run the AI on each song before answering, so they get AI.
+export const DEFAULT_TIMEOUT_MS = 10_000;
+export const BULK_TIMEOUT_MS = 30_000;
+export const AI_TIMEOUT_MS = 120_000;
+
 export class ApiClient {
     private client: AxiosInstance;
     private url: string;
@@ -10,7 +21,7 @@ export class ApiClient {
     constructor(url: string, token: string) {
         this.client = axios.create({
             baseURL: url,
-            timeout: 3000,
+            timeout: DEFAULT_TIMEOUT_MS,
             // Resolve every status rather than letting axios reject non-2xx. Its default rejection threw a bare
             // AxiosError, so the isSuccessfulStatus checks below never ran and ApiStatusFailureError was never
             // constructed — SyncManager saw an unrecognised error and reported it as a 500. That both hid the
@@ -116,6 +127,7 @@ export class ApiClient {
         try {
             const playlistIdsJson = JSON.stringify(playlistIds);
             const response = await this.client.post(endpoint, playlistIdsJson, {
+                timeout: BULK_TIMEOUT_MS,
                 headers: {
                     "Content-Type": "application/json"
                 }
@@ -206,6 +218,7 @@ export class ApiClient {
         console.log(`[API] Calling endpoint: ${endpoint}`);
         try {
             const response = await this.client.get(endpoint, {
+                timeout: BULK_TIMEOUT_MS,
                 params: {
                     afterDate: cursor.afterDate,
                     afterId: cursor.afterId
@@ -235,6 +248,7 @@ export class ApiClient {
         try {
             const songIdsJson = JSON.stringify(songIds);
             const response = await this.client.put(endpoint, songIdsJson, {
+                timeout: BULK_TIMEOUT_MS,
                 headers: {
                     "Content-Type": "application/json"
                 }
@@ -259,6 +273,7 @@ export class ApiClient {
         try {
             const requestsJson = JSON.stringify(requests);
             const response = await this.client.post(endpoint, requestsJson, {
+                timeout: BULK_TIMEOUT_MS,
                 headers: {
                     "Content-Type": "application/json"
                 }
@@ -353,6 +368,7 @@ export class ApiClient {
         console.log(`[API] Calling endpoint: ${endpoint} (${songIds.length} songs)`);
         try {
             const response = await this.client.post(endpoint, JSON.stringify({ songIds }), {
+                timeout: BULK_TIMEOUT_MS,
                 headers: {
                     "Content-Type": "application/json"
                 }
@@ -379,6 +395,7 @@ export class ApiClient {
             // Per-item model tiers so one burst flushes a mixed weak/strong backlog; the server collapses
             // duplicate ids stronger-wins.
             const response = await this.client.post(endpoint, JSON.stringify({ items }), {
+                timeout: AI_TIMEOUT_MS,
                 headers: {
                     "Content-Type": "application/json"
                 }
@@ -401,7 +418,7 @@ export class ApiClient {
         const endpoint = `/api/v1/songs/retag-stale`;
         console.log(`[API] Calling endpoint: ${endpoint}?limit=${limit}`);
         try {
-            const response = await this.client.post(endpoint, null, { params: { limit } });
+            const response = await this.client.post(endpoint, null, { params: { limit }, timeout: AI_TIMEOUT_MS });
             if (!isSuccessfulStatus(response.status)) {
                 console.log(`[API] Endpoint ${endpoint} failed with status: ${response.status}`);
                 throw new ApiStatusFailureError(endpoint, response);
@@ -420,6 +437,7 @@ export class ApiClient {
         try {
             const songIdsJson = JSON.stringify(songIds);
             const response = await this.client.post(endpoint, songIdsJson, {
+                timeout: BULK_TIMEOUT_MS,
                 headers: {
                     "Content-Type": "application/json"
                 }
@@ -445,6 +463,7 @@ export class ApiClient {
         console.log(`[API] Calling endpoint: ${endpoint}`);
         try {
             const response = await this.client.get(endpoint, {
+                timeout: BULK_TIMEOUT_MS,
                 params: {
                     afterDate: cursor.afterDate,
                     afterId: cursor.afterId

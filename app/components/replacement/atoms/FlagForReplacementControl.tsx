@@ -21,7 +21,7 @@ export default function FlagForReplacementControl({ songId, size = 24 }: { songI
     useEffect(() => {
         let cancelled = false;
         (async () => {
-            const requests = await DbQueries.getRequests(db);
+            const requests = await DbQueries.getRequests(db, userId);
             const pending = requests.some(
                 (r) => r.requestType === RequestType.FlagSongForReplacement && r.songId === songId,
             );
@@ -32,7 +32,7 @@ export default function FlagForReplacementControl({ songId, size = 24 }: { songI
         return () => {
             cancelled = true;
         };
-    }, [db, songId]);
+    }, [db, songId, userId]);
 
     const flagForReplacement = () => {
         if (flagged) {

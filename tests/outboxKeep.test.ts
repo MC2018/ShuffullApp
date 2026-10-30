@@ -169,7 +169,7 @@ describe("deadLetterRequests", () => {
 
         await deadLetterRequests(db, [{ request: row, reason: "nope" }], new Date("2026-10-18T00:00:00Z"));
 
-        expect(await getRequests(db)).toHaveLength(0);
+        expect(await getRequests(db, "u1")).toHaveLength(0);
         const [deadLetter] = await getDeadLetterRequests(db, "u1");
         expect(deadLetter.reason).toBe("nope");
         expect(deadLetter.songId).toBe("s1");
@@ -187,7 +187,7 @@ describe("deadLetterRequests", () => {
 
         await deadLetterRequests(db, [{ request: row, reason: "second try" }]);
 
-        expect(await getRequests(db)).toHaveLength(0);
+        expect(await getRequests(db, "u1")).toHaveLength(0);
         const deadLetters = await getDeadLetterRequests(db, "u1");
         expect(deadLetters.map(x => x.reason)).toEqual(["first try"]);
     });

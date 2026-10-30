@@ -530,3 +530,20 @@ export function withoutPendingDeletes<T extends { playlistId: string }>(
         .map(x => x.playlistId));
     return playlists.filter(x => !pending.has(x.playlistId));
 }
+
+/** How often SyncManager syncs while the server answers. */
+export const SYNC_INTERVAL_MS = 10_000;
+/** The longest SyncManager waits between syncs while the server is unreachable or failing. */
+export const SYNC_MAX_BACKOFF_MS = 5 * 60_000;
+
+/**
+ * How long to wait before the next sync after `failedSyncs` failures in a row: the normal interval, doubling with
+ * each further failure up to SYNC_MAX_BACKOFF_MS. A request that timed out after the server had already done it was
+ * replayed every 10 s for as long as the link stayed slow; now a struggling server, or link, gets room.
+ */
+export function syncBackoffMs(failedSyncs: number): number {
+    if (!(failedSyncs > 0)) {
+        return 0;
+    }
+    return Math.min(SYNC_INTERVAL_MS * 2 ** (failedSyncs - 1), SYNC_MAX_BACKOFF_MS);
+}
