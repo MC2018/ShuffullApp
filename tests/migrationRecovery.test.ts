@@ -9,6 +9,7 @@ import path from "path";
 import type { GenericDb } from "@/app/services/db/GenericDb";
 import { addRequests, deadLetterRequests, getDeadLetterRequests, getRequests } from "@/app/services/db/queries/request";
 import { addGenreJam, getGenreJams } from "@/app/services/db/queries/genreJam";
+import { getOpenListens, saveOpenListen } from "@/app/services/db/queries/listen";
 import { prepareDatabase, rebuildKeepingLocalData, restoreRescuedTables } from "@/app/services/db/recovery";
 import { RequestType } from "@/app/enums";
 
@@ -120,6 +121,19 @@ const jam = {
     heavinessMin: 3,
     heavinessMax: 7,
 };
+// A listen the app died in, checkpointed but not yet closed into the outbox (ShuffullApp#57).
+const openListen = {
+    listenId: "listen-1",
+    userId: "u1",
+    songId: "s1",
+    startedAt: new Date("2026-10-01T00:00:00Z"),
+    secondsListened: 42.5,
+    songDurationSeconds: 200,
+    context: "playlist" as const,
+    playlistId: "p1",
+    platform: "android",
+    checkpointedAt: new Date("2026-10-01T00:00:43Z"),
+};
 
 // A Keep written by hand on an older schema, which the app's queries can't write to.
 function insertOldKeep() {
@@ -128,13 +142,14 @@ function insertOldKeep() {
 }
 
 describe("a failed migration rebuilds the database and keeps the data only this device has", () => {
-    it("outbox, dead letters and genre jams survive; the server cache is dropped", async () => {
+    it("outbox, dead letters, genre jams and an open listen survive; the server cache is dropped", async () => {
         const db = asDb(sqlite);
         await migrateLatest();
         await addRequests(db, [keep, deletePlaylist]);
         await addRequests(db, [{ ...keep, requestId: "keep-2", songId: "s9" }]);
         await deadLetterRequests(db, [{ request: { ...keep, requestId: "keep-2", songId: "s9" }, reason: "not in your library" }]);
         await addGenreJam(db, jam);
+        await saveOpenListen(db, openListen);
         sqlite.exec("INSERT INTO users (user_id, username, version) VALUES ('u1', 'max', 0)");
 
         const fresh = await rebuildKeepingLocalData(db, migrateLatest, deleteFile);
@@ -148,6 +163,7 @@ describe("a failed migration rebuilds the database and keeps the data only this 
         expect(dead[0]).toMatchObject({ requestId: "keep-2", songId: "s9", reason: "not in your library" });
         expect(dead[0].request).toMatchObject({ requestId: "keep-2", songId: "s9" });
         expect(await getGenreJams(fresh)).toEqual([expect.objectContaining(jam)]);
+        expect(await getOpenListens(fresh)).toEqual([openListen]);
         expect(rescued()).toEqual([]);
     });
 
@@ -239,7 +255,7 @@ describe("the preserved rows are never only in memory", () => {
 
         await expect(rebuildKeepingLocalData(db, async () => { throw new Error("killed mid-migration"); }, deleteFile))
             .rejects.toThrow("killed mid-migration");
-        expect(rescued()).toHaveLength(3); // requests, dead_letter_requests (empty) and genre_jam
+        expect(rescued()).toHaveLength(4); // requests, dead_letter_requests (empty), genre_jam and listens (empty)
 
         // Next launch: the provider migrates (now it works) and restores whatever is rescued.
         const next = restart();

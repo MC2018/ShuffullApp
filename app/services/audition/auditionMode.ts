@@ -30,6 +30,7 @@ let generation = 0;
 // the session again and wait on themselves.
 const port: AuditionPort = {
     load: (songId, startFraction) => MediaManager.playAuditionSong(songId, startFraction),
+    endListen: reason => MediaManager.endAuditionListen(reason),
     resume: () => MediaManager.auditionResume(),
     pause: () => MediaManager.auditionPause(),
     seekTo: seconds => MediaManager.seekTo(seconds),

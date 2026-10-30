@@ -46,6 +46,14 @@ export type DeletePlaylistRequest = Request & {
     // Absent on rows queued before the delete hold was scoped to the playlist's songs.
     payload?: Schema.DeletePlaylistPayload | null
 };
+export type RecordListenRequest = Request & {
+    songId: string,
+    payload: Schema.RecordListenPayload
+};
+export type RecordListenPayload = Schema.RecordListenPayload;
+export type ListenEndReason = Schema.ListenEndReason;
+export type ListenContext = Schema.ListenContext;
+export type OpenListen = typeof Schema.listenTable.$inferSelect;
 export type UpdateSongMetadataPayload = Schema.UpdateSongMetadataPayload;
 export type SongTagEdit = Schema.SongTagEdit;
 export type SongRetagPayload = Schema.SongRetagPayload;

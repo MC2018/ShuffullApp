@@ -1,6 +1,6 @@
 import { GenericDb } from "../db/GenericDb";
 import TrackPlayer, { Capability, Event, PlaybackState, RemoteSeekEvent, State, usePlaybackState } from "react-native-track-player";
-import { RecentlyPlayedSong, Song } from "../db/models";
+import { ListenContext, ListenEndReason, RecentlyPlayedSong, Song } from "../db/models";
 import DbQueries from "../db/queries";
 import { shouldSkipOnDislike } from "../../tools/promotion";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -26,6 +26,9 @@ import { Platform } from "react-native";
 import { createSerialLock } from "../../tools/serialLock";
 import { playerSetupOptions } from "../../tools/playerSetup";
 import { SongDetails } from "../db/types";
+import { ListenRecorder } from "../listens/listenRecorder";
+import { listenContext, listenPlatform } from "../../tools/listens";
+import { desktopShell } from "../desktopShell";
 
 let queue: string[] = [];
 let db: GenericDb;
@@ -79,6 +82,14 @@ const lookahead = new Lookahead({
 const LIBRARY_PICK_ATTEMPTS = 3;
 let lookaheadRefreshRunning = false;
 let lookaheadRefreshAgain = false;
+// One listen per play, synced to the server (ShuffullApp#57). The player only tells it when a song starts or ends
+// and when playback state changes; it never affects playback. Every track change ends the open listen before the
+// next song's track is loaded, with the reason it ended (startNewSong's `endReason`).
+const listenRecorder = new ListenRecorder({
+    trackDuration: async songId => (await TrackPlayer.getActiveTrack())?.id === songId
+        ? (await TrackPlayer.getProgress()).duration
+        : undefined,
+});
 
 /**
  * Audition mode (ShuffullApp#125) while its screen is open. The deck decides what plays next, so every way of moving
@@ -135,6 +146,7 @@ export async function setSongFilters(songFilters: SongFilters, clearAndPlay: boo
     // A new scope is a track change. Inside the lock, so a skip still running can't pick its song from the new
     // scope and then have it cleared away from under it.
     await transportLock.run(async () => {
+        await listenRecorder.end("skipped");
         await saveSongFilters(songFilters);
         await clear();
         await playLocked();
@@ -195,6 +207,13 @@ export const usePlaybackIssue = create<PlaybackIssueState>((set) => ({
     setIssue: (issue) => set({ issue }),
 }));
 
+// Moving off a song that couldn't play isn't a skip: its listen ends as stopped (ListenRecorder.end).
+usePlaybackIssue.subscribe(({ issue }) => {
+    if (issue?.songId != undefined) {
+        listenRecorder.playbackFailed(issue.songId);
+    }
+});
+
 interface SongStateRevisionState {
     // Bumped after every local write that can change a song's audition state: a song starting (lastPlayed), a
     // like/dislike, a Keep. Screens that derive per-song states read it to re-derive them while open; before,
@@ -222,6 +241,9 @@ export const useAuditionFinished = create<AuditionFinishedState>((set) => ({
 
 export async function setup(activeDb: GenericDb) {
     db = activeDb;
+    listenRecorder.attach(db);
+    // A listen still open in the database was cut short by the app dying; close it at its last checkpoint.
+    void listenRecorder.recover();
     initTrackPlayer();
     await loadPrefetchSetting();
 
@@ -337,12 +359,16 @@ async function setupEventListeners() {
         }
     });
     TrackPlayer.addEventListener(Event.PlaybackState, async (state: PlaybackState) => {
+        // First, so a listen's seconds stop exactly when playback does: on Ended, before the skip below closes it.
+        void listenRecorder.playbackStateChanged(state.state == State.Playing);
+
         // A track reaching the speakers is the only proof that BOTH the source and the path to it are good, so
         // it is what clears the retry budget and any flag on screen.
         auditionController?.onPlaybackState(state.state == State.Playing);
 
         if (state.state == State.Playing) {
             clearStall();
+            void transportLock.run(openListenForResume);
             return;
         }
 
@@ -351,11 +377,19 @@ async function setupEventListeners() {
         }
 
         if (auditionController) {
-            await auditionController.onEnded(useActiveSong.getState().songId);
+            const songId = useActiveSong.getState().songId;
+            // Under the lock, and only if its listen is still the open one: a deck step that got in first has
+            // already closed it and opened the next song's, which this must not close.
+            await transportLock.run(async () => {
+                if (songId != undefined && listenRecorder.openSongId === songId) {
+                    await listenRecorder.end("finished");
+                }
+            });
+            await auditionController.onEnded(songId);
             return;
         }
 
-        await skipFrom(useActiveSong.getState().songId);
+        await skipFrom(useActiveSong.getState().songId, "finished");
     });
     // A track that FAILS to load lands in State.Error, not State.Ended, so the handler above never fires and
     // playback just stops dead with nothing logged -- which is how a song deleted server-side, a dropped
@@ -642,6 +676,7 @@ async function playSpecificSongLocked(songId: string, scope?: SongFilters) {
     // Deliberately NOT setSongFilters(..., clearAndPlay: true): that starts a RANDOM song from the new scope,
     // which would race the song the user actually tapped. Set the scope, reset the queue/history to it, then
     // start the chosen song.
+    await listenRecorder.end("skipped");
     await saveSongFilters(scope ?? new SongFilters());
     await clear();
     await startNewSong(songId);
@@ -712,20 +747,24 @@ export function skip(): Promise<void> {
  * behind a user's skip, a plain skip() would move straight off the song the user had just picked, and stamp it
  * as played.
  */
-function skipFrom(songId: string | undefined): Promise<void> {
+function skipFrom(songId: string | undefined, endReason: ListenEndReason): Promise<void> {
     return transportLock.run(async () => {
         if (useActiveSong.getState().songId !== songId) {
             return;
         }
 
-        await skipLocked();
+        await skipLocked(endReason);
     });
 }
 
-async function skipLocked() {
+/** `endReason` is why the current song's listen ends: "finished" when it played out, else the user skipped it. */
+async function skipLocked(endReason: ListenEndReason = "skipped") {
     beginUserInitiatedPlayback();
 
     if (await stopIfAuditionFinished()) {
+        // Nothing starts, so the listen ends here. A skipped song stays loaded and paused; play resumes it as a new
+        // listen (openListenForResume).
+        await listenRecorder.end(endReason);
         return;
     }
 
@@ -753,16 +792,14 @@ async function skipLocked() {
 
     // No song should play next
     if (songId == undefined) {
+        // A song that played out is over even with nothing after it. One the user skipped is still playing.
+        if (endReason === "finished") {
+            await listenRecorder.end(endReason);
+        }
         return;
     }
 
-    if (recentlyPlayedSong != undefined) {
-        await startNewSong(songId, recentlyPlayedSong);
-    } else {
-        await startNewSong(songId);
-    }
-
-    // TODO: implement feature to track when a song is skipped early
+    await startNewSong(songId, recentlyPlayedSong, endReason);
 }
 
 /**
@@ -826,7 +863,7 @@ async function previousLocked() {
 
     if (recentlyPlayedSong != undefined) {
         const songId = recentlyPlayedSong.songId;
-        await startNewSong(songId, recentlyPlayedSong);
+        await startNewSong(songId, recentlyPlayedSong, "previous");
     }
 }
 
@@ -865,6 +902,8 @@ export async function clear() {
 
     // Before anything else: a retry armed for the song being cleared would otherwise fire into an empty player.
     clearStall();
+    // Logout, a new database: the song stops here. A caller moving to another song has already ended it as skipped.
+    void listenRecorder.end("stopped");
     clearQueue();
     lookahead.reset();
     // Nothing plays after a clear until a new song starts (on logout, never), so stop the old list's fetch now.
@@ -939,7 +978,7 @@ export async function applyLikeStatus(songId: string, likeStatus: LikeStatus) {
     const playbackState = (await getPlaybackState()).state;
     const isPlaying = playbackState === State.Playing || playbackState === State.Buffering || playbackState === State.Loading;
     if (shouldSkipOnDislike(isActiveSong, likeStatus, isPlaying, auditionController != undefined)) {
-        await skipFrom(songId);
+        await skipFrom(songId, "skipped");
     }
 }
 
@@ -983,6 +1022,8 @@ export function beginAuditionMode(playlistId: string, controller: AuditionContro
         const scope = new SongFilters();
         scope.setSoleFilter(SongFilterType.Playlist, [playlistId]);
         scope.unheardOnly = true;
+        // Like any new scope (setSongFilters): the song playing until now was skipped for it, not stopped.
+        await listenRecorder.end("skipped");
         await saveSongFilters(scope);
         await clear();
         auditionController = controller;
@@ -1022,6 +1063,8 @@ let auditionLoadEpoch = 0;
  * Starts `songId` at `startFraction` of its length for audition mode. Unlike startNewSong it writes NOTHING: no
  * lastPlayed stamp, no history row, no audition-in-progress marker. A song flicked past in two seconds has to stay
  * unheard, and only markAuditionHeard (called once the heard rule is met) records it as played.
+ *
+ * It does record a listen, with context Audition (ShuffullApp#57): the listen log is every play, heard or not.
  */
 export function playAuditionSong(songId: string, startFraction: number): Promise<void> {
     return transportLock.run(async () => {
@@ -1032,6 +1075,13 @@ export function playAuditionSong(songId: string, startFraction: number): Promise
         beginUserInitiatedPlayback();
         const epoch = ++auditionLoadEpoch;
         const songWithArtist = await DbQueries.fetchSongDetails(db, songId);
+        const sessionData = await DbQueries.getActiveLocalSessionData(db);
+        // As in startNewSong. The deck has normally ended the last song's listen already, with its reason
+        // (endAuditionListen); this only closes one it didn't.
+        await listenRecorder.end("stopped");
+        if (sessionData) {
+            await beginListen(songWithArtist.song, sessionData.userId, false, "audition");
+        }
         await loadTrack(songWithArtist);
         useActiveSong.getState().setSongId(songId);
         useAuditionFinished.getState().setPlaylistId(undefined);
@@ -1048,7 +1098,6 @@ export function playAuditionSong(songId: string, startFraction: number): Promise
         }
         await TrackPlayer.play();
 
-        const sessionData = await DbQueries.getActiveLocalSessionData(db);
         const userSong = sessionData ? await DbQueries.getUserSong(db, sessionData.userId, songId) : undefined;
         await refreshNotificationButtons((userSong?.likeStatus as LikeStatus) ?? LikeStatus.Neutral, songWithArtist.song.exploratory);
     });
@@ -1085,6 +1134,15 @@ async function seekToStartPointLate(epoch: number, startFraction: number) {
             return;
         }
     }
+}
+
+/** Ends the deck's current listen for why the deck is leaving the song (AuditionPort.endListen). */
+export function endAuditionListen(reason: ListenEndReason): Promise<void> {
+    return transportLock.run(async () => {
+        if (auditionController != undefined) {
+            await listenRecorder.end(reason);
+        }
+    });
 }
 
 /** Resumes the deck's paused song where it is. Never moves on to another: the deck decides that. */
@@ -1132,7 +1190,8 @@ export async function prefetchAudition(songIds: string[]): Promise<void> {
     prefetcher.want(songs);
 }
 
-async function startNewSong(songId: string, recentlyPlayedSong?: RecentlyPlayedSong) {
+/** `endReason` is why the listen of the song playing until now ends; ignored when none is open. */
+async function startNewSong(songId: string, recentlyPlayedSong?: RecentlyPlayedSong, endReason: ListenEndReason = "skipped") {
     const localSessionData = await DbQueries.getActiveLocalSessionData(db);
     const songWithArtist = await DbQueries.fetchSongDetails(db, songId);
     const song = songWithArtist.song;
@@ -1141,6 +1200,11 @@ async function startNewSong(songId: string, recentlyPlayedSong?: RecentlyPlayedS
     if (!localSessionData) {
         throw Error("No local session data found in startNewSong");
     }
+
+    // Before the old track is unloaded, so its listen ends while the player still knows its duration. The new one
+    // opens not playing: its seconds start when the player reports this track playing.
+    await listenRecorder.end(endReason);
+    await beginListen(song, localSessionData.userId, false);
 
     if (!recentlyPlayedSong) {
         recentlyPlayedSong = await DbQueries.getCurrentlyPlayingSong(db);
@@ -1259,6 +1323,62 @@ async function loadTrack(songWithArtist: SongDetails) {
         artist: songWithArtist.artists.length > 0 ? songWithArtist.artists.map(x => x.name).join(", ") : "Unknown Artist",
         artwork: artworkUri,
     }]);
+}
+
+/**
+ * Opens the listen for `song`, starting now. `context` overrides the one the play scope gives: audition mode's
+ * playAuditionSong passes "audition".
+ */
+async function beginListen(song: Song, userId: string, playing: boolean, context?: ListenContext) {
+    try {
+        const filters = await getSongFilters();
+        const playlistIds = filters.whitelists?.playlistIds ?? [];
+        const scopePlaylist = playlistIds.length === 1 ? await DbQueries.getPlaylist(db, playlistIds[0]) : undefined;
+        const scope = listenContext({
+            songExploratory: song.exploratory,
+            unheardOnly: filters.unheardOnly === true,
+            genreJam: filters.genreJam === true,
+            playlistIds,
+            scopePlaylistExploratory: scopePlaylist?.isExploratory === true,
+            override: context,
+        });
+        await listenRecorder.begin({
+            songId: song.songId,
+            userId,
+            ...scope,
+            platform: listenPlatform(Platform.OS, desktopShell() != undefined),
+            playing,
+        });
+    } catch (e) {
+        console.warn("[listens] could not open a listen", e);
+    }
+}
+
+/**
+ * Opens a listen when the current song starts playing with none open: resumed after the end of an audition stopped
+ * it, or after the app restarted. Under the transport lock, so it sees the track change a skip made. It runs only on
+ * a transition to Playing, so audio still playing when a fresh JS context starts goes unrecorded until the next one
+ * (ShuffullApp#143). Never in audition mode: the deck opens every listen itself (playAuditionSong), and between its
+ * closing a song's listen and loading the next, that song is still playing.
+ */
+async function openListenForResume() {
+    const songId = useActiveSong.getState().songId;
+    if (songId == undefined || listenRecorder.openSongId != undefined || db == undefined || auditionController != undefined) {
+        return;
+    }
+
+    try {
+        if ((await getPlaybackState()).state !== State.Playing) {
+            return;
+        }
+        const session = await DbQueries.getActiveLocalSessionData(db);
+        const song = await DbQueries.getSong(db, songId);
+        if (session && song) {
+            await beginListen(song, session.userId, true);
+        }
+    } catch (e) {
+        console.warn("[listens] could not open a listen for the resumed song", e);
+    }
 }
 
 /** skip()'s shuffle pick at the moment of the skip: the same rule the lookahead picks ahead with, nothing played yet. */

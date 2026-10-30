@@ -8,7 +8,10 @@ import { addRequests, enqueueSongRetag, getDeadLetterRequests, getRequests } fro
 import { deadLetterRequestTable, userTable } from "@/app/services/db/schema";
 import { LikeStatus, RequestType } from "@/app/enums";
 import { ApiStatusFailureError } from "@/app/services/api/errors";
-import type { KeepResponse } from "@/app/services/api/models";
+import type { KeepResponse, RecordListensResponse } from "@/app/services/api/models";
+import type { RecordListenPayload } from "@/app/services/db/models";
+import { closeListen } from "@/app/services/db/queries/listen";
+import { finishedListen } from "@/app/tools/listens";
 
 // SyncManager's own imports reach native modules (the downloader, async-storage, argon2 via the tools barrel).
 // None of them run during the push phase tested here, so they are stubbed and the real SyncManager is exercised.
@@ -41,6 +44,9 @@ function makeApi() {
         })),
         playlistDelete: vi.fn(async (_playlistId: string) => {}),
         userSongSetLikeStatus: vi.fn(async (_songId: string, _likeStatus: LikeStatus) => {}),
+        listenRecord: vi.fn(async (listens: RecordListenPayload[]): Promise<RecordListensResponse> => ({
+            results: listens.map(x => ({ listenId: x.listenId, outcome: "recorded", error: null })),
+        })),
     };
 }
 
@@ -445,5 +451,88 @@ describe("SyncManager: outbox hardening (ShuffullApp#93)", () => {
         expect(manager.failedSyncs).toBe(1);
         expect(error).toHaveBeenCalled();
         error.mockRestore();
+    });
+});
+
+describe("SyncManager: listens go through the outbox and are read, never dropped unread (ShuffullApp#57)", () => {
+    let db: GenericDb;
+    let api: ReturnType<typeof makeApi>;
+    beforeEach(() => { db = makeDb(); api = makeApi(); });
+
+    async function queueListen(listenId: string, closedAt = new Date()) {
+        await closeListen(db, finishedListen({
+            listenId,
+            userId: USER,
+            songId: `song-${listenId}`,
+            startedAt: new Date("2026-10-31T01:00:00Z"),
+            songDurationSeconds: 200,
+            context: "other",
+            playlistId: null,
+            platform: "android",
+        }, Date.parse("2026-10-31T01:01:00Z"), 60, "skipped"), closedAt);
+    }
+
+    it("sends the queued listens as one POST and deletes them once recorded or duplicate", async () => {
+        await queueListen("a");
+        await queueListen("b");
+        api.listenRecord.mockResolvedValueOnce({ results: [
+            { listenId: "a", outcome: "recorded", error: null },
+            { listenId: "b", outcome: "duplicate", error: null },
+        ] });
+
+        await makeManager(db, api).sync();
+
+        expect(api.listenRecord).toHaveBeenCalledOnce();
+        expect(api.listenRecord.mock.calls[0][0].map(x => x.listenId)).toEqual(["a", "b"]);
+        expect(await getRequests(db, USER)).toHaveLength(0);
+        expect(await getDeadLetterRequests(db, USER)).toHaveLength(0);
+    });
+
+    it("a listen the server rejected is dead-lettered with its reason", async () => {
+        await queueListen("good");
+        await queueListen("bad");
+        api.listenRecord.mockResolvedValueOnce({ results: [
+            { listenId: "good", outcome: "recorded", error: null },
+            { listenId: "bad", outcome: "rejected", error: "endedAt is before startedAt." },
+        ] });
+
+        await makeManager(db, api).sync();
+
+        const deadLetters = await getDeadLetterRequests(db, USER);
+        expect(deadLetters.map(x => [x.requestId, x.requestType, x.reason]))
+            .toEqual([["bad", RequestType.RecordListen, "endedAt is before startedAt."]]);
+        expect(await getRequests(db, USER)).toHaveLength(0);
+    });
+
+    it("a 4xx keeps fresh listens for retry and dead-letters ones past the retry window", async () => {
+        await queueListen("fresh");
+        await queueListen("old", new Date(Date.now() - 8 * 24 * 60 * 60 * 1000));
+        api.listenRecord.mockRejectedValueOnce(rejected("/api/v1/listens", 400, "Too many listens"));
+
+        await makeManager(db, api).sync();
+
+        expect((await getRequests(db, USER)).map(x => x.requestId)).toEqual(["fresh"]);
+        const deadLetters = await getDeadLetterRequests(db, USER);
+        expect(deadLetters.map(x => x.requestId)).toEqual(["old"]);
+        expect(deadLetters[0].reason).toContain("Too many listens");
+    });
+
+    it("a 5xx or an offline server keeps every listen", async () => {
+        await queueListen("a");
+        api.listenRecord.mockRejectedValueOnce(rejected("/api/v1/listens", 503, "down"));
+
+        await makeManager(db, api).sync();
+
+        expect(await getRequests(db, USER)).toHaveLength(1);
+        expect(await getDeadLetterRequests(db, USER)).toHaveLength(0);
+    });
+
+    it("a response that doesn't parse is a failure, not a silent delete", async () => {
+        await queueListen("a");
+        api.listenRecord.mockRejectedValueOnce(new Error("bad parse"));
+
+        await makeManager(db, api).sync();
+
+        expect(await getRequests(db, USER)).toHaveLength(1);
     });
 });

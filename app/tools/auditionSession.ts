@@ -1,4 +1,5 @@
 import { LikeStatus } from "@/app/enums";
+import type { ListenEndReason } from "@/app/services/db/models";
 
 // Audition mode (ShuffullApp#125): a flip-through deck over an audition mix's unheard songs. This module is the
 // whole of its logic - the heard rule, the two laps, the verdicts and what moves the deck - with the player and
@@ -26,6 +27,8 @@ export function heardThresholdSeconds(durationSeconds: number | undefined): numb
 export interface AuditionPort {
     /** Loads the song and starts it at `startFraction` of its length. Must NOT stamp it as played. */
     load(songId: string, startFraction: number): Promise<void>;
+    /** Ends the current song's listen (ShuffullApp#57) for why the deck left it: before every move, and at the end. */
+    endListen(reason: ListenEndReason): Promise<void>;
     resume(): Promise<void>;
     pause(): Promise<void>;
     seekTo(seconds: number): Promise<void>;
@@ -210,6 +213,7 @@ export class AuditionSession {
                 return;
             }
             this.leaveCurrent();
+            await this.port.endListen("previous");
             if (this.index > 0) {
                 this.index--;
             }
@@ -400,6 +404,11 @@ export class AuditionSession {
         }
         this.leaveCurrent();
         const progress = this.songs.get(entry.songId)!;
+        // A Like moves on because the song was judged, not given up on, so its listen isn't a skip: the server counts
+        // quick skips toward "maybe drop this". A Dislike is the skip it looks like.
+        await this.port.endListen(reason === "ended" ? "finished"
+            : reason === "verdict" && progress.likeStatus !== LikeStatus.Dislike ? "stopped"
+                : "skipped");
 
         if (reason === "skip" && !progress.heard) {
             if (entry.lap === 1) {

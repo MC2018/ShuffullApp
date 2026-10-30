@@ -342,11 +342,12 @@ export interface OutboxSubject {
 /**
  * What an outbox row acts on, as keys that can't collide: its song and its playlist. None for a Keep: it promotes the
  * song whatever came before, so it has no order to keep, and it must never wait days behind an unrelated refused row
- * (a play, a metadata edit) and hold its playlist's delete with it.
+ * (a play, a metadata edit) and hold its playlist's delete with it. None for a listen either: it is a log entry, so a
+ * refused listen must not hold the song's Like, and a refused Like must not hold its listens.
  */
 function outboxSubjects(request: OutboxSubject): string[] {
     const subjects: string[] = [];
-    if (request.requestType == RequestType.SongRetag) {
+    if (request.requestType == RequestType.SongRetag || request.requestType == RequestType.RecordListen) {
         return subjects;
     }
     if (request.songId) {
@@ -405,6 +406,9 @@ export interface BatchableRequest {
  * - `OnlyOnce` — at most one row per type per flush; later duplicates are dropped entirely.
  * - `Individual` — one row per batch (the endpoint is per-item).
  * - `Batch` — consecutive rows of the same type coalesce, up to `maxBatchSize`.
+ * - `Unordered` — every row of the type, wherever it sits, in chunks of `maxBatchSize` after all the ordered batches.
+ *   A listen is queued at every song change, between the lastPlayed rows; sent in place it would split each run of
+ *   those into one POST per song.
  * - `None` — never posted here (it is always run separately).
  */
 export function groupRequestsIntoBatches<T extends BatchableRequest>(
@@ -413,6 +417,7 @@ export function groupRequestsIntoBatches<T extends BatchableRequest>(
 ): T[][] {
     const batches: T[][] = [];
     const onlyOnceSeen: RequestType[] = [];
+    const unordered = new Map<RequestType, T[]>();
     let lastRequestType: RequestType | null = null;
 
     for (const request of requests) {
@@ -432,6 +437,13 @@ export function groupRequestsIntoBatches<T extends BatchableRequest>(
             case ProcessingMethod.Individual:
                 batches.push([request]);
                 break;
+            case ProcessingMethod.Unordered:
+                if (!unordered.has(requestType)) {
+                    unordered.set(requestType, []);
+                }
+                unordered.get(requestType)!.push(request);
+                // Like a dropped OnlyOnce duplicate, it must not break up the run of batchable rows around it.
+                continue;
             case ProcessingMethod.Batch: {
                 const current = batches[batches.length - 1];
                 if (requestType == lastRequestType && current != undefined && current.length < maxBatchSize) {
@@ -447,6 +459,12 @@ export function groupRequestsIntoBatches<T extends BatchableRequest>(
         }
 
         lastRequestType = requestType;
+    }
+
+    for (const rows of unordered.values()) {
+        for (let i = 0; i < rows.length; i += maxBatchSize) {
+            batches.push(rows.slice(i, i + maxBatchSize));
+        }
     }
 
     return batches;
@@ -497,6 +515,50 @@ function keepFailureReason(request: QueuedKeep, outcome: KeepOutcomeRow | undefi
     }
 
     return outcome.error?.trim() || "The server reported the keep as failed, with no reason.";
+}
+
+/** One per-listen outcome from POST /listens: "recorded", "duplicate" or "rejected" today, kept a plain string. */
+export interface ListenOutcomeRow {
+    listenId: string;
+    outcome: string;
+    error?: string | null;
+}
+
+/** A queued listen row as the outcome rule needs it. Its requestId is the listenId. */
+export interface QueuedListen {
+    requestId: string;
+}
+
+/**
+ * The queued listens the server did NOT store, each with its reason.
+ *
+ * "recorded" and "duplicate" both mean the server holds the listen (a duplicate is a resend of one it already
+ * stored, e.g. after a lost response). Everything else — "rejected", an outcome this build doesn't know, or no
+ * outcome at all — is returned to be dead-lettered, never deleted unread.
+ */
+export function failedListens<T extends QueuedListen>(
+    requests: T[],
+    results: ListenOutcomeRow[] | undefined | null,
+): { request: T; reason: string }[] {
+    const outcomeById = new Map((results ?? []).map(r => [r.listenId, r]));
+    const failures: { request: T; reason: string }[] = [];
+
+    for (const request of requests) {
+        const outcome = outcomeById.get(request.requestId);
+        if (outcome?.outcome !== "recorded" && outcome?.outcome !== "duplicate") {
+            failures.push({ request, reason: listenFailureReason(outcome) });
+        }
+    }
+
+    return failures;
+}
+
+function listenFailureReason(outcome: ListenOutcomeRow | undefined): string {
+    if (outcome == undefined) {
+        return "The server returned no outcome for this listen.";
+    }
+
+    return outcome.error?.trim() || `The server reported the listen as ${outcome.outcome || "failed"}, with no reason.`;
 }
 
 /** A dead-lettered row as the hold rule needs it. */

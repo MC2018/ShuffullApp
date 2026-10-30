@@ -4,6 +4,7 @@ import * as decision from "./decision";
 import * as downloadedSong from "./downloadedSong";
 import * as downloadQueue from "./downloadQueue";
 import * as genreJam from "./genreJam";
+import * as listen from "./listen";
 import * as localSessionData from "./localSessionData";
 import * as playlist from "./playlist";
 import * as recentlyPlayedSong from "./recentlyPlayedSong";
@@ -20,6 +21,7 @@ const DbQueries = {
     ...downloadedSong,
     ...downloadQueue,
     ...genreJam,
+    ...listen,
     ...localSessionData,
     ...playlist,
     ...recentlyPlayedSong,

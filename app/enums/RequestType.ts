@@ -10,5 +10,7 @@ export enum RequestType {
     // and clears its Exploratory flag). Batched so many kept songs coalesce into one call.
     SongRetag = 7,
     // Delete a playlist via DELETE /playlists/{id}. For an audition playlist the server purges the un-kept songs.
-    DeletePlaylist = 8
+    DeletePlaylist = 8,
+    // One finished listen via POST /api/v1/listens. The row's requestId is the listenId; the payload is the wire item.
+    RecordListen = 9
 };

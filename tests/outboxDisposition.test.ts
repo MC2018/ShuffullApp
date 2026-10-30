@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+    failedListens,
     groupRequestsIntoBatches,
     partitionRejectedRequests,
     summarizeRetagFailures,
@@ -230,5 +231,64 @@ describe("groupRequestsIntoBatches (a batch the server would refuse is a stuck b
 
     it("handles an empty queue", () => {
         expect(groupRequestsIntoBatches([])).toEqual([]);
+    });
+
+    it("gathers listens from anywhere in the queue into batches after the rest, without splitting the runs between", () => {
+        // A listen is queued after every song change, in between that song's lastPlayed stamps. Batched in queue
+        // order they would split every lastPlayed run into one POST per song.
+        const batches = groupRequestsIntoBatches([
+            row(RequestType.UpdateSongLastPlayed, "played-1"),
+            row(RequestType.RecordListen, "listen-1"),
+            row(RequestType.UpdateSongLastPlayed, "played-2"),
+            row(RequestType.RecordListen, "listen-2"),
+            row(RequestType.SetSongLikeStatus, "like"),
+        ]);
+
+        expect(batches.map(b => b.map(r => r.requestId))).toEqual([
+            ["played-1", "played-2"],
+            ["like"],
+            ["listen-1", "listen-2"],
+        ]);
+    });
+
+    it("caps listen batches at the server's 200", () => {
+        const rows = Array.from({ length: OUTBOX_MAX_BATCH_SIZE * 2 + 1 }, (_, i) => row(RequestType.RecordListen, `l${i}`));
+
+        const batches = groupRequestsIntoBatches(rows);
+
+        expect(batches.map(b => b.length)).toEqual([OUTBOX_MAX_BATCH_SIZE, OUTBOX_MAX_BATCH_SIZE, 1]);
+        expect(batches.flat().map(r => r.requestId)).toEqual(rows.map(r => r.requestId));
+    });
+});
+
+describe("failedListens (a 200 from /listens does not mean every listen was stored)", () => {
+    const queued = (...ids: string[]) => ids.map(requestId => ({ requestId }));
+
+    it("recorded and duplicate are done: a duplicate is a resend the server already has", () => {
+        expect(failedListens(queued("a", "b"), [
+            { listenId: "a", outcome: "recorded", error: null },
+            { listenId: "b", outcome: "duplicate" },
+        ])).toEqual([]);
+    });
+
+    it("rejected comes back with the server's reason", () => {
+        expect(failedListens(queued("a"), [{ listenId: "a", outcome: "rejected", error: "endedAt is before startedAt." }]))
+            .toEqual([{ request: { requestId: "a" }, reason: "endedAt is before startedAt." }]);
+    });
+
+    it("an outcome this build doesn't know, or none at all, is a failure, never a silent delete", () => {
+        expect(failedListens(queued("a", "b", "c"), [
+            { listenId: "a", outcome: "queued", error: "" },
+            { listenId: "b", outcome: "rejected", error: "  " },
+        ])).toEqual([
+            { request: { requestId: "a" }, reason: "The server reported the listen as queued, with no reason." },
+            { request: { requestId: "b" }, reason: "The server reported the listen as rejected, with no reason." },
+            { request: { requestId: "c" }, reason: "The server returned no outcome for this listen." },
+        ]);
+    });
+
+    it("a missing body fails every listen rather than throwing mid-sync", () => {
+        expect(failedListens(queued("a"), undefined)).toHaveLength(1);
+        expect(failedListens(queued("a"), null)).toHaveLength(1);
     });
 });

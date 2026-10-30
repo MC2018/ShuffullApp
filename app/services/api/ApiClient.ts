@@ -1,7 +1,7 @@
 import axios, { AxiosHeaders, AxiosInstance } from "axios";
-import { AuthenticateResponse, AuthenticateResponseSchema, ChangedSongKeysSchema, ChangedSongPageSchema, CreatePlaylistResponseSchema, FeedCursor, KeepResponse, KeepResponseSchema, Playlist, PlaylistListResponseSchema, RetagResponse, RetagStaleResponse, SongListResponseSchema, SongRetagWireItem, Tag, TagListResponseSchema, UserResponseSchema, UserSongKeysSchema, UserSongPageSchema } from "./models";
+import { AuthenticateResponse, AuthenticateResponseSchema, ChangedSongKeysSchema, ChangedSongPageSchema, CreatePlaylistResponseSchema, FeedCursor, KeepResponse, KeepResponseSchema, Playlist, PlaylistListResponseSchema, RecordListensResponse, RecordListensResponseSchema, RetagResponse, RetagStaleResponse, SongListResponseSchema, SongRetagWireItem, Tag, TagListResponseSchema, UserResponseSchema, UserSongKeysSchema, UserSongPageSchema } from "./models";
 import { ApiStatusFailureError } from "./errors";
-import { UpdateSongLastPlayedRequest, UpdateSongMetadataPayload } from "../db/models";
+import { RecordListenPayload, UpdateSongLastPlayedRequest, UpdateSongMetadataPayload } from "../db/models";
 
 // How long a call may take before it counts as no answer (a 503 to the sync, which then backs off and retries).
 // One 3 s limit for everything was too short for the big calls: a 500-id song list or a 200-song keep on a slow
@@ -379,6 +379,30 @@ export class ApiClient {
             }
             console.log(`[API] Endpoint ${endpoint} succeeded`);
             return KeepResponseSchema.parse(response.data);
+        } catch (error) {
+            console.log(`[API] Endpoint ${endpoint} failed with error:`, error);
+            throw error;
+        }
+    }
+
+    // Any user: log finished listens (at most 200 per call, the server's MaxBatch). Returns one outcome per listen;
+    // a resend of a stored listen comes back "duplicate".
+    public async listenRecord(listens: RecordListenPayload[]): Promise<RecordListensResponse> {
+        const endpoint = "/api/v1/listens";
+        console.log(`[API] Calling endpoint: ${endpoint} (${listens.length} listens)`);
+        try {
+            const response = await this.client.post(endpoint, JSON.stringify({ listens }), {
+                timeout: BULK_TIMEOUT_MS,
+                headers: {
+                    "Content-Type": "application/json"
+                }
+            });
+            if (!isSuccessfulStatus(response.status)) {
+                console.log(`[API] Endpoint ${endpoint} failed with status: ${response.status}`);
+                throw new ApiStatusFailureError(endpoint, response);
+            }
+            console.log(`[API] Endpoint ${endpoint} succeeded`);
+            return RecordListensResponseSchema.parse(response.data);
         } catch (error) {
             console.log(`[API] Endpoint ${endpoint} failed with error:`, error);
             throw error;

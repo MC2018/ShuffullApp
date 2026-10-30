@@ -10,6 +10,7 @@ import {
     KeepResponseSchema,
     PlaylistListResponseSchema,
     PlaylistSchema,
+    RecordListensResponseSchema,
     RetagResponse,
     RetagStaleResponse,
     SongListResponseSchema,
@@ -21,7 +22,8 @@ import {
     UserSongPageSchema,
 } from "@/app/services/api/models";
 import { TagType } from "@/app/services/db/schema";
-import { failedKeeps, summarizeRetagFailures } from "@/app/services/sync-manager/syncLogic";
+import { failedKeeps, failedListens, summarizeRetagFailures } from "@/app/services/sync-manager/syncLogic";
+import { finishedListen } from "@/app/tools/listens";
 
 /**
  * The app's API parsing against what the Shuffull API actually sends. The files in tests/contracts/shuffull-api
@@ -186,5 +188,39 @@ describe("API contract: keep and retag outcomes (shuffull-workspace#5)", () => {
         const expected: RetagStaleResponse = { enriched: 3, failed: 1, remaining: 120, strongModel: "gpt-5.6-terra" };
 
         expect(golden("songs-retag-stale")).toStrictEqual(expected);
+    });
+});
+
+describe("API contract: the listen log (ShuffullApp#57)", () => {
+    it("POST /listens: recorded and duplicate are done; rejected is dead-lettered with the server's reason", () => {
+        const raw = golden("listens") as { results: object[] };
+        const { results } = RecordListensResponseSchema.parse(raw);
+
+        expect(unsentFields(RecordListensResponseSchema.shape.results.element, raw.results[0])).toEqual([]);
+        const queued = ["listen-full", "listen-sparse", "listen-bad"].map(requestId => ({ requestId }));
+        expect(failedListens(queued, results)).toEqual([
+            { request: { requestId: "listen-bad" }, reason: "endedAt is before startedAt." },
+        ]);
+    });
+
+    it("the app sends exactly the fields the API binds, in the shapes it binds them", () => {
+        const [full] = (golden("listens-request") as { listens: Record<string, unknown>[] }).listens;
+        const sent = finishedListen({
+            listenId: "listen-full",
+            userId: "user-1",
+            songId: "song-full",
+            startedAt: new Date("2026-10-01T12:34:56.123Z"),
+            songDurationSeconds: 214,
+            context: "playlist",
+            playlistId: "playlist-1",
+            platform: "android",
+        }, Date.parse("2026-10-01T12:38:30.123Z"), 201.5, "finished");
+
+        expect(Object.keys(sent).sort()).toEqual(Object.keys(full).sort());
+        // The API's sample has microseconds; JS dates carry milliseconds. Everything else is the same value.
+        expect({ ...sent, startedAt: undefined, endedAt: undefined })
+            .toEqual({ ...full, startedAt: undefined, endedAt: undefined });
+        expect(Date.parse(sent.startedAt)).toBe(Date.parse(full.startedAt as string));
+        expect(Date.parse(sent.endedAt)).toBe(Date.parse(full.endedAt as string));
     });
 });

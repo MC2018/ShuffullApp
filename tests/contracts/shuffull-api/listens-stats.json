@@ -1,0 +1,29 @@
+{
+  "maybeDropRule": {
+    "skippedUnderSeconds": 30,
+    "quickSkips": 3,
+    "ofLastPlays": 5
+  },
+  "songs": [
+    {
+      "songId": "song-full",
+      "plays": 12,
+      "skips": 4,
+      "averageSecondsListened": 151.25,
+      "completionPercent": 70.5,
+      "lastPlayed": "2026-10-01T12:34:56.123456Z",
+      "recentQuickSkips": 3,
+      "maybeDrop": true
+    },
+    {
+      "songId": "song-sparse",
+      "plays": 1,
+      "skips": 0,
+      "averageSecondsListened": 12,
+      "completionPercent": null,
+      "lastPlayed": "2026-10-02T08:00:00.000001Z",
+      "recentQuickSkips": 0,
+      "maybeDrop": false
+    }
+  ]
+}
