@@ -105,6 +105,34 @@ describe("lookahead", () => {
         expect(lookahead.reservedPicks).toEqual(["a"]);
     });
 
+    it("drops a reserved pick the user then queues, so it doesn't play again after the queue", async () => {
+        await lookahead.refresh();
+        source.queued = ["a"];
+
+        expect(await lookahead.refresh()).toEqual(["a", "b"]);
+        expect(lookahead.reservedPicks).toEqual(["b"]);
+
+        // skip() plays "a" from the queue; the next shuffle pick is "b", not "a" a second time.
+        source.queued = [];
+        source.playing = "a";
+        expect(await lookahead.refresh()).toEqual(["b", "c"]);
+        expect(await lookahead.takePick()).toBe("b");
+    });
+
+    it("drops a reserved pick that has started playing", async () => {
+        await lookahead.refresh();
+        source.playing = "b";
+
+        expect(await lookahead.refresh()).toEqual(["a", "c"]);
+    });
+
+    it("never hands skip() the song already playing", async () => {
+        await lookahead.refresh();
+        source.playing = "a";
+
+        expect(await lookahead.takePick()).toBeUndefined();
+    });
+
     it("lines up only queued songs when the queue fills it, and nothing from the shuffle", async () => {
         await lookahead.refresh();
         source.queued = ["q1", "q2", "q3"];

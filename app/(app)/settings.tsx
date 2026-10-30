@@ -1,12 +1,14 @@
 import React from "react";
 import { ScrollView, Switch, View } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
-import { ListRow, Screen, Text } from "@/app/components/ui";
+import { IconButton, ListRow, Screen, Text } from "@/app/components/ui";
 import { useTheme } from "@/app/theme";
 import { MediaManager } from "@/app/services/media-manager";
 import { usePrefetchSetting } from "@/app/services/prefetch/prefetchSetting";
 import { prefetcher } from "@/app/services/prefetch/Prefetcher";
+import { PREFETCH_CACHE_CAP_BYTES } from "@/app/tools/prefetchCache";
+
+const CAP_MB = Math.round(PREFETCH_CACHE_CAP_BYTES / 1024 / 1024);
 
 // App settings. Right now: "Load upcoming songs ahead" (ShuffullApp#124), which fetches the next song or two while
 // the current one plays so a skip starts at once.
@@ -18,7 +20,7 @@ export default function SettingsScreen() {
     return (
         <Screen>
             <View style={{ flexDirection: "row", alignItems: "center", gap: theme.space.sm, marginTop: theme.space.md, marginBottom: theme.space.md }}>
-                <Ionicons name="chevron-back" size={24} color={theme.color.textPrimary} onPress={() => router.back()} />
+                <IconButton name="chevron-back" size={24} color={theme.color.textPrimary} onPress={() => router.back()} accessibilityLabel="Back" />
                 <Text variant="screenTitle">Settings</Text>
             </View>
 
@@ -41,7 +43,7 @@ export default function SettingsScreen() {
                             }
                         />
                         <Text variant="caption" color="textFaint">
-                            Fetches the next one or two songs while the current one plays, up to about 100 MB. They are
+                            Fetches the next one or two songs while the current one plays, up to about {CAP_MB} MB. They are
                             not downloads: they are deleted once played and never show in your library.
                         </Text>
                     </>

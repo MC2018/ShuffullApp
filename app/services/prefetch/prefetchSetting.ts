@@ -18,10 +18,8 @@ export const usePrefetchSetting = create<PrefetchSettingState>((set) => ({
     set: (enabled) => set({ enabled, loaded: true }),
 }));
 
-export async function loadPrefetchSetting(): Promise<boolean> {
-    const enabled = parsePrefetchSetting(await AsyncStorage.getItem(STORAGE_KEYS.PREFETCH_UPCOMING));
-    usePrefetchSetting.getState().set(enabled);
-    return enabled;
+export async function loadPrefetchSetting(): Promise<void> {
+    usePrefetchSetting.getState().set(parsePrefetchSetting(await AsyncStorage.getItem(STORAGE_KEYS.PREFETCH_UPCOMING)));
 }
 
 export async function savePrefetchSetting(enabled: boolean): Promise<void> {

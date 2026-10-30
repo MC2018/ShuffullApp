@@ -77,7 +77,8 @@ export class Lookahead {
         const songId = this.picks.shift();
         this.generation++;
 
-        if (songId == undefined) {
+        // Never the song already playing: a pick that became current some other way would otherwise play twice.
+        if (songId == undefined || songId === this.source.current()) {
             return undefined;
         }
 
@@ -98,10 +99,16 @@ export class Lookahead {
             ? queue.slice(0, this.size)
             : await this.source.forwardHistory(this.size);
         const needed = Math.max(0, this.size - upcoming.length);
-
         const picks: string[] = [];
-        for (const songId of this.picks.slice(0, needed)) {
-            if (await this.source.isEligible(songId)) {
+        // A song is lined up once at most. A kept pick the user has since queued, or one that has started playing,
+        // would otherwise play again straight after.
+        const taken = (songId: string) => songId === this.source.current() || upcoming.includes(songId) || picks.includes(songId);
+
+        for (const songId of this.picks) {
+            if (picks.length >= needed) {
+                break;
+            }
+            if (!taken(songId) && await this.source.isEligible(songId)) {
                 picks.push(songId);
             }
         }
@@ -111,9 +118,9 @@ export class Lookahead {
             const played = [...(current == undefined ? [] : [current]), ...upcoming, ...picks];
             const songId = await this.source.pick(played);
 
-            // A pool too small to avoid repeats can hand back a song already lined up. Lining it up twice would just
-            // play it twice in a row, so stop short instead.
-            if (songId == undefined || upcoming.includes(songId) || picks.includes(songId)) {
+            // A pool too small to avoid repeats can hand back a song already lined up, or the one playing. Lining it
+            // up would just play it twice in a row, so stop short instead.
+            if (songId == undefined || taken(songId)) {
                 break;
             }
 
