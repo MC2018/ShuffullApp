@@ -8,9 +8,10 @@ import { BaseSQLiteDatabase, SQLiteTransaction } from "drizzle-orm/sqlite-core";
  * native driver even though not one of them touches anything driver-specific. Widening it to Drizzle's
  * common ancestor lets the same schema, queries and migrations run wherever the app does:
  *
- *   mobile   drizzle-orm/expo-sqlite      (sync)
- *   desktop  drizzle-orm/better-sqlite3   (sync)   — Electron's main process has real native SQLite
- *   web      drizzle-orm/sqlite-proxy     (async)  — SQLocal over OPFS
+ *   mobile         drizzle-orm/expo-sqlite      (sync)   — database.ts
+ *   web, desktop   drizzle-orm/sqlite-proxy     (async)  — database.web.ts, expo-sqlite's async API over OPFS.
+ *                                                          The Electron app is the web build in a window.
+ *   tests          drizzle-orm/better-sqlite3   (sync)   — in-memory, under Vitest
  *
  * `"sync" | "async"` is the load-bearing part: the web driver can only ever be async (an OPFS worker cannot
  * be called synchronously), so a sync-only type would have excluded the browser outright. Every query here
