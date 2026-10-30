@@ -25,11 +25,10 @@ import { failedKeeps, summarizeRetagFailures } from "@/app/services/sync-manager
 const golden = (name: string): unknown =>
     JSON.parse(readFileSync(path.resolve(__dirname, "contracts/shuffull-api", `${name}.json`), "utf8"));
 
-/** The fields a song schema reads that the API's first row doesn't send. */
-function unsentFields(schema: z.ZodTypeAny, row: unknown): string[] {
+/** The fields a row schema reads that the API's row doesn't send. */
+function unsentFields(schema: z.AnyZodObject | z.ZodEffects<z.AnyZodObject, unknown, unknown>, row: object): string[] {
     const inner = schema instanceof z.ZodEffects ? schema.innerType() : schema;
-    const keys = Object.keys((inner as z.AnyZodObject).shape);
-    return keys.filter(k => !(k in (row as object)));
+    return Object.keys(inner.shape).filter(k => !(k in row));
 }
 
 describe("API contract: songs (shuffull-workspace#5)", () => {
