@@ -71,6 +71,17 @@ export function describeQuickSkips(stat: Pick<ListenStat, "plays" | "recentQuick
     return `${stat.recentQuickSkips} of your last ${lookedAt} plays skipped in under ${rule.skippedUnderSeconds} s`;
 }
 
+/** The Library row's subtitle: null until the stats have synced once. */
+export function describeMaybeDropRow(count: number | null): string {
+    if (count == null) {
+        return "Songs you keep skipping early";
+    }
+    if (count == 0) {
+        return "No songs flagged";
+    }
+    return `${count} song${count == 1 ? "" : "s"} you keep skipping early`;
+}
+
 /** The rows of the song screen's "Your listening" section. */
 export function listenStatFacts(stat: ListenStat, now: Date): { label: string; value: string }[] {
     return [

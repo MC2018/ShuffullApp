@@ -564,7 +564,7 @@ function ListeningSection({ stat, snapshot }: { stat: ListenStat | null; snapsho
             <SectionHeader title="Your listening" />
             {stat == null ? (
                 <Text variant="body" color="textFaint">
-                    No plays yet.
+                    No listens logged yet.
                 </Text>
             ) : (
                 <View>

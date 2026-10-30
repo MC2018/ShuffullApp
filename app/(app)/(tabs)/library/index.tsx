@@ -13,6 +13,7 @@ import { useTheme } from "@/app/theme";
 import { AuditionProgress } from "@/app/tools/audition";
 import { useDownloadStatusView } from "@/app/components/downloading/useDownloadStatusView";
 import { describeDownloadsRow } from "@/app/tools/downloadStatus";
+import { describeMaybeDropRow } from "@/app/tools/listenStats";
 import { showAlert } from "@/app/tools/dialog";
 
 export default function LibraryScreen() {
@@ -60,7 +61,7 @@ export default function LibraryScreen() {
     const [maybeDropCount, setMaybeDropCount] = React.useState<number | null>(null);
     const loadMaybeDrop = useCallback(async () => {
         const synced = await DbQueries.getListenStatsSnapshot(db, userId);
-        setMaybeDropCount(synced == null ? null : (await DbQueries.getMaybeDropSongs(db, userId)).length);
+        setMaybeDropCount(synced == null ? null : await DbQueries.countMaybeDropSongs(db, userId));
     }, [db, userId]);
 
     const loadRole = useCallback(async () => {
@@ -135,13 +136,7 @@ export default function LibraryScreen() {
                     />
                     <ListRow
                         title="Maybe drop this"
-                        subtitle={
-                            maybeDropCount == null
-                                ? "Songs you keep skipping early"
-                                : maybeDropCount === 0
-                                  ? "No songs flagged"
-                                  : `${maybeDropCount} song${maybeDropCount === 1 ? "" : "s"} you keep skipping early`
-                        }
+                        subtitle={describeMaybeDropRow(maybeDropCount)}
                         onPress={() => router.push("/library/maybe-drop")}
                         left={
                             <View style={{ width: 48, height: 48, borderRadius: theme.radius.md, backgroundColor: theme.color.surfaceAlt, alignItems: "center", justifyContent: "center" }}>

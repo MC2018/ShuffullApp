@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, isNull, ne, or } from "drizzle-orm";
+import { and, asc, count, desc, eq, isNull, ne, or } from "drizzle-orm";
 import { LikeStatus } from "@/app/enums";
 import type { ListenStatsResponse, MaybeDropRule } from "@/app/services/api/models";
 import { GenericDb } from "../GenericDb";
@@ -53,6 +53,14 @@ export async function getSongListenStat(db: GenericDb, userId: string, songId: s
     return stat ?? null;
 }
 
+const userSongJoin = (userId: string) => and(eq(userSongTable.songId, listenStatTable.songId), eq(userSongTable.userId, userId));
+
+const maybeDropWhere = (userId: string) => and(
+    eq(listenStatTable.userId, userId),
+    eq(listenStatTable.maybeDrop, true),
+    or(isNull(userSongTable.likeStatus), ne(userSongTable.likeStatus, LikeStatus.Dislike)),
+);
+
 // The "Maybe drop this" list: songs the server flagged that this device has, most quick skips first, then the most
 // recently played. A song the user already disliked is left out: they acted on it, it no longer plays in the shuffle,
 // and with no new plays the server would flag it forever.
@@ -61,14 +69,10 @@ export async function getMaybeDropSongs(db: GenericDb, userId: string): Promise<
         .select({ song: songTable, artist: artistTable, stat: listenStatTable })
         .from(listenStatTable)
         .innerJoin(songTable, eq(songTable.songId, listenStatTable.songId))
-        .leftJoin(userSongTable, and(eq(userSongTable.songId, listenStatTable.songId), eq(userSongTable.userId, userId)))
+        .leftJoin(userSongTable, userSongJoin(userId))
         .leftJoin(songArtistTable, eq(songArtistTable.songId, songTable.songId))
         .leftJoin(artistTable, eq(artistTable.artistId, songArtistTable.artistId))
-        .where(and(
-            eq(listenStatTable.userId, userId),
-            eq(listenStatTable.maybeDrop, true),
-            or(isNull(userSongTable.likeStatus), ne(userSongTable.likeStatus, LikeStatus.Dislike)),
-        ))
+        .where(maybeDropWhere(userId))
         // songId last, so a song's artist rows stay next to each other for the grouping below.
         .orderBy(desc(listenStatTable.recentQuickSkips), desc(listenStatTable.lastPlayed), asc(songTable.songId), asc(artistTable.name));
 
@@ -84,4 +88,15 @@ export async function getMaybeDropSongs(db: GenericDb, userId: string): Promise<
         }
     }
     return songs;
+}
+
+/** How many songs getMaybeDropSongs would list, without loading them. */
+export async function countMaybeDropSongs(db: GenericDb, userId: string): Promise<number> {
+    const [row] = await db
+        .select({ n: count() })
+        .from(listenStatTable)
+        .innerJoin(songTable, eq(songTable.songId, listenStatTable.songId))
+        .leftJoin(userSongTable, userSongJoin(userId))
+        .where(maybeDropWhere(userId));
+    return row?.n ?? 0;
 }

@@ -5,7 +5,7 @@ import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import path from "path";
 import type { GenericDb } from "@/app/services/db/GenericDb";
 import { addRequests, getRequests } from "@/app/services/db/queries/request";
-import { getListenStatsSnapshot, getMaybeDropSongs, getSongListenStat, replaceListenStats } from "@/app/services/db/queries/listenStats";
+import { countMaybeDropSongs, getListenStatsSnapshot, getMaybeDropSongs, getSongListenStat, replaceListenStats } from "@/app/services/db/queries/listenStats";
 import { artistTable, songArtistTable, songTable, userSongTable, userTable } from "@/app/services/db/schema";
 import type { Song } from "@/app/services/db/models";
 import type { ListenStatsResponse, RecordListensResponse } from "@/app/services/api/models";
@@ -16,6 +16,7 @@ import {
     LISTEN_STATS_MIN_GAP_MS,
     LISTEN_STATS_REFRESH_MS,
     describeAgo,
+    describeMaybeDropRow,
     describeMaybeDropRule,
     describeQuickSkips,
     formatListenTime,
@@ -100,6 +101,13 @@ describe("listen stats wording", () => {
         expect(describeQuickSkips({ plays: 3, recentQuickSkips: 3 }, RULE)).toBe("3 of your last 3 plays skipped in under 30 s");
     });
 
+    it("words the Library row before the first sync, with none flagged, and with some", () => {
+        expect(describeMaybeDropRow(null)).toBe("Songs you keep skipping early");
+        expect(describeMaybeDropRow(0)).toBe("No songs flagged");
+        expect(describeMaybeDropRow(1)).toBe("1 song you keep skipping early");
+        expect(describeMaybeDropRow(2)).toBe("2 songs you keep skipping early");
+    });
+
     it("lists the song screen's facts, with a dash when completion is unknown", () => {
         const now = new Date("2026-10-31T12:00:00Z");
         const facts = listenStatFacts({ ...stat("s1", { plays: 12, skips: 4, averageSecondsListened: 151.25, completionPercent: 70.5 }), userId: USER }, now);
@@ -131,6 +139,7 @@ describe("listen stats cache", () => {
         expect(await getListenStatsSnapshot(db, USER)).toBeNull();
         expect(await getSongListenStat(db, USER, "a")).toBeNull();
         expect(await getMaybeDropSongs(db, USER)).toEqual([]);
+        expect(await countMaybeDropSongs(db, USER)).toBe(0);
     });
 
     it("replaces the whole cache and the rule on each refresh", async () => {
@@ -169,6 +178,7 @@ describe("listen stats cache", () => {
         expect(list[2].artists.map(x => x.name)).toEqual(["Xavier", "Yara"]);
         expect(list[1].artists).toEqual([]);
         expect(list[0].stat.recentQuickSkips).toBe(5);
+        expect(await countMaybeDropSongs(db, USER)).toBe(3);
     });
 
     it("leaves out a flagged song the user already disliked", async () => {
@@ -181,6 +191,7 @@ describe("listen stats cache", () => {
         await replaceListenStats(db, USER, { maybeDropRule: RULE, songs: [stat("a"), stat("b"), stat("c")] }, new Date());
 
         expect((await getMaybeDropSongs(db, USER)).map(x => x.song.songId).sort()).toEqual(["b", "c"]);
+        expect(await countMaybeDropSongs(db, USER)).toBe(2);
     });
 });
 
