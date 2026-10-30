@@ -64,14 +64,15 @@ describe("enqueueSongRetag (one row per song and user, stronger-wins)", () => {
         expect(await retagRows(db)).toHaveLength(2);
     });
 
-    it("replaces a weak row with a strong one under a new id, at the original time", async () => {
+    it("upgrades a weak row to strong under a new id, in its place in the queue", async () => {
         await enqueueSongRetag(db, "u1", "s1", "weak");
+        await enqueueSongRetag(db, "u1", "s2", "weak");
         const [weak] = await getRequests(db, "u1");
 
         await enqueueSongRetag(db, "u1", "s1", "strong");
 
         const rows = await getRequests(db, "u1");
-        expect(rows).toHaveLength(1);
+        expect(rows.map(x => x.songId)).toEqual(["s1", "s2"]);
         expect(rows[0].requestId).not.toBe(weak.requestId);
         expect(rows[0].payload).toEqual({ model: "strong" });
         expect(rows[0].timeRequested).toEqual(weak.timeRequested);

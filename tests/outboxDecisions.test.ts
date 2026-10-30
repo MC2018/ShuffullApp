@@ -32,28 +32,17 @@ async function breakOutbox(db: GenericDb) {
     await db.run(sql`create trigger refuse_requests before insert on requests begin select raise(abort, 'outbox refused'); end`);
 }
 
-describe("getRequests: one user's outbox, in the order the user acted", () => {
+describe("getRequests: one user's outbox, in the order it was queued", () => {
     let db: GenericDb;
     beforeEach(() => { db = makeDb(); });
 
-    it("returns rows oldest first, whatever order they were written in", async () => {
+    it("returns rows in the order they were queued, whatever their timestamps say", async () => {
         const at = (ms: number) => new Date(1_700_000_000_000 + ms);
-        await addRequests(db, [
-            { requestId: "unlike", timeRequested: at(2), requestType: RequestType.SetSongLikeStatus, userId: USER, songId: "s1", likeStatus: LikeStatus.Neutral },
-            { requestId: "like", timeRequested: at(1), requestType: RequestType.SetSongLikeStatus, userId: USER, songId: "s1", likeStatus: LikeStatus.Like },
-        ]);
+        // A clock stepped back between the two, or a play stamped with the time its song started.
+        await addRequests(db, [{ requestId: "like", timeRequested: at(2), requestType: RequestType.SetSongLikeStatus, userId: USER, songId: "s1", likeStatus: LikeStatus.Like }]);
+        await addRequests(db, [{ requestId: "unlike", timeRequested: at(1), requestType: RequestType.SetSongLikeStatus, userId: USER, songId: "s1", likeStatus: LikeStatus.Neutral }]);
 
         expect((await getRequests(db, USER)).map(x => x.requestId)).toEqual(["like", "unlike"]);
-    });
-
-    it("keeps rows queued in the same millisecond in the order they were written", async () => {
-        const now = new Date();
-        const ids = ["c", "a", "b"];
-        for (const requestId of ids) {
-            await addRequests(db, [{ requestId, timeRequested: now, requestType: RequestType.CreateUserSong, userId: USER, songId: requestId }]);
-        }
-
-        expect((await getRequests(db, USER)).map(x => x.requestId)).toEqual(ids);
     });
 
     it("leaves out another account's rows", async () => {

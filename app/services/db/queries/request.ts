@@ -36,12 +36,13 @@ async function enqueueSongRetagIn(db: GenericDb, userId: string, songId: string,
     if (existing.length > 0) {
         const current = (existing[0].payload as SongRetagPayload | null)?.model ?? "strong";
         if (current === "weak" && model === "strong") {
-            // A new row under a new id, never an update in place. sync() deletes what it sent by requestId once the
-            // server answers, so a row upgraded while its weak version was in flight used to be deleted unsent, and
-            // the Like's strong re-tag was lost. The old id now matches nothing; the strong row goes on the next
-            // flush. It keeps the original time, and so its place in the queue.
-            await db.delete(requestTable).where(eq(requestTable.requestId, existing[0].requestId));
-            await db.insert(requestTable).values([{ ...existing[0], requestId: generateId(), payload: { model: "strong" } }]);
+            // A new requestId along with the new payload. sync() deletes what it sent by requestId once the server
+            // answers, so a row upgraded in place while its weak version was in flight used to be deleted unsent,
+            // and the Like's strong re-tag was lost. The old id now matches nothing; the strong row goes on the next
+            // flush. Changing the key keeps the rowid, and so the row's place in the queue (getRequests).
+            await db.update(requestTable)
+                .set({ requestId: generateId(), payload: { model: "strong" } })
+                .where(eq(requestTable.requestId, existing[0].requestId));
         }
         return; // already queued at an equal-or-stronger tier
     }
@@ -56,14 +57,14 @@ async function enqueueSongRetagIn(db: GenericDb, userId: string, songId: string,
     }]);
 }
 
-// One user's outbox, oldest first. The order is the order the user acted in: a like then an unlike must reach the
-// server in that order, and a user song must exist before its like or play. Rows queued in the same millisecond keep
-// their insertion order (rowid). Filtered by user because the outbox outlives a logout: another account signed in
-// on the same device must not send the first one's rows with its own token. They wait for their owner instead.
+// One user's outbox, in the order the rows were queued: a like then an unlike must reach the server in that order, and
+// a user song must exist before its like or play. By rowid, not timeRequested, which is the device clock (it can step
+// back) and, for a play, the time the song started. Filtered by user because the outbox outlives a logout: another
+// account signed in on the same device must not send the first one's rows with its own token. They wait instead.
 export async function getRequests(db: GenericDb, userId: string): Promise<Request[]> {
     return await db.select().from(requestTable)
         .where(eq(requestTable.userId, userId))
-        .orderBy(asc(requestTable.timeRequested), sql`rowid`);
+        .orderBy(sql`rowid`);
 }
 
 export async function deleteRequests(db: GenericDb, requestIds: string[]): Promise<void> {
