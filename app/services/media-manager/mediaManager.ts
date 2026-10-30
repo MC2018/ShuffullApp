@@ -1,8 +1,8 @@
 import { GenericDb } from "../db/GenericDb";
 import TrackPlayer, { Capability, Event, PlaybackState, RemoteSeekEvent, State, usePlaybackState } from "react-native-track-player";
-import { CreateUserSongRequest, RecentlyPlayedSong, Request, Song, UpdateSongLastPlayedRequest } from "../db/models";
+import { CreateUserSongRequest, RecentlyPlayedSong, Song, UpdateSongLastPlayedRequest } from "../db/models";
 import DbQueries from "../db/queries";
-import { shouldPromoteOnLike, shouldSkipOnDislike } from "../../tools/promotion";
+import { shouldSkipOnDislike } from "../../tools/promotion";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { STORAGE_KEYS } from "../../constants/storageKeys";
 import { generateRange, generateId } from "../../tools/utils";
@@ -841,32 +841,9 @@ export async function applyLikeStatus(songId: string, likeStatus: LikeStatus) {
         return;
     }
 
-    const userId = localSessionData.userId;
-    await DbQueries.setUserSongLikeStatus(db, userId, songId, likeStatus);
-
-    const requests: Request[] = [
-        {
-            requestId: generateId(),
-            timeRequested: new Date(),
-            requestType: RequestType.SetSongLikeStatus,
-            userId,
-            songId,
-            likeStatus,
-        },
-    ];
-
-    await DbQueries.addRequests(db, requests);
-
-    // Liking an audition song — or a weak-tagged (Standard-tier / kept) one — is its "promote" signal:
-    // enqueue a STRONG re-tag and drop the flags locally so it leaves the audition view / stops
-    // re-promoting immediately. enqueueSongRetag keeps one pending row per song with stronger-wins, so a
-    // Like landing after a queued Keep upgrades that row instead of double-spending.
-    const song = await DbQueries.getSong(db, songId);
-    const promoted = song != undefined && shouldPromoteOnLike(song.exploratory, song.tagsStale, likeStatus);
-    if (promoted) {
-        await DbQueries.enqueueSongRetag(db, userId, songId, "strong");
-        await DbQueries.markSongPromoted(db, songId);
-    }
+    // The rating, its outbox row and, for a Like of an audition or weak-tagged song, the strong re-tag that promotes
+    // it, all in one transaction (recordLikeStatus).
+    const { song, promoted } = await DbQueries.recordLikeStatus(db, localSessionData.userId, songId, likeStatus);
 
     // Mirror into the reactive store so any mounted RatingControl for this song updates, regardless of where
     // the change originated (in-app control or the notification's 👍/👎 buttons).
@@ -895,7 +872,7 @@ export async function applyLikeStatus(songId: string, likeStatus: LikeStatus) {
  * KEEPS an audition song without liking it: "this can stay, but don't spend premium AI on it." Enqueues a
  * WEAK-model re-tag (the budget tier) and optimistically clears the audition state — with tagsStale set, so
  * the song remains upgradeable: a later like enqueues strong, and if the Keep is still waiting to sync, the
- * outbox's stronger-wins rule upgrades that pending row in place. No-op for non-audition songs.
+ * outbox's stronger-wins rule upgrades that pending row. No-op for non-audition songs.
  */
 export async function keepSong(songId: string) {
     const localSessionData = await DbQueries.getActiveLocalSessionData(db);
@@ -903,14 +880,9 @@ export async function keepSong(songId: string) {
         return;
     }
 
-    const song = await DbQueries.getSong(db, songId);
-    if (song == undefined || !song.exploratory) {
-        return;
+    if (await DbQueries.recordKeep(db, localSessionData.userId, songId)) {
+        useSongStateRevision.getState().bump();
     }
-
-    await DbQueries.enqueueSongRetag(db, localSessionData.userId, songId, "weak");
-    await DbQueries.markSongKept(db, songId);
-    useSongStateRevision.getState().bump();
 }
 
 async function startNewSong(songId: string, recentlyPlayedSong?: RecentlyPlayedSong) {

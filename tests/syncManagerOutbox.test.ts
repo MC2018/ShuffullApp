@@ -6,7 +6,7 @@ import path from "path";
 import type { GenericDb } from "@/app/services/db/GenericDb";
 import { addRequests, enqueueSongRetag, getDeadLetterRequests, getRequests } from "@/app/services/db/queries/request";
 import { deadLetterRequestTable, userTable } from "@/app/services/db/schema";
-import { RequestType } from "@/app/enums";
+import { LikeStatus, RequestType } from "@/app/enums";
 import { ApiStatusFailureError } from "@/app/services/api/errors";
 import type { KeepResponse } from "@/app/services/api/models";
 
@@ -40,6 +40,7 @@ function makeApi() {
             results: items.map(x => ({ songId: x.songId, outcome: "enriched", error: null })),
         })),
         playlistDelete: vi.fn(async (_playlistId: string) => {}),
+        userSongSetLikeStatus: vi.fn(async (_songId: string, _likeStatus: LikeStatus) => {}),
     };
 }
 
@@ -47,9 +48,16 @@ function makeApi() {
 // here, so overallSync is stubbed to succeed.
 function makeManager(db: GenericDb, api: ReturnType<typeof makeApi>, logout = vi.fn(async () => {})) {
     const manager = Object.create(SyncManager.prototype);
-    Object.assign(manager, { db, api, userId: USER, logout, syncing: false, keepRetriedAt: new Map() });
+    Object.assign(manager, { db, api, userId: USER, logout, syncing: false, keepRetriedAt: new Map(), failedSyncs: 0, ticksToSkip: 0 });
     manager.overallSync = vi.fn(async () => 200);
-    return manager as { sync(): Promise<void>; keepRetriedAt: Map<string, number>; overallSync: () => Promise<number> };
+    return manager as {
+        sync(): Promise<void>;
+        keepRetriedAt: Map<string, number>;
+        overallSync: () => Promise<number>;
+        failedSyncs: number;
+        ticksToSkip: number;
+        syncNow(): void;
+    };
 }
 
 async function setCurator(db: GenericDb, isCurator: boolean) {
@@ -88,7 +96,7 @@ describe("SyncManager: a Keep is recorded through /songs/keep, for every user", 
 
         expect(api.songKeep).toHaveBeenCalledWith(["s1"]);
         expect(api.songRetag).not.toHaveBeenCalled();
-        expect(await getRequests(db)).toHaveLength(0);
+        expect(await getRequests(db, USER)).toHaveLength(0);
         expect(await getDeadLetterRequests(db, USER)).toHaveLength(0);
     });
 
@@ -102,7 +110,7 @@ describe("SyncManager: a Keep is recorded through /songs/keep, for every user", 
         expect(api.songKeep).toHaveBeenCalledWith(["s1", "s2"]);
         expect(api.songKeep.mock.invocationCallOrder[0]).toBeLessThan(api.songRetag.mock.invocationCallOrder[0]);
         expect(api.songRetag).toHaveBeenCalledWith([{ songId: "s1", model: "weak" }, { songId: "s2", model: "strong" }]);
-        expect(await getRequests(db)).toHaveLength(0);
+        expect(await getRequests(db, USER)).toHaveLength(0);
     });
 
     it("a failed re-tag after a recorded Keep costs the tags, not the rows' disposal", async () => {
@@ -112,7 +120,7 @@ describe("SyncManager: a Keep is recorded through /songs/keep, for every user", 
 
         await makeManager(db, api).sync();
 
-        expect(await getRequests(db)).toHaveLength(0);
+        expect(await getRequests(db, USER)).toHaveLength(0);
         expect(await getDeadLetterRequests(db, USER)).toHaveLength(0);
     });
 
@@ -132,7 +140,7 @@ describe("SyncManager: a Keep is recorded through /songs/keep, for every user", 
         const deadLetters = await getDeadLetterRequests(db, USER);
         expect(deadLetters.map(x => [x.songId, x.reason])).toEqual([["notMine", "Song is not in your library."]]);
         expect(api.songRetag).toHaveBeenCalledWith([{ songId: "mine", model: "weak" }]);
-        expect(await getRequests(db)).toHaveLength(0);
+        expect(await getRequests(db, USER)).toHaveLength(0);
     });
 
     it("a 401 logs out instead of being read as 'server down'", async () => {
@@ -143,7 +151,7 @@ describe("SyncManager: a Keep is recorded through /songs/keep, for every user", 
         await makeManager(db, api, logout).sync();
 
         expect(logout).toHaveBeenCalledOnce();
-        expect(await getRequests(db)).toHaveLength(1);
+        expect(await getRequests(db, USER)).toHaveLength(1);
     });
 });
 
@@ -160,7 +168,7 @@ describe("SyncManager: playlist deletes wait for every Keep (the 2026-08-22 purg
         await makeManager(db, api).sync();
 
         expect(api.playlistDelete).not.toHaveBeenCalled();
-        expect((await getRequests(db)).map(x => x.requestType).sort())
+        expect((await getRequests(db, USER)).map(x => x.requestType).sort())
             .toEqual([RequestType.SongRetag, RequestType.DeletePlaylist].sort());
     });
 
@@ -171,7 +179,7 @@ describe("SyncManager: playlist deletes wait for every Keep (the 2026-08-22 purg
         await makeManager(db, api).sync();
 
         expect(api.songKeep.mock.invocationCallOrder[0]).toBeLessThan(api.playlistDelete.mock.invocationCallOrder[0]);
-        expect(await getRequests(db)).toHaveLength(0);
+        expect(await getRequests(db, USER)).toHaveLength(0);
     });
 
     it("a delete queued BEFORE a Keep is held for that flush, and goes on the next", async () => {
@@ -184,7 +192,7 @@ describe("SyncManager: playlist deletes wait for every Keep (the 2026-08-22 purg
 
         await manager.sync();
         expect(api.playlistDelete).toHaveBeenCalledWith("mix");
-        expect(await getRequests(db)).toHaveLength(0);
+        expect(await getRequests(db, USER)).toHaveLength(0);
     });
 
     it("a dead-lettered Keep holds the delete of a playlist that holds its song", async () => {
@@ -196,7 +204,7 @@ describe("SyncManager: playlist deletes wait for every Keep (the 2026-08-22 purg
 
         expect(api.songKeep).toHaveBeenLastCalledWith(["kept"]); // the hold re-sends the Keep it is waiting on
         expect(api.playlistDelete).not.toHaveBeenCalled();
-        expect(await getRequests(db)).toHaveLength(1);
+        expect(await getRequests(db, USER)).toHaveLength(1);
     });
 
     it("...and lets it go once the re-sent Keep is recorded", async () => {
@@ -207,7 +215,7 @@ describe("SyncManager: playlist deletes wait for every Keep (the 2026-08-22 purg
 
         expect(api.playlistDelete).toHaveBeenCalledWith("mix");
         expect(await getDeadLetterRequests(db, USER)).toHaveLength(0);
-        expect(await getRequests(db)).toHaveLength(0);
+        expect(await getRequests(db, USER)).toHaveLength(0);
     });
 
     it("a dead-lettered Keep does not hold the delete of a playlist without its song", async () => {
@@ -280,7 +288,7 @@ describe("SyncManager: playlist deletes wait for every Keep (the 2026-08-22 purg
         expect(api.playlistDelete).not.toHaveBeenCalled();
         expect(manager.overallSync).not.toHaveBeenCalled();
 
-        await manager.sync();
+        await manager.sync(); // the next tick: one failure sits out no ticks
         expect(api.playlistDelete).toHaveBeenCalledWith("mix");
     });
 
@@ -322,9 +330,120 @@ describe("SyncManager: playlist deletes wait for every Keep (the 2026-08-22 purg
         await makeManager(db, api).sync();
 
         const deadLetters = await getDeadLetterRequests(db, USER);
-        expect(await getRequests(db)).toHaveLength(0);
+        expect(await getRequests(db, USER)).toHaveLength(0);
         expect(deadLetters).toHaveLength(1);
         expect(deadLetters[0].reason).toContain("400");
         expect(deadLetters[0].reason).toContain("boom");
+    });
+});
+
+describe("SyncManager: outbox hardening (ShuffullApp#93)", () => {
+    let db: GenericDb;
+    let api: ReturnType<typeof makeApi>;
+    beforeEach(() => { db = makeDb(); api = makeApi(); });
+
+    it("a Like that upgrades a Keep while the Keep is in flight is not deleted with it", async () => {
+        await setCurator(db, true);
+        await enqueueSongRetag(db, USER, "s1", "weak");
+        api.songKeep.mockImplementationOnce(async (songIds: string[]) => {
+            await enqueueSongRetag(db, USER, "s1", "strong"); // the user likes the song mid-flush
+            return { results: songIds.map(songId => ({ songId, outcome: "kept", error: null })) };
+        });
+        const manager = makeManager(db, api);
+
+        await manager.sync();
+        expect(api.songRetag).toHaveBeenLastCalledWith([{ songId: "s1", model: "weak" }]);
+        const [row] = await getRequests(db, USER);
+        expect(row.payload).toEqual({ model: "strong" });
+
+        await manager.sync();
+        expect(api.songRetag).toHaveBeenLastCalledWith([{ songId: "s1", model: "strong" }]);
+        expect(await getRequests(db, USER)).toHaveLength(0);
+    });
+
+    it("another account's rows are not sent with this account's token, and wait for their owner", async () => {
+        await enqueueSongRetag(db, "someone-else", "theirs", "weak");
+        await enqueueSongRetag(db, USER, "mine", "weak");
+
+        await makeManager(db, api).sync();
+
+        expect(api.songKeep).toHaveBeenCalledExactlyOnceWith(["mine"]);
+        expect(await getRequests(db, USER)).toHaveLength(0);
+        expect((await getRequests(db, "someone-else")).map(x => x.songId)).toEqual(["theirs"]);
+    });
+
+    it("a refused rating holds back later ones for the same song, so they can't overtake its retry", async () => {
+        const at = (ms: number) => new Date(Date.now() - 60_000 + ms);
+        await addRequests(db, [
+            { requestId: "like", timeRequested: at(0), requestType: RequestType.SetSongLikeStatus, userId: USER, songId: "s1", likeStatus: LikeStatus.Like },
+            { requestId: "other", timeRequested: at(1), requestType: RequestType.SetSongLikeStatus, userId: USER, songId: "s2", likeStatus: LikeStatus.Like },
+            { requestId: "neutral", timeRequested: at(2), requestType: RequestType.SetSongLikeStatus, userId: USER, songId: "s1", likeStatus: LikeStatus.Neutral },
+        ]);
+        // The old API answers 400 to any handler failure, a passing one included.
+        api.userSongSetLikeStatus.mockRejectedValueOnce(rejected("/api/v1/user-songs/s1/like", 400, "failed"));
+
+        await makeManager(db, api).sync();
+        expect(api.userSongSetLikeStatus.mock.calls).toEqual([["s1", LikeStatus.Like], ["s2", LikeStatus.Like]]);
+        expect((await getRequests(db, USER)).map(x => x.requestId)).toEqual(["like", "neutral"]);
+
+        await makeManager(db, api).sync(); // the retry goes through, and the Neutral follows it
+        expect(api.userSongSetLikeStatus.mock.calls.slice(2)).toEqual([["s1", LikeStatus.Like], ["s1", LikeStatus.Neutral]]);
+        expect(await getRequests(db, USER)).toHaveLength(0);
+    });
+
+    it("an unreachable server backs the syncs off, and a success resets it", async () => {
+        await enqueueSongRetag(db, USER, "s1", "weak");
+        api.songKeep.mockRejectedValue(rejected("/api/v1/songs/keep", 503, "down"));
+        const manager = makeManager(db, api);
+
+        await manager.sync();
+        await manager.sync(); // one failure: the very next tick tries again
+        expect(api.songKeep).toHaveBeenCalledTimes(2);
+        expect(manager.failedSyncs).toBe(2);
+
+        await manager.sync(); // two failures: this tick is sat out
+        expect(api.songKeep).toHaveBeenCalledTimes(2);
+
+        api.songKeep.mockReset();
+        api.songKeep.mockResolvedValue({ results: [{ songId: "s1", outcome: "kept", error: null }] });
+        await manager.sync();
+        expect(manager.failedSyncs).toBe(0);
+        expect(manager.ticksToSkip).toBe(0);
+        expect(await getRequests(db, USER)).toHaveLength(0);
+    });
+
+    it("syncNow drops the backoff and syncs at once, for a connection that is back", async () => {
+        await enqueueSongRetag(db, USER, "s1", "weak");
+        const manager = makeManager(db, api);
+        manager.failedSyncs = 6;
+        manager.ticksToSkip = 29;
+
+        manager.syncNow();
+        await vi.waitFor(() => expect(manager.overallSync).toHaveBeenCalled());
+
+        expect(api.songKeep).toHaveBeenCalledWith(["s1"]);
+        expect(manager.failedSyncs).toBe(0);
+        expect(manager.ticksToSkip).toBe(0);
+    });
+
+    it("a failed pull counts as a failed sync", async () => {
+        const manager = makeManager(db, api);
+        manager.overallSync = vi.fn(async () => 503);
+
+        await manager.sync();
+
+        expect(manager.failedSyncs).toBe(1);
+    });
+
+    it("a throw inside sync is logged and counted, never rejected into the interval", async () => {
+        const manager = makeManager(db, api);
+        manager.overallSync = vi.fn(async () => { throw new Error("driver broke"); });
+        const error = vi.spyOn(console, "error").mockImplementation(() => {});
+
+        await expect(manager.sync()).resolves.toBeUndefined();
+
+        expect(manager.failedSyncs).toBe(1);
+        expect(error).toHaveBeenCalled();
+        error.mockRestore();
     });
 });

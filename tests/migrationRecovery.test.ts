@@ -142,7 +142,7 @@ describe("a failed migration rebuilds the database and keeps the data only this 
         expect(deleteFile).not.toHaveBeenCalled();
         expect(sqlite.prepare("SELECT count(*) AS n FROM users").get()).toEqual({ n: 0 });
         // Read back through the app's own queries: dates, JSON payloads and every column intact.
-        expect(await getRequests(fresh)).toEqual([expect.objectContaining(keep), expect.objectContaining(deletePlaylist)]);
+        expect(await getRequests(fresh, "u1")).toEqual([expect.objectContaining(keep), expect.objectContaining(deletePlaylist)]);
         const dead = await getDeadLetterRequests(fresh, "u1");
         expect(dead).toHaveLength(1);
         expect(dead[0]).toMatchObject({ requestId: "keep-2", songId: "s9", reason: "not in your library" });
@@ -162,7 +162,7 @@ describe("a failed migration rebuilds the database and keeps the data only this 
         await expect(migrateLatest()).rejects.toThrow(/ADD `playlist_id`/);
         const fresh = await rebuildKeepingLocalData(db, migrateLatest, deleteFile);
 
-        expect(await getRequests(fresh)).toEqual([expect.objectContaining(keep)]);
+        expect(await getRequests(fresh, "u1")).toEqual([expect.objectContaining(keep)]);
     });
 
     it("copies the columns both schemas share; a column the old one lacked takes its default", async () => {
@@ -172,7 +172,7 @@ describe("a failed migration rebuilds the database and keeps the data only this 
 
         const fresh = await rebuildKeepingLocalData(db, migrateLatest, deleteFile);
 
-        const [row] = await getRequests(fresh);
+        const [row] = await getRequests(fresh, "u1");
         expect(row).toMatchObject(keep);
         expect(row.playlistId).toBeNull();
     });
@@ -198,7 +198,7 @@ describe("a failed migration rebuilds the database and keeps the data only this 
 
         const fresh = await rebuildKeepingLocalData(db, migrateLatest, deleteFile);
 
-        expect(await getRequests(fresh)).toEqual([expect.objectContaining(keep), expect.objectContaining(deletePlaylist)]);
+        expect(await getRequests(fresh, "u1")).toEqual([expect.objectContaining(keep), expect.objectContaining(deletePlaylist)]);
         expect(rescued()).toEqual([]);
     });
 
@@ -208,7 +208,7 @@ describe("a failed migration rebuilds the database and keeps the data only this 
 
         const fresh = await rebuildKeepingLocalData(db, migrateLatest, deleteFile);
 
-        expect(await getRequests(fresh)).toEqual([]);
+        expect(await getRequests(fresh, "u1")).toEqual([]);
         expect(rescued()).toEqual([]);
     });
 });
@@ -246,7 +246,7 @@ describe("the preserved rows are never only in memory", () => {
         await migrateLatest();
         await restoreRescuedTables(next);
 
-        expect(await getRequests(next)).toEqual([expect.objectContaining(keep)]);
+        expect(await getRequests(next, "u1")).toEqual([expect.objectContaining(keep)]);
         expect(await getGenreJams(next)).toEqual([expect.objectContaining(jam)]);
         expect(rescued()).toEqual([]);
     });
@@ -259,7 +259,7 @@ describe("the preserved rows are never only in memory", () => {
 
         const fresh = await rebuildKeepingLocalData(db, migrateLatest, deleteFile);
 
-        expect((await getRequests(fresh)).map((x) => x.requestId)).toEqual(["good"]);
+        expect((await getRequests(fresh, "u1")).map((x) => x.requestId)).toEqual(["good"]);
         const [table] = rescued();
         expect(sqlite.prepare(`SELECT request_id FROM "${table}"`).all()).toEqual([{ request_id: "orphan" }]);
         expect(console.error).toHaveBeenCalledWith(expect.stringContaining("1 row(s) could not be restored"), expect.anything());
@@ -276,7 +276,7 @@ describe("the preserved rows are never only in memory", () => {
         const fresh = await rebuildKeepingLocalData(db, migrateLatest, deleteFile);
 
         expect(deleteFile).toHaveBeenCalledOnce();
-        expect(await getRequests(fresh)).toEqual([]);
+        expect(await getRequests(fresh, "u1")).toEqual([]);
         expect(console.error).toHaveBeenCalledWith(expect.stringContaining("are lost"), expect.anything());
     });
 
@@ -298,7 +298,7 @@ describe("the preserved rows are never only in memory", () => {
 
         const fresh = await rebuildKeepingLocalData(db, migrateRefusingS9, deleteFile);
 
-        expect((await getRequests(fresh)).map((x) => x.requestId)).toEqual(["keep-1"]);
+        expect((await getRequests(fresh, "u1")).map((x) => x.requestId)).toEqual(["keep-1"]);
         const [dead] = await getDeadLetterRequests(fresh, "u1");
         expect(dead).toMatchObject({ requestId: "keep-2", requestType: RequestType.SongRetag, songId: "s9" });
         expect(dead.reason).toContain("song_id s9 no longer fits");
@@ -320,7 +320,7 @@ describe("a rescued row whose id is already live", () => {
 
         expect(await restoreRescuedTables(db)).toEqual({ restored: 0, deadLettered: 1, leftInPlace: [] });
 
-        expect(await getRequests(db)).toEqual([expect.objectContaining(keep)]);
+        expect(await getRequests(db, "u1")).toEqual([expect.objectContaining(keep)]);
         const [dead] = await getDeadLetterRequests(db, "u1");
         expect(dead).toMatchObject({ requestId: "keep-1", songId: "other-song" });
         expect(dead.reason).toContain("UNIQUE constraint failed");
@@ -337,7 +337,7 @@ describe("a rescued row whose id is already live", () => {
                      VALUES ('keep-1', 2, ${RequestType.SongRetag}, 'u1', 'other-song')`);
 
         expect(await restoreRescuedTables(db)).toEqual({ restored: 0, deadLettered: 0, leftInPlace: ["__rescued_1__requests"] });
-        expect(await getRequests(db)).toEqual([expect.objectContaining(keep)]);
+        expect(await getRequests(db, "u1")).toEqual([expect.objectContaining(keep)]);
         expect(sqlite.prepare("SELECT song_id FROM \"__rescued_1__requests\"").all()).toEqual([{ song_id: "other-song" }]);
     });
 });
@@ -380,7 +380,7 @@ describe("indexes on preserved tables", () => {
 
         const fresh = await rebuildKeepingLocalData(db, migrateWithIndex, deleteFile);
 
-        expect(await getRequests(fresh)).toEqual([expect.objectContaining(keep)]);
+        expect(await getRequests(fresh, "u1")).toEqual([expect.objectContaining(keep)]);
     });
 });
 
@@ -393,7 +393,7 @@ describe("prepareDatabase (what both providers run on start)", () => {
 
         const next = await prepareDatabase(restart(), migrateLatest, deleteFile);
 
-        expect(await getRequests(next)).toEqual([expect.objectContaining(keep)]);
+        expect(await getRequests(next, "u1")).toEqual([expect.objectContaining(keep)]);
         expect(rescued()).toEqual([]);
     });
 
@@ -406,7 +406,7 @@ describe("prepareDatabase (what both providers run on start)", () => {
         const next = await prepareDatabase(db, migrateLatest, deleteFile);
 
         expect(deleteFile).not.toHaveBeenCalled();
-        expect(await getRequests(next)).toEqual([expect.objectContaining(keep)]);
+        expect(await getRequests(next, "u1")).toEqual([expect.objectContaining(keep)]);
     });
 
     it("throws only if the rebuilt database can't be migrated either", async () => {

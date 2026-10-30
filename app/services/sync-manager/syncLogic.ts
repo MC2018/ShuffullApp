@@ -332,6 +332,57 @@ export function partitionRejectedRequests<T extends AgedRequest>(
     return { abandon, keep };
 }
 
+/** An outbox row as the hold-behind-refused rule needs it. */
+export interface OutboxSubject {
+    requestType: number;
+    songId?: string | null;
+    playlistId?: string | null;
+}
+
+/**
+ * What an outbox row acts on, as keys that can't collide: its song and its playlist. None for a Keep: it promotes the
+ * song whatever came before, so it has no order to keep, and it must never wait days behind an unrelated refused row
+ * (a play, a metadata edit) and hold its playlist's delete with it.
+ */
+function outboxSubjects(request: OutboxSubject): string[] {
+    const subjects: string[] = [];
+    if (request.requestType == RequestType.SongRetag) {
+        return subjects;
+    }
+    if (request.songId) {
+        subjects.push(`song:${request.songId}`);
+    }
+    if (request.playlistId) {
+        subjects.push(`playlist:${request.playlistId}`);
+    }
+    return subjects;
+}
+
+/** Records the subjects of rows refused this sync and kept for retry, so later rows about them wait (holdBehindRefused). */
+export function markRefused(requests: OutboxSubject[], refused: Set<string>): void {
+    for (const request of requests) {
+        for (const subject of outboxSubjects(request)) {
+            refused.add(subject);
+        }
+    }
+}
+
+/**
+ * Splits a batch into the rows that can go now and the rows that wait behind an earlier, refused row about the same
+ * song or playlist. A refused row is kept and retried next sync, so without this the rows queued after it would go
+ * first: the old API answers 400 to any handler failure, so a refused Like retried after the Neutral the user chose
+ * since would leave the song liked. Held rows are marked too, so the rows behind them wait as well.
+ */
+export function holdBehindRefused<T extends OutboxSubject>(batch: T[], refused: Set<string>): { ready: T[]; held: T[] } {
+    const ready: T[] = [];
+    const held: T[] = [];
+    for (const request of batch) {
+        (outboxSubjects(request).some(x => refused.has(x)) ? held : ready).push(request);
+    }
+    markRefused(held, refused);
+    return { ready, held };
+}
+
 /**
  * The largest number of queued rows the flush loop will put in one batched POST.
  *
@@ -529,4 +580,25 @@ export function withoutPendingDeletes<T extends { playlistId: string }>(
         .filter(x => x.requestType == RequestType.DeletePlaylist && x.playlistId)
         .map(x => x.playlistId));
     return playlists.filter(x => !pending.has(x.playlistId));
+}
+
+/** How often SyncManager's timer ticks: one sync per tick while the server answers. */
+export const SYNC_INTERVAL_MS = 10_000;
+/** The longest gap between syncs while the server is unreachable or failing: 5 minutes, in ticks. */
+export const SYNC_MAX_BACKOFF_TICKS = 30;
+
+/**
+ * How many ticks to sit out after `failedSyncs` failures in a row: none after one, then 1, 3, 7..., so the gap between
+ * tries doubles from 10 s up to SYNC_MAX_BACKOFF_TICKS. Counted in ticks, not milliseconds, because sync() only runs
+ * on a tick; a deadline in milliseconds would mostly land just after one and cost a whole extra interval.
+ *
+ * A request that timed out after the server had already done it was replayed every 10 s for as long as the link
+ * stayed slow; now a struggling server, or link, gets room. Going offline is a failure too, which is why
+ * SyncManager.syncNow clears all of this once the connection is back.
+ */
+export function syncTicksToSkip(failedSyncs: number): number {
+    if (failedSyncs <= 1) {
+        return 0;
+    }
+    return Math.min(2 ** (failedSyncs - 1), SYNC_MAX_BACKOFF_TICKS) - 1;
 }
