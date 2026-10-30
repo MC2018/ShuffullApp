@@ -3,7 +3,7 @@ import { ListenContext, ListenEndReason, OpenListen } from "../db/models";
 import { closeListen, getOpenListens, saveOpenListen } from "../db/queries/listen";
 import { createSerialLock } from "@/app/tools/serialLock";
 import { generateId } from "@/app/tools/pure";
-import { clockAt, clockSeconds, finishedListen, ListenClock, newListenClock } from "@/app/tools/listens";
+import { clockAt, clockSeconds, finishedListen, ListenClock, listenToTakeOver, newListenClock, PlayingTrack } from "@/app/tools/listens";
 
 /** How often an open listen is checkpointed while it plays. A kill mid-song loses at most this much of it. */
 export const LISTEN_CHECKPOINT_INTERVAL_MS = 10_000;
@@ -42,7 +42,8 @@ interface CurrentListen {
  *
  * A listen is open from its song starting until the next track change. While open it lives in memory, checkpointed to
  * the `listens` table as it plays. Closing it moves it, finished, into the outbox (closeListen), which syncs it to
- * POST /api/v1/listens. A row left open by a run that died is closed as "stopped" at its last checkpoint by recover().
+ * POST /api/v1/listens. A row left open by a run that died is closed as "stopped" at its last checkpoint by recover(),
+ * unless it is the song still playing, which the new run carries on.
  *
  * The DB work runs one call at a time in call order, so a checkpoint queued before a close can't land after it and
  * reopen the listen. The clock itself moves at once, when the player reports, so its seconds don't wait on the DB.
@@ -71,17 +72,37 @@ export class ListenRecorder {
         return this.current?.row.songId;
     }
 
-    /** Closes listens a previous run left open as "stopped", with the seconds and time of their last checkpoint. */
-    recover(): Promise<void> {
-        return this.guarded("recover", async db => {
+    /**
+     * Closes listens a previous run left open as "stopped", with the seconds and time of their last checkpoint.
+     *
+     * Given the song the player is playing now, with no listen open in this run, the orphan that is still that play
+     * (listenToTakeOver) is not closed: this run carries it on, from its checkpointed seconds, under its own listenId
+     * (ShuffullApp#147). One play then stays one listen across a JS restart, so a skip soon after isn't a quick skip.
+     * The seconds between that checkpoint and now count in neither case: nothing saw whether they played.
+     * Returns whether it took one over.
+     */
+    async recover(playing?: PlayingTrack): Promise<boolean> {
+        let tookOver = false;
+        await this.guarded("recover", async db => {
             const orphans = (await getOpenListens(db)).filter(x => x.listenId !== this.current?.row.listenId);
-            for (const orphan of orphans) {
+            const now = this.now();
+            const heir = playing != undefined && this.current == undefined ? listenToTakeOver(orphans, playing, now) : undefined;
+            const closing = orphans.filter(x => x !== heir);
+            for (const orphan of closing) {
                 await closeListen(db, finishedListen(orphan, orphan.checkpointedAt.getTime(), orphan.secondsListened, "stopped"));
             }
-            if (orphans.length) {
-                console.info(`[listens] closed ${orphans.length} listen(s) left open by the last run as stopped.`);
+            if (closing.length) {
+                console.info(`[listens] closed ${closing.length} listen(s) left open by the last run as stopped.`);
+            }
+
+            if (heir != undefined) {
+                this.current = { row: heir, clock: { seconds: heir.secondsListened, playingSince: now }, failed: false };
+                this.syncTimer();
+                tookOver = true;
+                console.info("[listens] carried on the listen the last run left open for the song still playing.");
             }
         });
+        return tookOver;
     }
 
     /** Opens a listen for a song starting. One still open is closed first, as "stopped". */

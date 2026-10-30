@@ -6,8 +6,10 @@ import {
     listenContext,
     ListenContextInput,
     listenPlatform,
+    listenToTakeOver,
     newListenClock,
     OpenListenFields,
+    TAKE_OVER_MARGIN_SECONDS,
 } from "@/app/tools/listens";
 
 // The pure parts of the listen log (ShuffullApp#57): the seconds a listen reports must be actual playback only.
@@ -146,5 +148,38 @@ describe("finishedListen: the wire item", () => {
         for (const songDurationSeconds of [null, 0, -1, Number.POSITIVE_INFINITY]) {
             expect(finishedListen({ ...open, songDurationSeconds }, start, 0, "skipped").songDurationSeconds).toBeNull();
         }
+    });
+});
+
+describe("listenToTakeOver: the old run's listen that is still the play going on (ShuffullApp#147)", () => {
+    const NOW = 1_000_000;
+    const orphan = (listenId: string, songId: string, secondsAgo: number) =>
+        ({ listenId, songId, checkpointedAt: new Date(NOW - secondsAgo * 1000) });
+
+    it("takes the playing song's listen once the position is past the time since its checkpoint", () => {
+        const a = orphan("a", "s1", 8);
+        expect(listenToTakeOver([a], { songId: "s1", positionSeconds: 8 + TAKE_OVER_MARGIN_SECONDS + 0.01 }, NOW)).toBe(a);
+    });
+
+    it("takes none when the song could have started over since the checkpoint", () => {
+        const a = orphan("a", "s1", 8);
+        expect(listenToTakeOver([a], { songId: "s1", positionSeconds: 8 }, NOW)).toBeUndefined();
+        expect(listenToTakeOver([a], { songId: "s1", positionSeconds: 8 + TAKE_OVER_MARGIN_SECONDS }, NOW)).toBeUndefined();
+        expect(listenToTakeOver([a], { songId: "s1", positionSeconds: 0 }, NOW)).toBeUndefined();
+    });
+
+    it("takes none for another song, an unknown position, or no orphans", () => {
+        expect(listenToTakeOver([orphan("a", "s1", 5)], { songId: "s2", positionSeconds: 120 }, NOW)).toBeUndefined();
+        expect(listenToTakeOver([orphan("a", "s1", 5)], { songId: "s1", positionSeconds: NaN }, NOW)).toBeUndefined();
+        expect(listenToTakeOver([], { songId: "s1", positionSeconds: 120 }, NOW)).toBeUndefined();
+    });
+
+    it("of several for the song, takes the newest checkpoint, and only if it qualifies", () => {
+        const old = orphan("old", "s1", 3_600);
+        const recent = orphan("recent", "s1", 5);
+        const other = orphan("other", "s2", 1);
+        expect(listenToTakeOver([old, recent, other], { songId: "s1", positionSeconds: 60 }, NOW)).toBe(recent);
+        // The newest is too close to the start; an older one is never taken in its place.
+        expect(listenToTakeOver([old, orphan("new", "s1", 50)], { songId: "s1", positionSeconds: 40 }, NOW)).toBeUndefined();
     });
 });
