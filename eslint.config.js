@@ -21,6 +21,11 @@ module.exports = defineConfig([{
     files: ["**/*.ts", "**/*.tsx"],
     languageOptions: {
         parser: tsParser,
+        // Type information, for no-floating-promises. The project service reads tsconfig.json itself.
+        parserOptions: {
+            projectService: true,
+            tsconfigRootDir: __dirname,
+        },
         globals: {
             ...globals.browser,
             ...globals.node,
@@ -34,6 +39,8 @@ module.exports = defineConfig([{
     extends: compat.extends(
         "expo",
         "plugin:react/recommended",
+        // babel-preset-expo compiles JSX with the automatic runtime, so a file needn't import React to use JSX.
+        "plugin:react/jsx-runtime",
         "plugin:@typescript-eslint/recommended",
     ),
 
@@ -44,7 +51,14 @@ module.exports = defineConfig([{
         "semi": ["error", "always"],
         "quotes": ["error", "double"],
         "indent": ["warn", 4, { "SwitchCase": 1 }],
-        "@typescript-eslint/no-unused-vars": "off",
+        "@typescript-eslint/no-unused-vars": ["error", {
+            argsIgnorePattern: "^_",
+            varsIgnorePattern: "^_",
+            caughtErrorsIgnorePattern: "^_",
+            ignoreRestSiblings: true,
+        }],
+        // A warning for now: the existing call sites are tracked on ShuffullApp#95's PR, not fixed in bulk.
+        "@typescript-eslint/no-floating-promises": "warn",
         "eol-last": ["error", "always"],
         // react-native-web's Alert.alert is an empty stub: on desktop it shows nothing and never runs a button.
         "no-restricted-imports": ["error", {

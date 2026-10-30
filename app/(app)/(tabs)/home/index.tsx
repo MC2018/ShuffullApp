@@ -5,7 +5,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useDb } from "@/app/services/db/DbProvider";
 import DbQueries from "@/app/services/db/queries";
 import { SongDetails } from "@/app/services/db/types";
-import { GenreJam, Song } from "@/app/services/db/models";
+import { GenreJam } from "@/app/services/db/models";
 import { Downloader } from "@/app/services/downloader/Downloader";
 import { useActiveSong, useIsPlaybackActive } from "@/app/services/media-manager/mediaManager";
 import { MediaManager } from "@/app/services/media-manager";

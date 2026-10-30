@@ -1,4 +1,3 @@
-import React from "react";
 import { View } from "react-native";
 import { Text } from "@/app/components/ui";
 import { useTheme } from "@/app/theme";

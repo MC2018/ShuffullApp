@@ -1,7 +1,7 @@
 import { GenericDb } from "../GenericDb";
 import { RecentlyPlayedSong } from "../models";
 import { recentlyPlayedSongTable } from "../schema";
-import { eq, gt, lt, ExtractTablesWithRelations, inArray, sql, isNotNull, and, desc, asc, or } from "drizzle-orm";
+import { eq, gt, lt, sql, isNotNull, and, desc, asc } from "drizzle-orm";
 
 /**
  * The song playing right now: the history row still carrying a timestamp, NEWEST first, one row.

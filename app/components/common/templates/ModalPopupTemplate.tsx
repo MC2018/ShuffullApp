@@ -1,5 +1,5 @@
-import { Button, ScrollView, Text, View, StyleSheet, TextInput, TouchableOpacity, Modal, DimensionValue } from "react-native";
-import React, { ReactNode, useEffect, useState } from "react";
+import { View, StyleSheet, Modal } from "react-native";
+import { ReactNode } from "react";
 
 interface ModalPopupTemplateProps {
     visible: boolean;

@@ -1,4 +1,3 @@
-import React from "react";
 import { Pressable, StyleProp, ViewStyle } from "react-native";
 import { useTheme, ColorToken } from "@/app/theme";
 import Text from "./Text";

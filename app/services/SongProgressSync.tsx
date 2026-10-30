@@ -1,7 +1,6 @@
 import { useEffect } from "react";
 import { useDb } from "./db/DbProvider";
 import DbQueries from "./db/queries";
-import React from "react";
 import { MediaManager } from "./media-manager";
 
 export default function SongProgressSync() {

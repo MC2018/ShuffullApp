@@ -7,7 +7,6 @@ import { PLAYBACK_ISSUE_LABEL, useActiveSong, usePlaybackIssue } from "@/app/ser
 import { useDb } from "@/app/services/db/DbProvider";
 import DbQueries from "@/app/services/db/queries";
 import { SongDetails } from "@/app/services/db/types";
-import { Song } from "@/app/services/db/models";
 import { Downloader } from "@/app/services/downloader/Downloader";
 import Skimmer from "@/app/components/music-control/atoms/Skimmer";
 import Transport from "@/app/components/music-control/molecules/Transport";

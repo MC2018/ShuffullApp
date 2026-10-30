@@ -1,5 +1,4 @@
 import { Button } from "react-native";
-import React from "react";
 import { Playlist } from "@/app/services/db/models";
 
 export interface DownloadPlaylistProps {

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { View } from "react-native";
 import { router, useFocusEffect } from "expo-router";
 import DbQueries from "@/app/services/db/queries";

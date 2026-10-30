@@ -1,5 +1,4 @@
-import React from "react";
-import { Button, Image, ImageSourcePropType, Pressable, Text, StyleSheet } from "react-native";
+import { Image, ImageSourcePropType, Pressable, Text, StyleSheet } from "react-native";
 
 export interface SongCollectionSelectorProps {
     collectionName: string;

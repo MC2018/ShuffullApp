@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useState } from "react";
 import { AppState } from "react-native";
 import { addNetworkStateListener } from "expo-network";
 import { useDb } from "../db/DbProvider";

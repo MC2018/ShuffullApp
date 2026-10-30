@@ -1,4 +1,3 @@
-import React from "react";
 import { View } from "react-native";
 import { MediaManager } from "@/app/services/media-manager";
 import { useIsPlaybackActive } from "@/app/services/media-manager/mediaManager";

@@ -3,7 +3,7 @@ import { ImageURISource, Pressable, ScrollView, useWindowDimensions, View } from
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Artist, ListenStat, Song, Tag, UpdateSongMetadataPayload } from "@/app/services/db/models";
+import { Artist, ListenStat, Tag, UpdateSongMetadataPayload } from "@/app/services/db/models";
 import { SongDetails } from "@/app/services/db/types";
 import { TagType } from "@/app/services/db/schema";
 import { LikeStatus, RequestType } from "@/app/enums";

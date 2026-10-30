@@ -1,4 +1,3 @@
-import React from "react";
 import { Platform, ScrollView, Switch, View } from "react-native";
 import { router } from "expo-router";
 import { IconButton, ListRow, Screen, Text } from "@/app/components/ui";

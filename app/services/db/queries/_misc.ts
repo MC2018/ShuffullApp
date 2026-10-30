@@ -1,7 +1,7 @@
 import { GenericDb } from "../GenericDb";
-import { Artist, PlaylistSong, SongArtist, SongTag } from "../models";
-import { artistTable, playlistSongTable, songArtistTable, songTagTable } from "../schema";
-import { eq, gt, lt, ExtractTablesWithRelations, inArray, sql, isNotNull, and, desc, asc, or } from "drizzle-orm";
+import { PlaylistSong, SongArtist, SongTag } from "../models";
+import { playlistSongTable, songArtistTable, songTagTable } from "../schema";
+import { eq, inArray } from "drizzle-orm";
 import { chunkIds, chunkRows } from "./_chunk";
 
 export async function updatePlaylistSongs(db: GenericDb, playlistId: string, newPlaylistSongs: PlaylistSong[]): Promise<void> {

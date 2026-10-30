@@ -1,7 +1,7 @@
 import { GenericDb } from "../GenericDb";
 import { User } from "../models";
 import { userTable } from "../schema";
-import { eq, gt, lt, ExtractTablesWithRelations, inArray, sql, isNotNull, and, desc, asc, or } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 
 export async function updateUser(db: GenericDb, newUser: User): Promise<void> {
     await db.delete(userTable).where(eq(userTable.userId, newUser.userId));

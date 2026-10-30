@@ -1,8 +1,7 @@
 import { generateId } from "@/app/tools/pure";
 import { GenericDb } from "../GenericDb";
 import { downloadedSongTable } from "../schema";
-import { eq, gt, lt, ExtractTablesWithRelations, inArray, sql, isNotNull, and, desc, asc, or } from "drizzle-orm";
-import { DownloadQueue } from "../models";
+import { eq, inArray } from "drizzle-orm";
 import { chunkIds } from "./_chunk";
 
 // Idempotent: downloaded_songs has no unique constraint on song_id, and the Downloader also records songs it

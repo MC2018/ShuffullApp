@@ -1,5 +1,4 @@
-import { Button, ScrollView, Text, View, StyleSheet, TextInput, TouchableOpacity, Modal } from "react-native";
-import React, { useEffect, useState } from "react";
+import { Text, View, StyleSheet, TouchableOpacity } from "react-native";
 
 
 export enum WhitelistingStatus {
@@ -39,7 +38,6 @@ interface FilterSelectionPillProps<T> {
 };
 
 export default function SelectionPill<T>({ pillInfo, onUpdateSelection, displayOnly = false }: FilterSelectionPillProps<T>) {
-    const displayText = pillInfo.whitelistingStatus == WhitelistingStatus.None ? "+" : "x";
     const truncateText = (text: string, maxLength: number) => {
         return text.length > maxLength ? text.slice(0, maxLength) + "..." : text;
     };
