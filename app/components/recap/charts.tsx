@@ -46,13 +46,14 @@ export function BarChart({ values, labels, height = 96 }: { values: number[]; la
     );
 }
 
+/** HeatGrid's default row label width and cell gap. A row of column labels under it is indented by their sum. */
+export const HEAT_ROW_LABEL_WIDTH = 18;
+export const HEAT_CELL_GAP = 2;
+
 /**
  * A grid of cells shaded by value: rows × columns, with a label at the start of each row. Shading is relative to the
  * grid's largest cell, so the busiest cell is full accent and an empty one is the plain surface.
  */
-/** HeatGrid's default row label width and cell gap. A row of column labels under it is indented by their sum. */
-export const HEAT_ROW_LABEL_WIDTH = 18;
-export const HEAT_CELL_GAP = 2;
 
 export function HeatGrid({ rows, rowLabels, rowLabelWidth = HEAT_ROW_LABEL_WIDTH, cellGap = HEAT_CELL_GAP }: {
     rows: number[][];

@@ -157,14 +157,14 @@ export function HeatmapSection({ recap }: RecapSectionProps) {
 }
 
 /** A ranked list with a by-time / by-plays toggle: top songs and top artists. */
-function ToggledRanking<T extends { minutes: number; plays: number }>({ byMinutes, byPlays: byPlaysList, empty, row }: {
-    byMinutes: T[];
-    byPlays: T[];
+function ToggledRanking<T extends { minutes: number; plays: number }>({ rankedByMinutes, rankedByPlays, empty, row }: {
+    rankedByMinutes: T[];
+    rankedByPlays: T[];
     empty: string;
     row: (item: T) => { key: string; title: string; subtitle?: string };
 }) {
     const [byPlays, setByPlays] = useState(false);
-    const items = byPlays ? byPlaysList : byMinutes;
+    const items = byPlays ? rankedByPlays : rankedByMinutes;
     const figureOf = (item: T) => (byPlays ? item.plays : item.minutes);
     const lead = items[0] ? figureOf(items[0]) : 0;
     return (
@@ -191,8 +191,8 @@ function ToggledRanking<T extends { minutes: number; plays: number }>({ byMinute
 export function TopSongsSection({ recap }: RecapSectionProps) {
     return (
         <ToggledRanking
-            byMinutes={recap.topSongsByMinutes}
-            byPlays={recap.topSongsByPlays}
+            rankedByMinutes={recap.topSongsByMinutes}
+            rankedByPlays={recap.topSongsByPlays}
             empty="No songs yet."
             row={song => ({ key: song.songId, title: songTitle(song), subtitle: songArtists(song) })}
         />
@@ -202,8 +202,8 @@ export function TopSongsSection({ recap }: RecapSectionProps) {
 export function TopArtistsSection({ recap }: RecapSectionProps) {
     return (
         <ToggledRanking
-            byMinutes={recap.topArtistsByMinutes}
-            byPlays={recap.topArtistsByPlays}
+            rankedByMinutes={recap.topArtistsByMinutes}
+            rankedByPlays={recap.topArtistsByPlays}
             empty="No artists yet."
             row={artist => ({ key: artist.artistId, title: artist.name })}
         />

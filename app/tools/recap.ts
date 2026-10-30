@@ -141,7 +141,7 @@ export function busiestHour(heatmap: number[][]): { day: number; hour: number; m
     return best;
 }
 
-/** Each value as a share of the largest, 0 to 1, for drawing bars and heat cells. All zeroes stay zero. */
+/** Each value as a share of the largest, 0 to 1, for drawing bars. All zeroes stay zero. */
 export function scaleToMax(values: number[]): number[] {
     const max = Math.max(0, ...values);
     return values.map(v => (max > 0 ? v / max : 0));

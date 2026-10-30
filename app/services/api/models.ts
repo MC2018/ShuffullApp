@@ -235,7 +235,6 @@ const RecapArtistSchema = z.object({
     minutes: z.number(),
     plays: z.number(),
 });
-export type RecapArtist = z.infer<typeof RecapArtistSchema>;
 export const RecapSchema = z.object({
     year: z.number(),
     timeZone: z.string(),
@@ -260,7 +259,7 @@ export const RecapSchema = z.object({
         month: z.number(),
         totalMinutes: z.number(),
         genres: z.array(z.object({ tagId: z.string(), name: z.string(), minutes: z.number(), percent: z.number() })),
-    })),
+    })).length(12),
     auditionMinutes: z.number(),
     // Of the songs auditioned that year, how many are kept now. percent is null when nothing was auditioned.
     keepRate: z.object({ auditionedSongs: z.number(), keptSongs: z.number(), percent: z.number().nullable() }),
