@@ -1,0 +1,12 @@
+[
+  {
+    "ratingRequestId": "rating-1",
+    "rating": "like",
+    "outcome": "applied"
+  },
+  {
+    "ratingRequestId": "rating-2",
+    "rating": "none",
+    "outcome": "unratable"
+  }
+]

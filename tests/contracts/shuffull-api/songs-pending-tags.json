@@ -1,0 +1,43 @@
+{
+  "songs": [
+    {
+      "songId": "song-full",
+      "externalSongId": "dQw4w9WgXcQ",
+      "name": "Everybody Wants You",
+      "artists": [
+        "Billy Squier"
+      ],
+      "tier": "strong",
+      "currentTagModel": "gpt-5.4-nano",
+      "plainLyrics": "First line",
+      "syncedLyrics": "[00:01.00] First line",
+      "lyricsInstrumental": false,
+      "measuredBpm": 128,
+      "crestFactorDb": 9.5,
+      "loudnessRangeLu": 6.25,
+      "onsetsPerSecond": 3.75,
+      "originalReleaseYear": 1982,
+      "fileHash": "0f343b0931126a20f133d67c2b018a3b",
+      "fileExtension": ".mp3"
+    },
+    {
+      "songId": "song-sparse",
+      "externalSongId": null,
+      "name": "Untitled",
+      "artists": [],
+      "tier": "weak",
+      "currentTagModel": null,
+      "plainLyrics": null,
+      "syncedLyrics": null,
+      "lyricsInstrumental": true,
+      "measuredBpm": null,
+      "crestFactorDb": null,
+      "loudnessRangeLu": null,
+      "onsetsPerSecond": null,
+      "originalReleaseYear": null,
+      "fileHash": "9e107d9d372bb6826bd81d3542a419d6",
+      "fileExtension": ".m4a"
+    }
+  ],
+  "remaining": 42
+}

@@ -1,0 +1,19 @@
+{
+  "userSongs": [
+    {
+      "userId": "user-1",
+      "songId": "song-full",
+      "lastPlayed": "2026-10-01T12:34:56.123456Z",
+      "version": "2026-10-01T12:34:56.123456Z",
+      "likeStatus": 1
+    },
+    {
+      "userId": "user-1",
+      "songId": "song-sparse",
+      "lastPlayed": "2026-10-02T08:00:00.000001Z",
+      "version": "2026-10-02T08:00:00.000001Z",
+      "likeStatus": 0
+    }
+  ],
+  "endOfList": true
+}

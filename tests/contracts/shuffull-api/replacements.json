@@ -1,0 +1,22 @@
+[
+  {
+    "songReplacementId": "replacement-1",
+    "songId": "song-full",
+    "name": "Everybody Wants You",
+    "artists": [
+      "Billy Squier"
+    ],
+    "originalExternalSongId": "dQw4w9WgXcQ",
+    "note": "Clipped intro",
+    "createdAt": "2026-10-01T12:34:56.123456Z"
+  },
+  {
+    "songReplacementId": "replacement-2",
+    "songId": "song-sparse",
+    "name": "Untitled",
+    "artists": [],
+    "originalExternalSongId": null,
+    "note": null,
+    "createdAt": "2026-10-02T08:00:00.000001Z"
+  }
+]
