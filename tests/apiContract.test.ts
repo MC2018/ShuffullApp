@@ -13,6 +13,7 @@ import {
     ListenStatsResponseSchema,
     PlaylistListResponseSchema,
     PlaylistSchema,
+    RecapSchema,
     RecordListensResponseSchema,
     RetagResponse,
     RetagStaleResponse,
@@ -29,6 +30,7 @@ import { LikeStatus, RequestType } from "@/app/enums";
 import { RecordListenPayload, UpdateSongLastPlayedRequest } from "@/app/services/db/models";
 import { failedKeeps, failedListens, summarizeRetagFailures } from "@/app/services/sync-manager/syncLogic";
 import { finishedListen } from "@/app/tools/listens";
+import { statsStartedLine } from "@/app/tools/recap";
 
 /**
  * The app's API parsing against what the Shuffull API actually sends. The files in tests/contracts/shuffull-api
@@ -195,6 +197,50 @@ describe("API contract: keep and retag outcomes (shuffull-workspace#5)", () => {
         const expected: RetagStaleResponse = { enriched: 3, failed: 1, remaining: 120, strongModel: "gpt-5.6-terra" };
 
         expect(golden("songs-retag-stale")).toStrictEqual(expected);
+    });
+});
+
+describe("API contract: the yearly recap (ShuffullApp#116)", () => {
+    it("GET /recap/{year} parses with every field the recap screen reads", () => {
+        const raw = golden("recap") as Record<string, unknown> & { topSongsByMinutes: object[]; keepRate: object };
+        const recap = RecapSchema.parse(raw);
+
+        expect(unsentFields(RecapSchema, raw)).toEqual([]);
+        expect(unsentFields(RecapSchema.shape.topSongsByMinutes.element, raw.topSongsByMinutes[0])).toEqual([]);
+        expect(recap).toMatchObject({
+            year: 2026,
+            timeZone: "America/New_York",
+            totalMinutes: 125.5,
+            plays: 40,
+            auditionMinutes: 12.5,
+            keepRate: { auditionedSongs: 4, keptSongs: 1, percent: 25 },
+            longestStreak: { days: 3, start: "2026-11-02", end: "2026-11-04" },
+            longestSession: { minutes: 90, plays: 22 },
+            biggestGrower: { month: 12, previousMonthMinutes: 5 },
+            mostSkipped: { skips: 7 },
+        });
+        expect(recap.from.toISOString()).toBe("2026-01-01T05:00:00.000Z");
+        expect(recap.to.toISOString()).toBe("2027-01-01T05:00:00.000Z");
+        expect(recap.firstListen?.toISOString()).toBe("2026-10-01T12:34:56.123Z");
+        expect(recap.minutesByMonth).toHaveLength(12);
+        expect(recap.heatmap[5][21]).toBe(125.5);
+        // A song the server no longer has: a null name and no artists, not a parse failure.
+        expect(recap.topSongsByPlays[0]).toEqual({ songId: "song-sparse", name: null, artists: [], minutes: 45.5, plays: 30 });
+        expect(recap.songOfEachSeason.map(s => [s.season, s.song?.songId ?? null])).toEqual([
+            ["winter", "song-full"], ["spring", null], ["summer", null], ["autumn", "song-sparse"],
+        ]);
+        expect(recap.genresByMonth[0].genres[0]).toEqual({ tagId: "tag-rock", name: "Rock", minutes: 2.5, percent: 25 });
+        // The sample's first listen is in its year, so the screen says when stats started. 12:34 UTC is 1 or 2 October
+        // depending on the zone the tests run in.
+        expect(statsStartedLine(recap)).toMatch(/^Your stats started on [12] October 2026/);
+    });
+
+    it("an API from before firstListen (Shuffull#104) still parses, with no stats-started line", () => {
+        const { firstListen: _, ...older } = golden("recap") as Record<string, unknown>;
+        const recap = RecapSchema.parse(older);
+
+        expect(recap.firstListen).toBeUndefined();
+        expect(statsStartedLine(recap)).toBeNull();
     });
 });
 
