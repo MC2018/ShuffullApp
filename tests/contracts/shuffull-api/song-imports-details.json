@@ -30,7 +30,7 @@
   "lyrics": {
     "synced": "[00:01.00] First line",
     "plain": "First line",
-    "instrumental": false,
+    "instrumental": true,
     "source": "lrclib"
   },
   "replacesSongId": "song-old",

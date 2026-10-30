@@ -2,6 +2,6 @@
   "externalSongId": "dQw4w9WgXcQ",
   "syncedLyrics": "[00:01.00] First line",
   "plainLyrics": "First line",
-  "instrumental": false,
+  "instrumental": true,
   "source": "lrclib"
 }
