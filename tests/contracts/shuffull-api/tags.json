@@ -1,0 +1,19 @@
+{
+  "tags": [
+    {
+      "tagId": "tag-rock",
+      "name": "Rock",
+      "type": 0
+    },
+    {
+      "tagId": "tag-1980s",
+      "name": "1980s",
+      "type": 1
+    },
+    {
+      "tagId": "tag-english",
+      "name": "English",
+      "type": 2
+    }
+  ]
+}

@@ -11,12 +11,16 @@ import {
     PlaylistListResponseSchema,
     PlaylistSchema,
     RetagResponse,
+    RetagStaleResponse,
     SongListResponseSchema,
+    TagListResponseSchema,
+    TagSchema,
     UserResponseSchema,
     UserSchema,
     UserSongKeysSchema,
     UserSongPageSchema,
 } from "@/app/services/api/models";
+import { TagType } from "@/app/services/db/schema";
 import { failedKeeps, summarizeRetagFailures } from "@/app/services/sync-manager/syncLogic";
 
 /**
@@ -24,9 +28,9 @@ import { failedKeeps, summarizeRetagFailures } from "@/app/services/sync-manager
  * are written by the API's own serializer (Shuffull's ApiContractGoldenFilesTest) and copied here by the hub's
  * scripts/sync-contract-fixtures.sh; don't edit them by hand (shuffull-workspace#5).
  *
- * Most song fields, and a playlist's songIds and isExploratory and a user's isCurator, are defaulted so that an
- * older API still parses, which also means a field the API renamed would parse as its default with no error. So
- * besides parsing, each test checks the API still sends every field the schema reads.
+ * Several response fields are defaulted so that an older API still parses, which also means a field the API renamed
+ * would parse as its default with no error. So besides parsing, each test checks the API still sends every field the
+ * schema reads.
  */
 const golden = (name: string): unknown =>
     JSON.parse(readFileSync(path.resolve(__dirname, "contracts/shuffull-api", `${name}.json`), "utf8"));
@@ -143,6 +147,20 @@ describe("API contract: users (shuffull-workspace#5)", () => {
     });
 });
 
+describe("API contract: tags (shuffull-workspace#5)", () => {
+    it("GET /tags parses, with the type as the app's TagType number", () => {
+        const raw = golden("tags") as { tags: object[] };
+        const { tags } = TagListResponseSchema.parse(raw);
+
+        expect(unsentFields(TagSchema, raw.tags[0])).toEqual([]);
+        expect(tags.map(t => [t.tagId, t.name, t.type])).toEqual([
+            ["tag-rock", "Rock", TagType.Genre],
+            ["tag-1980s", "1980s", TagType.TimePeriod],
+            ["tag-english", "English", TagType.Language],
+        ]);
+    });
+});
+
 describe("API contract: keep and retag outcomes (shuffull-workspace#5)", () => {
     it("POST /songs/keep: only the song the server reports kept counts as kept", () => {
         const { results } = KeepResponseSchema.parse(golden("songs-keep"));
@@ -161,5 +179,12 @@ describe("API contract: keep and retag outcomes (shuffull-workspace#5)", () => {
             songIds: ["song-sparse"],
             reasons: ["AI is not enabled; cannot enrich songs."],
         });
+    });
+
+    it("POST /songs/retag-stale sends every field of the response the app casts to", () => {
+        // ApiClient.songRetagStale casts rather than parses, so a renamed field would arrive as undefined.
+        const expected: RetagStaleResponse = { enriched: 3, failed: 1, remaining: 120, strongModel: "gpt-5.6-terra" };
+
+        expect(golden("songs-retag-stale")).toStrictEqual(expected);
     });
 });
