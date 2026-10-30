@@ -1,10 +1,8 @@
-import { ImageSourcePropType } from "react-native";
 import SongCollectionSelector from "./SongCollectionSelector";
 import { Playlist } from "@/app/services/db/models";
 
 export interface PlaylistSelectorProps {
     playlist: Playlist;
-    imageSource: ImageSourcePropType | string;
     onSelectPlaylist: (playlist: Playlist) => void;
 }
 

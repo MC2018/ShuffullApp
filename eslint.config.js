@@ -57,7 +57,7 @@ module.exports = defineConfig([{
             caughtErrorsIgnorePattern: "^_",
             ignoreRestSiblings: true,
         }],
-        // A warning for now: the existing call sites are tracked on ShuffullApp#95's PR, not fixed in bulk.
+        // A warning until ShuffullApp#153 handles the existing call sites.
         "@typescript-eslint/no-floating-promises": "warn",
         "eol-last": ["error", "always"],
         // react-native-web's Alert.alert is an empty stub: on desktop it shows nothing and never runs a button.

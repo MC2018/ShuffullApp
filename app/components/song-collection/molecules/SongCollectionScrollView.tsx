@@ -17,7 +17,6 @@ export default function SongCollectionScrollView({ playlists, onSelected }: Song
                 <PlaylistSelector
                 key={playlist.playlistId}
                 playlist={playlist}
-                imageSource={require("@/assets/images/default-album-art.jpg")}
                 onSelectPlaylist={onSelected}></PlaylistSelector>
             ))}
             <SongCollectionSelector collectionName="Liked Songs" imageSource={require("@/assets/images/default-album-art.jpg")} onSelected={() => console.log("oi")}></SongCollectionSelector>
