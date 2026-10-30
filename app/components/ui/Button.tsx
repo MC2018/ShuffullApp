@@ -1,4 +1,3 @@
-import React from "react";
 import { Pressable, StyleProp, ViewStyle } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme, ColorToken } from "@/app/theme";

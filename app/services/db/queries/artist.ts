@@ -1,6 +1,6 @@
 import { GenericDb } from "../GenericDb";
 import { artistTable, songArtistTable } from "../schema";
-import { eq, gt, lt, ExtractTablesWithRelations, inArray, sql, isNotNull, and, desc, asc, or } from "drizzle-orm";
+import { eq, sql, asc } from "drizzle-orm";
 import { Artist } from "../models";
 import { chunkRows } from "./_chunk";
 

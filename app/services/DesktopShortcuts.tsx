@@ -3,7 +3,7 @@ import { useDb } from "./db/DbProvider";
 import DbQueries from "./db/queries";
 import { MediaManager } from "./media-manager";
 import { LikeStatus } from "../enums";
-import { desktopShell, ShortcutAction } from "./desktopShell";
+import { desktopShell } from "./desktopShell";
 
 /**
  * Wires the desktop shell's GLOBAL rating shortcuts to the media manager.

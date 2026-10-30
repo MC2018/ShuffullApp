@@ -1,6 +1,5 @@
-import { View, Text, FlatList, TextInput } from "react-native";
-import React from "react";
-import { Song, SongTag, Tag } from "@/app/services/db/models";
+import { Text } from "react-native";
+import { Tag } from "@/app/services/db/models";
 
 export interface TagListProps {
     tags: Tag[];

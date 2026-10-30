@@ -1,7 +1,7 @@
 import { GenericDb } from "../GenericDb";
 import { Tag } from "../models";
-import { songTable, songTagTable, tagTable } from "../schema";
-import { eq, gt, lt, ExtractTablesWithRelations, inArray, sql, isNotNull, and, desc, asc, or } from "drizzle-orm";
+import { songTagTable, tagTable } from "../schema";
+import { eq, sql } from "drizzle-orm";
 import { chunkRows } from "./_chunk";
 
 export async function updateTags(db: GenericDb, newTags: Tag[]): Promise<void> {

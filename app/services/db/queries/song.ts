@@ -1,8 +1,8 @@
 import { SongFilters } from "@/app/types/SongFilters";
 import { GenericDb } from "../GenericDb";
-import { Artist, GenreJam, Song, UpdateSongMetadataPayload } from "../models";
-import { artistTable, downloadedSongTable, downloadQueueTable, genreJamTable, playlistSongTable, playlistTable, recentlyPlayedSongTable, songArtistTable, songTable, songTagTable, tagTable, userSongTable } from "../schema";
-import { eq, gt, lt, ExtractTablesWithRelations, inArray, sql, isNotNull, and, desc, asc, or } from "drizzle-orm";
+import { Song, UpdateSongMetadataPayload } from "../models";
+import { artistTable, downloadedSongTable, downloadQueueTable, playlistSongTable, recentlyPlayedSongTable, songArtistTable, songTable, songTagTable, tagTable, userSongTable } from "../schema";
+import { eq, inArray, sql, asc } from "drizzle-orm";
 import { SongDetails } from "../types";
 // Import the dependency-free helper directly (not via @/app/tools, which re-exports React-Native-bound utils)
 // so this query module stays importable from the Vitest (node) test harness.

@@ -1,7 +1,7 @@
 import { GenericDb } from "../GenericDb";
 import { GenreJam } from "../models";
 import { genreJamTable } from "../schema";
-import { eq, gt, lt, ExtractTablesWithRelations, inArray, sql, isNotNull, and, desc, asc, or } from "drizzle-orm";
+import { eq, asc } from "drizzle-orm";
 
 export async function addGenreJam(db: GenericDb, genreJam: GenreJam): Promise<void> {
     await db.insert(genreJamTable).values([genreJam]).onConflictDoNothing();

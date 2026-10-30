@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { Downloader } from "@/app/services/downloader/Downloader";
 import { useDownloader } from "@/app/services/downloader/DownloaderProvider";
 import { useDownloadStatus } from "@/app/services/downloader/downloadStatus";

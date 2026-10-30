@@ -1,29 +1,42 @@
-# Welcome to your Expo app 👋
+# Shuffull app
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+The client for [Shuffull](https://github.com/MC2018/Shuffull), a self-hosted music library. One TypeScript codebase
+(Expo, React Native, Expo Router) runs on Android, the web and an Electron desktop app; iOS is configured but not
+built from this repo today. It talks to the Shuffull API over HTTP (`https://shuffull-api.clausius.app` unless the
+login screen says otherwise), keeps a local SQLite copy of the library, and can download songs to play offline.
 
 ## Get started
 
-1. Install dependencies
+Use **pnpm**, not npm: the version is pinned in `package.json` (`packageManager`), and `pnpm-workspace.yaml` holds
+the hoisted layout and the security overrides that npm would ignore.
 
-   ```bash
-   npm install
-   ```
+```bash
+pnpm install
+pnpm test                 # Vitest: pure logic, schemas and the query layer on in-memory SQLite
+pnpm lint
+pnpm exec tsc --noEmit    # typecheck (there is no script for it)
+```
 
-2. Start the app
+| Target | Run |
+|---|---|
+| Android (dev client) | `pnpm android`, then `APP_VARIANT=development pnpm start --dev-client` |
+| Android (release) | `pnpm android:release` |
+| Web | `pnpm web` |
+| Desktop (Electron) | `pnpm desktop` builds the web export and opens it; `pnpm desktop:run` reopens the last build |
 
-   ```bash
-    npx expo start
-   ```
+The app uses a development build, not Expo Go: it carries native modules Expo Go doesn't have (track player,
+argon2, background actions).
 
-In the output, you'll find options to open the app in a
+## Where things are
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+- `app/` holds the screens (file-based routes, see [Expo Router](https://docs.expo.dev/router/introduction)) and
+  everything under them: `services/` (API client, sync and outbox, local DB, downloads, playback), `components/`,
+  `tools/`.
+- `app/services/db/` is the local database: Drizzle schema, queries and the SQL migrations in `drizzle/`.
+  `database.ts` opens it on mobile, `database.web.ts` on web and desktop.
+- `desktop/` is the Electron shell around the web build.
+- `tests/` is the Vitest suite. It runs under Node, so it imports only modules that don't need React Native.
+- `android/` is committed and is what Android builds use; `app.config.ts` mirrors its IDs and schemes.
 
 ## Android: two apps on one phone
 
@@ -39,27 +52,3 @@ The release build is signed with a private key kept outside the repo; `scripts/a
 prints the one-time setup when it is missing. Every update of the installed daily driver has to be
 signed with that same key, or Android refuses it and the only way out is an uninstall, which deletes
 its local data.
-
-## Get a fresh project
-
-When you're ready, run:
-
-```bash
-npm run reset-project
-```
-
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
-
-## Learn more
-
-To learn more about developing your project with Expo, look at the following resources:
-
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
-
-## Join the community
-
-Join our community of developers creating universal apps.
-
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.

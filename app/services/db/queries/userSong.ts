@@ -1,7 +1,7 @@
 import { GenericDb } from "../GenericDb";
 import { UserSong } from "../models";
 import { userSongTable } from "../schema";
-import { eq, gt, lt, ExtractTablesWithRelations, inArray, sql, isNotNull, and, desc, asc, or } from "drizzle-orm";
+import { eq, inArray, and } from "drizzle-orm";
 import { getActiveLocalSessionData } from "./localSessionData";
 import { chunkIds, chunkRows } from "./_chunk";
 

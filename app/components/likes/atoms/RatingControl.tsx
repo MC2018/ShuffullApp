@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Animated, Pressable, View } from "react-native";
 import { AntDesign } from "@expo/vector-icons";
 import { useDb } from "@/app/services/db/DbProvider";

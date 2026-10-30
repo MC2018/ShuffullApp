@@ -1,7 +1,7 @@
 import { GenericDb } from "../GenericDb";
 import { DeadLetterRequest, Request, RetagModel, SongRetagPayload } from "../models";
 import { deadLetterRequestTable, requestTable } from "../schema";
-import { eq, gt, lt, ExtractTablesWithRelations, inArray, sql, isNotNull, and, desc, asc, or } from "drizzle-orm";
+import { eq, inArray, sql, and } from "drizzle-orm";
 import { RequestType } from "@/app/enums";
 import { generateId } from "@/app/tools/pure";
 import { chunkIds, chunkRows } from "./_chunk";

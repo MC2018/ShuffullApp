@@ -1,7 +1,7 @@
 import { GenericDb } from "../GenericDb";
 import { Playlist, Song } from "../models";
 import { playlistSongTable, playlistTable, songTable, userSongTable } from "../schema";
-import { eq, gt, lt, ExtractTablesWithRelations, inArray, sql, isNotNull, and, desc, asc, or } from "drizzle-orm";
+import { eq, inArray, and } from "drizzle-orm";
 import { generateId } from "@/app/tools/pure";
 import {
     AuditionProgress, AuditionScope, auditionProgress, auditionScopePlaylistId, deriveAuditionRowState, isAuditionComplete,
