@@ -10,6 +10,7 @@ import {
     checkForNextRecentlyPlayedSong,
     checkForLastRecentlyPlayedSong,
     markRecentlyPlayedSongCurrent,
+    getNextRecentlyPlayedSongs,
 } from "@/app/services/db/queries/recentlyPlayedSong";
 
 /**
@@ -164,5 +165,31 @@ describe("play history", () => {
         const current = await getCurrentlyPlayingSong(db);
         expect(current?.songId).toBe("song-A");
         expect(current?.timestampSeconds).toBe(75);
+    });
+});
+
+describe("forward history for the lookahead", () => {
+    let db: GenericDb;
+    beforeEach(() => { db = makeDb(); });
+
+    it("lists the songs after the current one, in play order, up to the limit", async () => {
+        await play(db, "r1", "song-A", 1_000);
+        await play(db, "r2", "song-B", 2_000);
+        await play(db, "r3", "song-C", 3_000);
+        await play(db, "r4", "song-D", 4_000);
+        // previous() twice: song-B is current again, C and D lie ahead.
+        await resetRecentlyPlayedSongTimestamps(db);
+        await markRecentlyPlayedSongCurrent(db, "r2", 0);
+
+        expect((await getNextRecentlyPlayedSongs(db, 5)).map(x => x.songId)).toEqual(["song-C", "song-D"]);
+        expect((await getNextRecentlyPlayedSongs(db, 1)).map(x => x.songId)).toEqual(["song-C"]);
+        expect(await getNextRecentlyPlayedSongs(db, 0)).toEqual([]);
+    });
+
+    it("is empty during ordinary forward playback", async () => {
+        await play(db, "r1", "song-A", 1_000);
+        await play(db, "r2", "song-B", 2_000);
+
+        expect(await getNextRecentlyPlayedSongs(db, 2)).toEqual([]);
     });
 });

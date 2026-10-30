@@ -131,3 +131,22 @@ export async function checkForRecentlyPlayedSong(db: GenericDb, next: boolean): 
 
     return result[0];
 }
+
+/**
+ * Up to `limit` songs after the current one in history, in play order: what skip() walks through after a previous(),
+ * one per skip. The lookahead reads them to line them up (ShuffullApp#124).
+ */
+export async function getNextRecentlyPlayedSongs(db: GenericDb, limit: number): Promise<RecentlyPlayedSong[]> {
+    const currentlyPlayingSong = await getCurrentlyPlayingSong(db);
+
+    if (currentlyPlayingSong == undefined || limit <= 0) {
+        return [];
+    }
+
+    return await db
+        .select()
+        .from(recentlyPlayedSongTable)
+        .where(gt(recentlyPlayedSongTable.lastPlayed, currentlyPlayingSong.lastPlayed))
+        .orderBy(asc(recentlyPlayedSongTable.lastPlayed))
+        .limit(limit);
+}
