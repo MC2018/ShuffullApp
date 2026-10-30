@@ -28,12 +28,16 @@ import { auditionStartSeconds, AuditionStart } from "../../tools/auditionSession
 import { playerSetupOptions } from "../../tools/playerSetup";
 import { SongDetails } from "../db/types";
 import { ListenRecorder } from "../listens/listenRecorder";
+import { openListenIfPlaying } from "../listens/resumeListen";
 import { listenContext, listenPlatform } from "../../tools/listens";
 import { desktopShell } from "../desktopShell";
 
 let queue: string[] = [];
 let db: GenericDb;
 let trackPlayerInitialized = false;
+// Whether this JS context has added the player's event listeners (setupEventListeners). Module state, so a fresh JS
+// context starts without them.
+let eventListenersAdded = false;
 // ── failure recovery ─────────────────────────────────────────────────────────────────────────────────────
 // A track that fails to load is NOT automatically a track worth skipping - see tools/playbackFailure.ts for
 // why the two mistakes here are not symmetric. This module holds the state that decision needs; the decision
@@ -245,7 +249,7 @@ export async function setup(activeDb: GenericDb) {
     listenRecorder.attach(db);
     // A listen still open in the database was cut short by the app dying; close it at its last checkpoint.
     void listenRecorder.recover();
-    initTrackPlayer();
+    const playerReady = initTrackPlayer();
     await loadPrefetchSetting();
 
     const currentlyPlayingSong = await DbQueries.getCurrentlyPlayingSong(db);
@@ -253,6 +257,11 @@ export async function setup(activeDb: GenericDb) {
     if (currentlyPlayingSong != undefined) {
         useActiveSong.getState().setSongId(currentlyPlayingSong.songId);
     }
+
+    // Android can keep the player playing across a JS restart, and then no transition to Playing comes to open a
+    // listen for the rest of the song (ShuffullApp#143). Once the player is reachable and this context hears its
+    // events (initTrackPlayer), open one if it plays now.
+    void playerReady.then(() => transportLock.run(openListenForResume));
 }
 
 // Notification 👍/👎 button icon indices. The withNotificationActionIcons config plugin overrides the fork's
@@ -325,10 +334,22 @@ async function initTrackPlayer() {
         await TrackPlayer.updateOptions(buildPlayerOptions(LikeStatus.Neutral));
     }
 
+    // Not left to the playback service task alone. On Android the player service can outlive a JS context (a JS
+    // reload), and it runs that task once per its own lifetime, so a fresh context that binds to it again never gets
+    // the task: without this nothing here would hear a pause, a song ending or the notification's buttons, and a
+    // listen opened for the song still playing would count forever (ShuffullApp#143). When the task does run, in
+    // the same context, the second call does nothing.
+    await setupEventListeners();
+
     trackPlayerInitialized = true;
 }
 
 async function setupEventListeners() {
+    // Once per JS context: the playback service task and initTrackPlayer can both get here.
+    if (eventListenersAdded) {
+        return;
+    }
+    eventListenersAdded = true;
     TrackPlayer.addEventListener(Event.RemotePlay, async () => await play());
     TrackPlayer.addEventListener(Event.RemotePause, async () => await pause());
     TrackPlayer.addEventListener(Event.RemoteNext, async () => await skip());
@@ -1357,27 +1378,32 @@ async function beginListen(song: Song, userId: string, playing: boolean, context
 }
 
 /**
- * Opens a listen when the current song starts playing with none open: resumed after the end of an audition stopped
- * it, or after the app restarted. Under the transport lock, so it sees the track change a skip made. It runs only on
- * a transition to Playing, so audio still playing when a fresh JS context starts goes unrecorded until the next one
- * (ShuffullApp#143). Never in audition mode: the deck opens every listen itself (playAuditionSong), and between its
- * closing a song's listen and loading the next, that song is still playing.
+ * Opens a listen when the current song is playing with none open: resumed after the end of an audition stopped it,
+ * or still playing when a fresh JS context started (setup()). Under the transport lock, so it sees the track change a
+ * skip made. Never in audition mode: the deck opens every listen itself (playAuditionSong), and between its closing a
+ * song's listen and loading the next, that song is still playing. The rule is openListenIfPlaying.
  */
 async function openListenForResume() {
-    const songId = useActiveSong.getState().songId;
-    if (songId == undefined || listenRecorder.openSongId != undefined || db == undefined || auditionController != undefined) {
+    const activeDb = db;
+    if (activeDb == undefined) {
         return;
     }
 
     try {
-        if ((await getPlaybackState()).state !== State.Playing) {
-            return;
-        }
-        const session = await DbQueries.getActiveLocalSessionData(db);
-        const song = await DbQueries.getSong(db, songId);
-        if (session && song) {
-            await beginListen(song, session.userId, true);
-        }
+        await openListenIfPlaying({
+            activeSongId: useActiveSong.getState().songId,
+            openSongId: listenRecorder.openSongId,
+            auditionOpen: auditionController != undefined,
+            isPlaying: async () => (await getPlaybackState()).state === State.Playing,
+            loadedTrackId: async () => (await TrackPlayer.getActiveTrack())?.id,
+            begin: async songId => {
+                const session = await DbQueries.getActiveLocalSessionData(activeDb);
+                const song = await DbQueries.getSong(activeDb, songId);
+                if (session && song) {
+                    await beginListen(song, session.userId, true);
+                }
+            },
+        });
     } catch (e) {
         console.warn("[listens] could not open a listen for the resumed song", e);
     }
