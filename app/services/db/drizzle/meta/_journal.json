@@ -225,6 +225,13 @@
       "when": 1792923987904,
       "tag": "0031_rename_energy_to_heaviness",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "6",
+      "when": 1793383186718,
+      "tag": "0032_add_listens",
+      "breakpoints": true
     }
   ]
 }

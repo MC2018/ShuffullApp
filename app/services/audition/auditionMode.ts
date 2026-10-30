@@ -29,7 +29,7 @@ let generation = 0;
 // The player functions that do NOT route back into the deck: the routed ones (play, skip, previous) would call
 // the session again and wait on themselves.
 const port: AuditionPort = {
-    load: (songId, startFraction) => MediaManager.playAuditionSong(songId, startFraction),
+    load: (songId, startFraction, previous) => MediaManager.playAuditionSong(songId, startFraction, previous),
     resume: () => MediaManager.auditionResume(),
     pause: () => MediaManager.auditionPause(),
     seekTo: seconds => MediaManager.seekTo(seconds),

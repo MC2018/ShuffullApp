@@ -73,6 +73,30 @@ describe("ApiClient: a non-2xx reaches the outbox as its real status", () => {
         expect(JSON.parse(seen[0].data)).toEqual({ songIds: ["s1", "s2"] });
         expect(response.results[0].outcome).toBe("kept");
     });
+
+    it("listenRecord posts { listens } to /api/v1/listens and parses the per-listen outcomes", async () => {
+        const seen: InternalAxiosRequestConfig[] = [];
+        respondWith(200, { results: [{ listenId: "l1", outcome: "recorded", error: null }] }, seen);
+        const listen = {
+            listenId: "l1", songId: "s1", startedAt: "2026-10-31T01:00:00.000Z", endedAt: "2026-10-31T01:01:00.000Z",
+            secondsListened: 60, songDurationSeconds: null, endReason: "skipped" as const, context: "other" as const,
+            playlistId: null, platform: "android", userId: "u1",
+        };
+
+        const response = await new ApiClient("http://api", "t").listenRecord([listen]);
+
+        expect(seen[0].method).toBe("post");
+        expect(seen[0].url).toBe("/api/v1/listens");
+        expect(JSON.parse(seen[0].data)).toEqual({ listens: [listen] });
+        expect(response.results[0].outcome).toBe("recorded");
+    });
+
+    it("a 400 from /listens throws carrying 400, so the outbox partitions it", async () => {
+        respondWith(400, { error: "Too many listens" });
+        const error = await new ApiClient("http://api", "t").listenRecord([]).catch(e => e);
+
+        expect(statusOfFailure(error)).toBe(400);
+    });
 });
 
 describe("failedKeeps (a 200 does not mean every Keep was recorded)", () => {

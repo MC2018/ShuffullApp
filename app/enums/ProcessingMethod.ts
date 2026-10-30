@@ -4,7 +4,10 @@ export enum ProcessingMethod {
     None = 0,
     OnlyOnce = 1,
     Individual = 2,
-    Batch = 3
+    Batch = 3,
+    // Like Batch, but the rows don't have to be next to each other: every queued row of the type is sent together,
+    // in chunks, after the ordered work. For rows no other request depends on (a listen is a log entry).
+    Unordered = 4
 };
 
 export function getProcessingMethod(requestType: RequestType): ProcessingMethod {
@@ -32,5 +35,8 @@ export function getProcessingMethod(requestType: RequestType): ProcessingMethod 
         case RequestType.DeletePlaylist:
             // One DELETE per playlist (the endpoint is per-playlist).
             return ProcessingMethod.Individual;
+        case RequestType.RecordListen:
+            // A log entry: nothing reads it back and nothing waits on it, so it never splits a run of other rows.
+            return ProcessingMethod.Unordered;
     }
 }

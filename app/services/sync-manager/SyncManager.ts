@@ -11,7 +11,7 @@ import { withTransaction } from "@/app/services/db/transaction";
 import { Downloader } from "@/app/services/downloader/Downloader";
 import { STORAGE_KEYS } from "@/app/constants/storageKeys";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { collectNewSongIds, FEED_START, failedKeeps, groupRequestsIntoBatches, holdBehindRefused, keepsDueForRetry, markRefused, OUTBOX_MAX_BATCH_SIZE, pageFeed, partitionRejectedRequests, playlistDeleteHold, playlistsToFetch, pendingSongMisses, SONG_LIST_MAX_IDS, songFeedStart, songReconcileDue, SongReconcileState, songsGoneFromServer, summarizeRetagFailures, SYNC_INTERVAL_MS, syncTicksToSkip, toRetagItems, withoutPendingDeletes } from "@/app/services/sync-manager/syncLogic";
+import { collectNewSongIds, FEED_START, failedKeeps, failedListens, groupRequestsIntoBatches, holdBehindRefused, keepsDueForRetry, markRefused, OUTBOX_MAX_BATCH_SIZE, pageFeed, partitionRejectedRequests, playlistDeleteHold, playlistsToFetch, pendingSongMisses, SONG_LIST_MAX_IDS, songFeedStart, songReconcileDue, SongReconcileState, songsGoneFromServer, summarizeRetagFailures, SYNC_INTERVAL_MS, syncTicksToSkip, toRetagItems, withoutPendingDeletes } from "@/app/services/sync-manager/syncLogic";
 
 /** What one outbox batch came back with: the status sync() acts on, and the error text when it failed. */
 interface RunResult {
@@ -213,6 +213,8 @@ export class SyncManager {
                         await this.api.playlistDelete(request.playlistId);
                     }
                 });
+            case RequestType.RecordListen:
+                return await this.attempt(() => this.recordListens(requests as DbModels.RecordListenRequest[]));
             default:
                 throw new Error("A request type has no method to call.");
         }
@@ -310,6 +312,20 @@ export class SyncManager {
             }
         } catch (e) {
             console.warn(`[sync] Re-tag after keep failed with ${statusOfFailure(e)}; the keeps are recorded.`, e);
+        }
+    }
+
+    // Sends one chunk of finished listens (groupRequestsIntoBatches caps it at the server's 200). A 200 only means the
+    // POST landed: a listen the server rejected, or didn't answer for, is dead-lettered with its reason here, before
+    // pushAndPull deletes the batch. A resend is safe, since a stored listen comes back "duplicate".
+    private async recordListens(requests: DbModels.RecordListenRequest[]): Promise<void> {
+        const response = await this.api.listenRecord(requests.map(x => x.payload));
+        const failures = failedListens(requests, response.results);
+        if (failures.length) {
+            console.warn(
+                `[sync] ${failures.length}/${requests.length} listen(s) not recorded, dead-lettered: ` +
+                `${[...new Set(failures.map(x => x.reason))].join("; ")}`);
+            await DbQueries.deadLetterRequests(this.db, failures);
         }
     }
 

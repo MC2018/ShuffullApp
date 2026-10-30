@@ -26,7 +26,14 @@ type Call =
 
 class FakePort implements AuditionPort {
     calls: Call[] = [];
-    async load(songId: string, startFraction: number) { this.calls.push({ kind: "load", songId, startFraction }); }
+    /** The songs loaded by a step back, which the listen log records as "previous" for the song left. */
+    stepsBack: string[] = [];
+    async load(songId: string, startFraction: number, previous: boolean) {
+        this.calls.push({ kind: "load", songId, startFraction });
+        if (previous) {
+            this.stepsBack.push(songId);
+        }
+    }
     async resume() { this.calls.push({ kind: "resume" }); }
     async pause() { this.calls.push({ kind: "pause" }); }
     async seekTo(seconds: number) { this.calls.push({ kind: "seekTo", seconds }); }
@@ -216,6 +223,18 @@ describe("laps", () => {
         await deck.session.next(); // b: quick skip, end of lap 1
 
         expect(deck.session.snapshot()).toMatchObject({ songId: "b", lap: 2, notice: { kind: "lap2", count: 1 } });
+    });
+
+    it("tells the player which loads are a step back, and only those", async () => {
+        const deck = setup(["a", "b", "c"]);
+        await deck.session.start();
+        await deck.session.next();
+        await deck.session.like();
+        await deck.session.previous(); // back to b
+        await deck.session.next();
+
+        expect(deck.port.loads()).toEqual(["a", "b", "c", "b", "c"]);
+        expect(deck.port.stepsBack).toEqual(["b"]);
     });
 
     it("finishes with a summary and pauses, without a lap 2 when nothing was skipped quickly", async () => {

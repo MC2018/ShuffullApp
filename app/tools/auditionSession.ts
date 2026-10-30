@@ -24,8 +24,11 @@ export function heardThresholdSeconds(durationSeconds: number | undefined): numb
 }
 
 export interface AuditionPort {
-    /** Loads the song and starts it at `startFraction` of its length. Must NOT stamp it as played. */
-    load(songId: string, startFraction: number): Promise<void>;
+    /**
+     * Loads the song and starts it at `startFraction` of its length. Must NOT stamp it as played. `previous` is set
+     * when the deck steps back to it, so the song left behind isn't logged as a skip.
+     */
+    load(songId: string, startFraction: number, previous: boolean): Promise<void>;
     resume(): Promise<void>;
     pause(): Promise<void>;
     seekTo(seconds: number): Promise<void>;
@@ -213,7 +216,7 @@ export class AuditionSession {
             if (this.index > 0) {
                 this.index--;
             }
-            await this.loadCurrent();
+            await this.loadCurrent(true);
         });
     }
 
@@ -444,14 +447,14 @@ export class AuditionSession {
         await this.port.pause();
     }
 
-    private async loadCurrent() {
+    private async loadCurrent(previous = false) {
         const entry = this.current();
         if (entry == undefined) {
             return;
         }
         this.emit();
         this.port.prefetch(this.entries.slice(this.index + 1, this.index + 1 + PREFETCH_AHEAD).map(e => e.songId));
-        await this.port.load(entry.songId, entry.lap === 1 ? this.startFraction : 0);
+        await this.port.load(entry.songId, entry.lap === 1 ? this.startFraction : 0, previous);
     }
 
     private summary(): AuditionSummary {

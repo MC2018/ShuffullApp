@@ -180,6 +180,17 @@ export const KeepResponseSchema = z.object({
     })),
 });
 export type KeepResponse = z.infer<typeof KeepResponseSchema>;
+// POST /api/v1/listens  body: { listens } -> one outcome per listen, in request order. Parsed for the same reason
+// as the Keep response. Outcome stays a string ("recorded" | "duplicate" | "rejected" today); anything but recorded
+// or duplicate counts as not stored (syncLogic.failedListens).
+export const RecordListensResponseSchema = z.object({
+    results: z.array(z.object({
+        listenId: z.string(),
+        outcome: z.string(),
+        error: z.string().nullish(),
+    })),
+});
+export type RecordListensResponse = z.infer<typeof RecordListensResponseSchema>;
 /** One song to re-tag and its engine tier — the wire item of POST /songs/retag {items}. */
 export interface SongRetagWireItem {
     songId: string;

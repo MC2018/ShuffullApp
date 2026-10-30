@@ -9,6 +9,7 @@ describe("getProcessingMethod", () => {
         expect(getProcessingMethod(RequestType.UpdateSongLastPlayed)).toBe(ProcessingMethod.Batch);
         expect(getProcessingMethod(RequestType.SetSongLikeStatus)).toBe(ProcessingMethod.Individual);
         expect(getProcessingMethod(RequestType.FlagSongForReplacement)).toBe(ProcessingMethod.Batch);
+        expect(getProcessingMethod(RequestType.RecordListen)).toBe(ProcessingMethod.Unordered);
     });
 
     it("covers every RequestType value", () => {

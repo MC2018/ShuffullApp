@@ -43,6 +43,9 @@ export class SongFilters {
     // setSoleFilter clears it, so it can never leak from an audition session into an ordinary playlist.
     // Deliberately NOT part of hasAnyFilter(): on its own it does not define a pool, it only narrows one.
     unheardOnly = false;
+    // The scope came from a genre jam, so its listens record that context. Set only by fromGenreJam; setSoleFilter
+    // clears it, like unheardOnly. Filters saved before it existed parse without it, which reads as false.
+    genreJam = false;
 
     public static fromGenreJam(genreJam: GenreJam, localOnly: boolean): SongFilters {
         const songFilters = new SongFilters();
@@ -52,6 +55,7 @@ export class SongFilters {
         songFilters.blacklists = normalizeWhitelist(genreJam.blacklists);
         songFilters.heavinessMin = genreJam.heavinessMin ?? null;
         songFilters.heavinessMax = genreJam.heavinessMax ?? null;
+        songFilters.genreJam = true;
 
         return songFilters;
     }
@@ -60,6 +64,7 @@ export class SongFilters {
         this.whitelists = emptyWhitelist();
         this.blacklists = emptyWhitelist();
         this.unheardOnly = false;
+        this.genreJam = false;
 
         switch (type) {
             case SongFilterType.Artist:

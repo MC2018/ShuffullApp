@@ -195,6 +195,24 @@ export interface DeletePlaylistPayload {
     songIds: string[];
 }
 
+// One finished listen, exactly as POST /api/v1/listens takes it (Shuffull's ListenItem). The row's requestId is the
+// listenId, so a resend after a lost response comes back "duplicate" instead of counting twice.
+export type ListenEndReason = "finished" | "skipped" | "previous" | "stopped";
+export type ListenContext = "playlist" | "audition" | "genreJam" | "other";
+export interface RecordListenPayload {
+    listenId: string;
+    songId: string;
+    startedAt: string;
+    endedAt: string;
+    secondsListened: number;
+    songDurationSeconds: number | null;
+    endReason: ListenEndReason;
+    context: ListenContext;
+    playlistId: string | null;
+    platform: string | null;
+    userId: string;
+}
+
 export const requestTable = sqliteTable("requests", {
     requestId: text("request_id").primaryKey(),
     timeRequested: integer("time_request", { mode: "timestamp_ms" }).notNull(),
@@ -210,7 +228,7 @@ export const requestTable = sqliteTable("requests", {
     likeStatus: integer("like_status"),
     // Structured payload for richer requests (a curator song edit, a re-tag's model tier). Null for the
     // simpler request types; the per-request-type models narrow it (see db/models.ts).
-    payload: text("payload", { mode: "json" }).$type<UpdateSongMetadataPayload | SongRetagPayload | DeletePlaylistPayload>()
+    payload: text("payload", { mode: "json" }).$type<UpdateSongMetadataPayload | SongRetagPayload | DeletePlaylistPayload | RecordListenPayload>()
 });
 
 // Outbox rows the app gave up sending, kept with the reason instead of deleted. A row lands here when the server
@@ -229,6 +247,24 @@ export const deadLetterRequestTable = sqliteTable("dead_letter_requests", {
     reason: text("reason").notNull(),
     // The whole original outbox row, so nothing about the request is lost with it. Its Dates read back as ISO strings.
     request: text("request", { mode: "json" }).$type<Omit<typeof requestTable.$inferInsert, "timeRequested"> & { timeRequested: string | Date }>().notNull(),
+});
+
+// The listen still in progress, checkpointed while it plays so it survives the app dying mid-song. A row is open:
+// closing the listen deletes it and queues the finished listen in the outbox, in one transaction. A row still here
+// when the app starts belongs to a run that died, and is closed as "stopped" at its last checkpoint
+// (listenRecorder.recover).
+export const listenTable = sqliteTable("listens", {
+    listenId: text("listen_id").primaryKey(),
+    userId: text("user_id").notNull(),
+    songId: text("song_id").notNull(),
+    startedAt: integer("started_at", { mode: "timestamp_ms" }).notNull(),
+    // Seconds of actual playback up to checkpointedAt: no pause, buffering or seek time.
+    secondsListened: real("seconds_listened").notNull(),
+    songDurationSeconds: real("song_duration_seconds"),
+    context: text("context").$type<ListenContext>().notNull(),
+    playlistId: text("playlist_id"),
+    platform: text("platform"),
+    checkpointedAt: integer("checkpointed_at", { mode: "timestamp_ms" }).notNull(),
 });
 
 export const downloadQueueTable = sqliteTable("download_queue", {
