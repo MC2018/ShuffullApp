@@ -258,11 +258,8 @@ export async function setup(activeDb: GenericDb) {
 
         if (currentlyPlayingSong != undefined) {
             useActiveSong.getState().setSongId(currentlyPlayingSong.songId);
-            // A new JS context starts with an empty prefetch cache and nothing lined up. Until something changes
-            // track, which is what otherwise schedules a refresh, the next skip would stream: after a JS restart
-            // mid-song, the song still playing gets nothing lined up behind it. A cold launch lines up too, on
-            // purpose: its cache is just as empty, and these are the songs pressing play and skip would fetch anyway.
-            scheduleLookaheadRefresh();
+            void lineUpAfterRestart(playerReady, currentlyPlayingSong.songId)
+                .catch(e => console.warn("[lookahead] could not line up after a restart", e));
         }
     } finally {
         // A listen still open in the database was cut short by the last JS context dying. Android can keep the player
@@ -334,6 +331,24 @@ async function refreshNotificationButtons(likeStatus: LikeStatus, canKeep = fals
         await TrackPlayer.updateOptions(buildPlayerOptions(likeStatus, canKeep));
     } catch {
         // Non-critical: the notification buttons are best-effort.
+    }
+}
+
+/**
+ * A new JS context starts with an empty prefetch cache and nothing lined up, and only a track change otherwise
+ * schedules a refresh. So after a JS restart mid-song, the next skip would stream. This lines up only when the player
+ * still has the restored song loaded: on a cold launch it has nothing, and play lines up through startNewSong, so
+ * opening the app to browse fetches nothing.
+ */
+async function lineUpAfterRestart(playerReady: Promise<void>, songId: string) {
+    try {
+        await playerReady;
+    } catch {
+        return; // setup() logs the failure
+    }
+
+    if ((await TrackPlayer.getActiveTrack())?.id === songId) {
+        scheduleLookaheadRefresh();
     }
 }
 
@@ -1519,6 +1534,11 @@ async function refreshLookaheadOnce() {
         if (song != undefined) {
             songs.push(song);
         }
+    }
+
+    // A deck opened while the reads above ran has already lined up its own songs.
+    if (auditionController != undefined) {
+        return;
     }
 
     console.info(`[lookahead] next: ${upcoming.length ? upcoming.join(", ") : "nothing"}`);

@@ -283,11 +283,17 @@ describe("the media manager", () => {
         );
     });
 
-    it("lines the next songs up as soon as setup() restores the song, not only at the next track change", () => {
-        // Found on the emulator: after a JS reload mid-song nothing was lined up, so the next skip streamed.
+    it("lines the next songs up after a JS restart, only while the player still has the restored song loaded", () => {
+        // Found on the emulator: after a JS reload mid-song nothing was lined up, so the next skip streamed. A cold
+        // launch has nothing loaded and must not fetch until play.
         const restored = setupBody.indexOf("setSongId(currentlyPlayingSong.songId)");
         expect(restored).toBeGreaterThan(-1);
-        expect(setupBody.indexOf("scheduleLookaheadRefresh()", restored)).toBeGreaterThan(restored);
+        expect(setupBody.indexOf("lineUpAfterRestart(playerReady, currentlyPlayingSong.songId)", restored)).toBeGreaterThan(restored);
+        expect(setupBody).not.toContain("scheduleLookaheadRefresh()");
+        const lineUp = source.slice(source.indexOf("async function lineUpAfterRestart("));
+        expect(lineUp.slice(0, lineUp.indexOf("\n}\n"))).toMatch(
+            /await playerReady;[\s\S]*if \(\(await TrackPlayer\.getActiveTrack\(\)\)\?\.id === songId\) \{\s*scheduleLookaheadRefresh\(\);/,
+        );
     });
 
     it("decides with openListenIfPlaying", () => {
