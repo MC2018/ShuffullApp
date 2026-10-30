@@ -332,6 +332,46 @@ export function partitionRejectedRequests<T extends AgedRequest>(
     return { abandon, keep };
 }
 
+/** What an outbox row acts on: its song and its playlist, as keys that can't collide. */
+function outboxSubjects(request: { songId?: string | null; playlistId?: string | null }): string[] {
+    const subjects: string[] = [];
+    if (request.songId) {
+        subjects.push(`song:${request.songId}`);
+    }
+    if (request.playlistId) {
+        subjects.push(`playlist:${request.playlistId}`);
+    }
+    return subjects;
+}
+
+/** Records the subjects of rows refused this sync and kept for retry, so later rows about them wait (holdBehindRefused). */
+export function markRefused(requests: { songId?: string | null; playlistId?: string | null }[], refused: Set<string>): void {
+    for (const request of requests) {
+        for (const subject of outboxSubjects(request)) {
+            refused.add(subject);
+        }
+    }
+}
+
+/**
+ * Splits a batch into the rows that can go now and the rows that wait behind an earlier, refused row about the same
+ * song or playlist. A refused row is kept and retried next sync, so without this the rows queued after it would go
+ * first: the old API answers 400 to any handler failure, so a refused Like retried after the Neutral the user chose
+ * since would leave the song liked. Held rows are marked too, so the rows behind them wait as well.
+ */
+export function holdBehindRefused<T extends { songId?: string | null; playlistId?: string | null }>(
+    batch: T[],
+    refused: Set<string>,
+): { ready: T[]; held: T[] } {
+    const ready: T[] = [];
+    const held: T[] = [];
+    for (const request of batch) {
+        (outboxSubjects(request).some(x => refused.has(x)) ? held : ready).push(request);
+    }
+    markRefused(held, refused);
+    return { ready, held };
+}
+
 /**
  * The largest number of queued rows the flush loop will put in one batched POST.
  *
@@ -546,7 +586,7 @@ export const SYNC_MAX_BACKOFF_TICKS = 30;
  * SyncManager.syncNow clears all of this once the connection is back.
  */
 export function syncTicksToSkip(failedSyncs: number): number {
-    if (!(failedSyncs > 1)) {
+    if (failedSyncs <= 1) {
         return 0;
     }
     return Math.min(2 ** (failedSyncs - 1), SYNC_MAX_BACKOFF_TICKS) - 1;

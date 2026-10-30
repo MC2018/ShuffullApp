@@ -9,7 +9,6 @@ import { addRequests, enqueueSongRetag, getRequests } from "@/app/services/db/qu
 import { recordKeep, recordLikeStatus } from "@/app/services/db/queries/decision";
 import { songTable, userSongTable, userTable } from "@/app/services/db/schema";
 import { LikeStatus, RequestType } from "@/app/enums";
-import { SYNC_MAX_BACKOFF_TICKS, syncTicksToSkip } from "@/app/services/sync-manager/syncLogic";
 
 const USER = "u1";
 
@@ -62,41 +61,6 @@ describe("getRequests: one user's outbox, in the order the user acted", () => {
         await enqueueSongRetag(db, "someone-else", "theirs", "weak");
 
         expect((await getRequests(db, USER)).map(x => x.songId)).toEqual(["mine"]);
-    });
-});
-
-describe("enqueueSongRetag: an upgrade is a new row, so a flush in flight can't delete it", () => {
-    let db: GenericDb;
-    beforeEach(() => { db = makeDb(); });
-
-    it("replaces a weak row with a strong one under a new id, at the original time", async () => {
-        await enqueueSongRetag(db, USER, "s1", "weak");
-        const [weak] = await getRequests(db, USER);
-
-        await enqueueSongRetag(db, USER, "s1", "strong");
-
-        const rows = await getRequests(db, USER);
-        expect(rows).toHaveLength(1);
-        expect(rows[0].requestId).not.toBe(weak.requestId);
-        expect(rows[0].payload).toEqual({ model: "strong" });
-        expect(rows[0].timeRequested).toEqual(weak.timeRequested);
-    });
-
-    it("never downgrades, and leaves the row alone", async () => {
-        await enqueueSongRetag(db, USER, "s1", "strong");
-        const before = await getRequests(db, USER);
-
-        await enqueueSongRetag(db, USER, "s1", "weak");
-
-        expect(await getRequests(db, USER)).toEqual(before);
-    });
-
-    it("keeps one row per song per user, not per song", async () => {
-        await enqueueSongRetag(db, "someone-else", "s1", "weak");
-        await enqueueSongRetag(db, USER, "s1", "weak");
-
-        expect(await getRequests(db, USER)).toHaveLength(1);
-        expect(await getRequests(db, "someone-else")).toHaveLength(1);
     });
 });
 
@@ -157,13 +121,5 @@ describe("recordLikeStatus / recordKeep: the decision and its outbox row commit 
         expect(await recordKeep(db, USER, "s1")).toBe(false);
 
         expect(await getRequests(db, USER)).toEqual([]);
-    });
-});
-
-describe("syncTicksToSkip", () => {
-    it("retries on the next tick after one failure, then doubles the gap up to the cap", () => {
-        // The gap between tries is (skipped + 1) ticks: 10 s, 10 s, 20 s, 40 s, 80 s, 160 s, then 300 s.
-        expect([0, 1, 2, 3, 4, 5, 6].map(syncTicksToSkip)).toEqual([0, 0, 1, 3, 7, 15, 29]);
-        expect(syncTicksToSkip(100)).toBe(SYNC_MAX_BACKOFF_TICKS - 1);
     });
 });

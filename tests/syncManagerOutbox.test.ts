@@ -6,7 +6,7 @@ import path from "path";
 import type { GenericDb } from "@/app/services/db/GenericDb";
 import { addRequests, enqueueSongRetag, getDeadLetterRequests, getRequests } from "@/app/services/db/queries/request";
 import { deadLetterRequestTable, userTable } from "@/app/services/db/schema";
-import { RequestType } from "@/app/enums";
+import { LikeStatus, RequestType } from "@/app/enums";
 import { ApiStatusFailureError } from "@/app/services/api/errors";
 import type { KeepResponse } from "@/app/services/api/models";
 
@@ -40,6 +40,7 @@ function makeApi() {
             results: items.map(x => ({ songId: x.songId, outcome: "enriched", error: null })),
         })),
         playlistDelete: vi.fn(async (_playlistId: string) => {}),
+        userSongSetLikeStatus: vi.fn(async (_songId: string, _likeStatus: LikeStatus) => {}),
     };
 }
 
@@ -369,6 +370,25 @@ describe("SyncManager: outbox hardening (ShuffullApp#93)", () => {
         expect(api.songKeep).toHaveBeenCalledExactlyOnceWith(["mine"]);
         expect(await getRequests(db, USER)).toHaveLength(0);
         expect((await getRequests(db, "someone-else")).map(x => x.songId)).toEqual(["theirs"]);
+    });
+
+    it("a refused rating holds back later ones for the same song, so they can't overtake its retry", async () => {
+        const at = (ms: number) => new Date(Date.now() - 60_000 + ms);
+        await addRequests(db, [
+            { requestId: "like", timeRequested: at(0), requestType: RequestType.SetSongLikeStatus, userId: USER, songId: "s1", likeStatus: LikeStatus.Like },
+            { requestId: "other", timeRequested: at(1), requestType: RequestType.SetSongLikeStatus, userId: USER, songId: "s2", likeStatus: LikeStatus.Like },
+            { requestId: "neutral", timeRequested: at(2), requestType: RequestType.SetSongLikeStatus, userId: USER, songId: "s1", likeStatus: LikeStatus.Neutral },
+        ]);
+        // The old API answers 400 to any handler failure, a passing one included.
+        api.userSongSetLikeStatus.mockRejectedValueOnce(rejected("/api/v1/user-songs/s1/like", 400, "failed"));
+
+        await makeManager(db, api).sync();
+        expect(api.userSongSetLikeStatus.mock.calls).toEqual([["s1", LikeStatus.Like], ["s2", LikeStatus.Like]]);
+        expect((await getRequests(db, USER)).map(x => x.requestId)).toEqual(["like", "neutral"]);
+
+        await makeManager(db, api).sync(); // the retry goes through, and the Neutral follows it
+        expect(api.userSongSetLikeStatus.mock.calls.slice(2)).toEqual([["s1", LikeStatus.Like], ["s1", LikeStatus.Neutral]]);
+        expect(await getRequests(db, USER)).toHaveLength(0);
     });
 
     it("an unreachable server backs the syncs off, and a success resets it", async () => {

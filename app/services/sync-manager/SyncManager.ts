@@ -11,7 +11,7 @@ import { withTransaction } from "@/app/services/db/transaction";
 import { Downloader } from "@/app/services/downloader/Downloader";
 import { STORAGE_KEYS } from "@/app/constants/storageKeys";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { collectNewSongIds, FEED_START, failedKeeps, groupRequestsIntoBatches, keepsDueForRetry, OUTBOX_MAX_BATCH_SIZE, pageFeed, partitionRejectedRequests, playlistDeleteHold, playlistsToFetch, pendingSongMisses, SONG_LIST_MAX_IDS, songFeedStart, songReconcileDue, SongReconcileState, songsGoneFromServer, summarizeRetagFailures, SYNC_INTERVAL_MS, syncTicksToSkip, toRetagItems, withoutPendingDeletes } from "@/app/services/sync-manager/syncLogic";
+import { collectNewSongIds, FEED_START, failedKeeps, groupRequestsIntoBatches, holdBehindRefused, keepsDueForRetry, markRefused, OUTBOX_MAX_BATCH_SIZE, pageFeed, partitionRejectedRequests, playlistDeleteHold, playlistsToFetch, pendingSongMisses, SONG_LIST_MAX_IDS, songFeedStart, songReconcileDue, SongReconcileState, songsGoneFromServer, summarizeRetagFailures, SYNC_INTERVAL_MS, syncTicksToSkip, toRetagItems, withoutPendingDeletes } from "@/app/services/sync-manager/syncLogic";
 
 /** What one outbox batch came back with: the status sync() acts on, and the error text when it failed. */
 interface RunResult {
@@ -95,11 +95,21 @@ export class SyncManager {
     }
 
     // Pushes the outbox in order, then pulls. False when the server couldn't be reached or failed (no answer, a 5xx,
-    // a failed pull), which backs the next sync off. A 4xx on one batch isn't that: the rest still goes.
+    // a failed pull), which backs the next sync off. A 4xx on one batch isn't that: the rest still goes, except rows
+    // about the same song or playlist, which wait so they can't overtake it.
     private async pushAndPull(): Promise<boolean> {
         const requestBatches = groupRequestsIntoBatches(await DbQueries.getRequests(this.db, this.userId));
 
-        for (const requestBatch of requestBatches) {
+        const refused = new Set<string>(); // songs and playlists with a row refused this sync, kept for retry
+        for (const queuedBatch of requestBatches) {
+            const { ready: requestBatch, held } = holdBehindRefused(queuedBatch, refused);
+            if (held.length) {
+                console.warn(`[sync] Holding ${held.length} request(s) behind a refused one for the same song or playlist.`);
+            }
+            if (!requestBatch.length) {
+                continue;
+            }
+
             if (requestBatch[0]?.requestType == RequestType.DeletePlaylist) {
                 const { hold, statusCode } = await this.checkDeleteHold(requestBatch[0] as DbModels.DeletePlaylistRequest);
                 if (statusCode == HttpStatusCode.Unauthorized) {
@@ -136,6 +146,8 @@ export class SyncManager {
                     request,
                     reason: `Rejected with ${statusCode} for longer than the retry window. ${reason ?? ""}`.trim(),
                 })));
+                // What's kept is retried next sync, so later rows about the same song or playlist wait behind it.
+                markRefused(keep, refused);
             } else if (500 <= statusCode) {
                 // Stops here, so nothing queued after this batch overtakes it.
                 console.log(`Cannot access server. Status code: ${statusCode}`);

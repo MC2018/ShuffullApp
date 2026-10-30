@@ -3,7 +3,7 @@ import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { eq } from "drizzle-orm";
 import type { GenericDb } from "@/app/services/db/GenericDb";
-import { enqueueSongRetag } from "@/app/services/db/queries/request";
+import { enqueueSongRetag, getRequests } from "@/app/services/db/queries/request";
 import { requestTable, SongRetagPayload } from "@/app/services/db/schema";
 import { RequestType } from "@/app/enums";
 import { toRetagItems } from "@/app/services/sync-manager/syncLogic";
@@ -26,7 +26,7 @@ async function retagRows(db: GenericDb) {
     return await db.select().from(requestTable).where(eq(requestTable.requestType, RequestType.SongRetag));
 }
 
-describe("enqueueSongRetag (one row per song, stronger-wins)", () => {
+describe("enqueueSongRetag (one row per song and user, stronger-wins)", () => {
     let db: GenericDb;
     beforeEach(() => { db = makeDb(); });
 
@@ -62,6 +62,36 @@ describe("enqueueSongRetag (one row per song, stronger-wins)", () => {
         await enqueueSongRetag(db, "u1", "s2", "strong");
 
         expect(await retagRows(db)).toHaveLength(2);
+    });
+
+    it("replaces a weak row with a strong one under a new id, at the original time", async () => {
+        await enqueueSongRetag(db, "u1", "s1", "weak");
+        const [weak] = await getRequests(db, "u1");
+
+        await enqueueSongRetag(db, "u1", "s1", "strong");
+
+        const rows = await getRequests(db, "u1");
+        expect(rows).toHaveLength(1);
+        expect(rows[0].requestId).not.toBe(weak.requestId);
+        expect(rows[0].payload).toEqual({ model: "strong" });
+        expect(rows[0].timeRequested).toEqual(weak.timeRequested);
+    });
+
+    it("never downgrades, and leaves the row alone", async () => {
+        await enqueueSongRetag(db, "u1", "s1", "strong");
+        const before = await getRequests(db, "u1");
+
+        await enqueueSongRetag(db, "u1", "s1", "weak");
+
+        expect(await getRequests(db, "u1")).toEqual(before);
+    });
+
+    it("keeps one row per song per user, not per song", async () => {
+        await enqueueSongRetag(db, "someone-else", "s1", "weak");
+        await enqueueSongRetag(db, "u1", "s1", "weak");
+
+        expect(await getRequests(db, "u1")).toHaveLength(1);
+        expect(await getRequests(db, "someone-else")).toHaveLength(1);
     });
 });
 

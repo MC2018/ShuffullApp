@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { playlistsToFetch, collectNewSongIds, justBefore, nextFeedCursor, pageFeed, pendingSongMisses, SONG_RECONCILE_INTERVAL_MS, SONG_RECONFIRM_INTERVAL_MS, songFeedStart, songReconcileDue, songsGoneFromServer } from "@/app/services/sync-manager/syncLogic";
+import { playlistsToFetch, collectNewSongIds, justBefore, nextFeedCursor, pageFeed, pendingSongMisses, SONG_RECONCILE_INTERVAL_MS, SONG_RECONFIRM_INTERVAL_MS, songFeedStart, songReconcileDue, songsGoneFromServer, holdBehindRefused, markRefused, SYNC_MAX_BACKOFF_TICKS, syncTicksToSkip } from "@/app/services/sync-manager/syncLogic";
 import type { FeedCursor, FeedKey } from "@/app/services/api/models";
 
 describe("playlistsToFetch", () => {
@@ -336,5 +336,39 @@ describe("songReconcileDue", () => {
     it("confirms pending misses an hour later", () => {
         expect(songReconcileDue(now - SONG_RECONFIRM_INTERVAL_MS + 1, now, 3)).toBe(false);
         expect(songReconcileDue(now - SONG_RECONFIRM_INTERVAL_MS, now, 3)).toBe(true);
+    });
+});
+
+describe("syncTicksToSkip", () => {
+    it("retries on the next tick after one failure, then doubles the gap up to the cap", () => {
+        // The gap between tries is (skipped + 1) ticks: 10 s, 10 s, 20 s, 40 s, 80 s, 160 s, then 300 s.
+        expect([0, 1, 2, 3, 4, 5, 6].map(syncTicksToSkip)).toEqual([0, 0, 1, 3, 7, 15, 29]);
+        expect(syncTicksToSkip(100)).toBe(SYNC_MAX_BACKOFF_TICKS - 1);
+    });
+});
+
+describe("holdBehindRefused", () => {
+    it("holds rows about a refused song or playlist, and whatever is queued behind those", () => {
+        const refused = new Set<string>();
+        markRefused([{ songId: "s1" }], refused);
+
+        const { ready, held } = holdBehindRefused([
+            { id: "a", songId: "s1" },
+            { id: "b", songId: "s2" },
+            { id: "c", songId: null, playlistId: "p1" },
+        ], refused);
+        expect(ready.map(x => x.id)).toEqual(["b", "c"]);
+        expect(held.map(x => x.id)).toEqual(["a"]);
+
+        markRefused([{ playlistId: "p1" }], refused);
+        expect(holdBehindRefused([{ id: "d", playlistId: "p1" }, { id: "e", songId: "s3" }], refused).ready.map(x => x.id))
+            .toEqual(["e"]);
+    });
+
+    it("keeps a song id and a playlist id with the same value apart", () => {
+        const refused = new Set<string>();
+        markRefused([{ songId: "x" }], refused);
+
+        expect(holdBehindRefused([{ playlistId: "x" }], refused).held).toEqual([]);
     });
 });
