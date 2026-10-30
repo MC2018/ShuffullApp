@@ -12,7 +12,7 @@ export const STORAGE_KEYS = {
     // JSON FeedKey { version, songId } of the row SONG_SYNC_CURSOR came from, so the next sync can send `afterId`.
     // Used only while its version equals SONG_SYNC_CURSOR (see songFeedStart).
     SONG_SYNC_KEY: "SONG_SYNC_KEY",
-    // The SONG_FIELDS_REVISION whose one-time re-read of every local song has completed (SyncManager.overallSync).
+    // The SONG_FIELDS_REVISION a full songs check has filled in on every local song (SyncManager.reconcileSongs).
     SONG_FIELDS_REVISION: "SONG_FIELDS_REVISION",
     // "1" while the user has paused background downloads. A user decision, so it outlives the process.
     DOWNLOADS_PAUSED: "DOWNLOADS_PAUSED",

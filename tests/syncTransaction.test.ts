@@ -87,8 +87,7 @@ function makeApi(changedS1: object) {
             version: NEW_VERSION, songIds: ["s1", "s2"], isExploratory: false,
         }]),
         userSongGetAll: vi.fn(async () => ({ items: [], keys: [] as FeedKey[], endOfList: true })),
-        songGetList: vi.fn(async (songIds: string[]) =>
-            [apiSong("s1", "Original"), apiSong("s2", "New song")].filter(x => songIds.includes(x.songId))),
+        songGetList: vi.fn(async () => [apiSong("s2", "New song")]),
         songGetChanged: vi.fn(async () => ({
             items: [{ ...changedS1, version: NEW_VERSION }],
             keys: [{ version: NEW_VERSION.toISOString(), songId: "s1" }],
@@ -188,8 +187,6 @@ describe("overallSync: the write phase is all-or-nothing", () => {
         // The song cursor is only written after a commit, so the same change is fetched again next time.
         expect(storage.get("SONG_SYNC_CURSOR")).toBe(CURSOR);
         expect(storage.has("SONG_SYNC_KEY")).toBe(false);
-        // Nor is the one-time re-read of held songs marked done.
-        expect(storage.has("SONG_FIELDS_REVISION")).toBe(false);
     });
 
     it("a failure after the user is written rolls the user's version back", async () => {
@@ -361,7 +358,6 @@ describe("overallSync: the audition start point (ShuffullApp#126)", () => {
         await seed(db);
         storage.clear();
         storage.set("SONG_SYNC_CURSOR", CURSOR);
-        storage.set("SONG_FIELDS_REVISION", "1");
     });
 
     afterEach(() => vi.restoreAllMocks());
@@ -390,49 +386,5 @@ describe("overallSync: the audition start point (ShuffullApp#126)", () => {
 
         expect(status).toBe(200);
         expect(await startPoints()).toMatchObject({ "song-full": null, "song-sparse": null });
-    });
-
-    it("the first sync after the upgrade re-reads every held song once, since their Version never moves", async () => {
-        storage.delete("SONG_FIELDS_REVISION");
-        await holdSongFull();
-        const api = makeHookApi(serverRows("songs-list"));
-
-        expect(await makeManager(db, api).overallSync()).toBe(200);
-
-        expect(await startPoints()).toMatchObject({ "s1": null, "song-full": 37.5, "song-sparse": null });
-        expect(storage.get("SONG_FIELDS_REVISION")).toBe("1");
-        const calls = api.songGetList.mock.calls.length;
-        expect(await makeManager(db, api).overallSync()).toBe(200);
-        expect(api.songGetList.mock.calls.length).toBe(calls);
-    });
-
-    it("a sync that fails leaves the re-read to the next one", async () => {
-        storage.delete("SONG_FIELDS_REVISION");
-        vi.spyOn(console, "error").mockImplementation(() => {});
-        await holdSongFull();
-        const api = makeHookApi(serverRows("songs-list"));
-        api.songGetChanged.mockRejectedValue(new Error("network down"));
-
-        expect(await makeManager(db, api).overallSync()).toBe(500);
-
-        expect(storage.has("SONG_FIELDS_REVISION")).toBe(false);
-        expect(await startPoints()).toMatchObject({ "song-full": null });
-    });
-
-    it("the re-read writes only the start point, so a Keep the server hasn't recorded stays kept", async () => {
-        storage.delete("SONG_FIELDS_REVISION");
-        // Kept on this device (exploratory off), but the server still has it as an audition: its Keep is queued,
-        // or was refused. Rewriting the whole row would make it an audition again, purgeable with its mix.
-        await db.insert(songTable).values({
-            songId: "song-full", name: "Everybody Wants You", fileExtension: ".mp3", fileHash: "0f343b0931126a20f133d67c2b018a3b",
-            exploratory: false,
-        });
-        const list = serverRows("songs-list");
-        list.songs[0].exploratory = true;
-
-        expect(await makeManager(db, makeHookApi(list)).overallSync()).toBe(200);
-
-        const [held] = await db.select().from(songTable).where(eq(songTable.songId, "song-full"));
-        expect(held).toMatchObject({ exploratory: false, hookStartPercent: 37.5 });
     });
 });

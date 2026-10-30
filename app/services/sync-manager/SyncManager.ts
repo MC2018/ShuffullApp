@@ -332,12 +332,15 @@ export class SyncManager {
     // The pull can't see a song the server deleted (see songsGoneFromServer), so now and then ask for every local song
     // by id and purge what the server no longer has. Derived, not a queue: a check that fails changes nothing, and the
     // next one finds the same songs. The 573 songs one phone held after their server rows were gone heal this way.
+    // The same answer also refreshes the song fields the feed can't (backfillSongFields); a build that starts storing
+    // a new one bumps SONG_FIELDS_REVISION, which brings the next full check forward.
     private async reconcileSongs() {
         const now = Date.now();
         const host = await AsyncStorage.getItem(STORAGE_KEYS.HOST_ADDRESS);
         const pending = pendingSongMisses(await AsyncStorage.getItem(STORAGE_KEYS.SONG_RECONCILE_STATE), host, this.userId);
         const lastRaw = await AsyncStorage.getItem(STORAGE_KEYS.SONG_RECONCILE_AT);
-        if (!songReconcileDue(lastRaw == null ? null : Number(lastRaw), now, pending.length)) {
+        const fieldsBehind = (await AsyncStorage.getItem(STORAGE_KEYS.SONG_FIELDS_REVISION)) !== SONG_FIELDS_REVISION;
+        if (!songReconcileDue(lastRaw == null ? null : Number(lastRaw), now, pending.length, fieldsBehind)) {
             return;
         }
         // Stamped before the fetch, so a check that fails waits out the interval instead of re-running every sync.
@@ -350,18 +353,25 @@ export class SyncManager {
             const checkedSongIds = pending.length ? pending.filter(x => local.has(x)) : localSongIds;
 
             // Every call must succeed before anything counts as missing: a throw here leaves the misses untouched.
-            const returnedSongIds: string[] = [];
+            const returnedSongs: Pick<ApiModels.Song, "songId" | "hookStartPercent">[] = [];
             for (const idChunk of chunk(checkedSongIds, SONG_LIST_MAX_IDS)) {
-                returnedSongIds.push(...(await this.api.songGetList(idChunk)).map(x => x.songId));
+                returnedSongs.push(...(await this.api.songGetList(idChunk))
+                    .map(x => ({ songId: x.songId, hookStartPercent: x.hookStartPercent })));
             }
+            const returnedSongIds = returnedSongs.map(x => x.songId);
 
             const { purge, misses, implausible } = songsGoneFromServer(checkedSongIds, returnedSongIds, pending);
             const { purged, filesInUse } = await withTransaction(this.db, async (tx) => {
                 const purged = await DbQueries.purgeSongs(tx, purge);
+                await DbQueries.backfillSongFields(tx, returnedSongs);
                 return { purged, filesInUse: await DbQueries.fileHashesInUse(tx, purged.map(x => x.fileHash)) };
             });
             const state: SongReconcileState = { host, userId: this.userId, misses };
             await AsyncStorage.setItem(STORAGE_KEYS.SONG_RECONCILE_STATE, JSON.stringify(state));
+            // Only a full check has seen every held song.
+            if (!pending.length) {
+                await AsyncStorage.setItem(STORAGE_KEYS.SONG_FIELDS_REVISION, SONG_FIELDS_REVISION);
+            }
 
             for (const song of purged.filter(x => !filesInUse.has(x.fileHash))) {
                 await Downloader.deleteLocalSongFiles(song);
@@ -429,17 +439,6 @@ export class SyncManager {
                 songBatches.push(await this.api.songGetList(idChunk));
             }
 
-            // Songs synced by a build that dropped a field this one stores (see SONG_FIELDS_REVISION) are re-read
-            // once, all of them, and only that field is written back below. Their server Version never moves for it.
-            const refreshSongFields =
-                (await AsyncStorage.getItem(STORAGE_KEYS.SONG_FIELDS_REVISION)) !== SONG_FIELDS_REVISION;
-            const refreshedSongs: ApiModels.Song[] = [];
-            if (refreshSongFields) {
-                for (const idChunk of chunk(localSongIds, SONG_LIST_MAX_IDS)) {
-                    refreshedSongs.push(...await this.api.songGetList(idChunk));
-                }
-            }
-
             // ── Incremental refresh of songs we ALREADY hold whose server Version changed since last sync
             // (e.g. a song re-sourced in place with better audio). The very first sync seeds the cursor at
             // "now" and skips: the fetch above already pulled current data, and paging the whole library back
@@ -478,9 +477,6 @@ export class SyncManager {
             }
             const changedSongIds = changedLocalSongs.map(x => x.songId);
             const staleSongIds = staleSongs.map(x => x.songId);
-            // A re-read song the feed also sent is rewritten whole with the feed's row instead.
-            const changedSongIdSet = new Set(changedSongIds);
-            const backfilledSongs = refreshedSongs.filter(x => !changedSongIdSet.has(x.songId));
 
             // Refresh the changed songs through the same upsert path as new songs (updateSongs overwrites the
             // row; the join rebuild below re-links artists/tags). Their stale joins are cleared in the txn.
@@ -515,8 +511,6 @@ export class SyncManager {
                 // Changed songs already have artist/tag joins; clear them so a changed set doesn't leave
                 // stale links behind (the batch loop rebuilds them via insert-or-ignore). New songs have none.
                 await DbQueries.deleteSongArtistsAndTags(tx, changedSongIds);
-
-                await DbQueries.backfillSongFields(tx, backfilledSongs);
 
                 for (const newSongs of songBatches) {
                     await DbQueries.updateSongs(tx, newSongs);
@@ -596,9 +590,6 @@ export class SyncManager {
                 await AsyncStorage.setItem(STORAGE_KEYS.SONG_SYNC_CURSOR, nextSongKey.version);
             } else if (songFeedFrom == null) {
                 await AsyncStorage.setItem(STORAGE_KEYS.SONG_SYNC_CURSOR, syncStartTime.toISOString());
-            }
-            if (refreshSongFields) {
-                await AsyncStorage.setItem(STORAGE_KEYS.SONG_FIELDS_REVISION, SONG_FIELDS_REVISION);
             }
 
             return HttpStatusCode.Ok;

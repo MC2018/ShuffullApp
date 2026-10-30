@@ -6,10 +6,10 @@ import path from "path";
 import { eq } from "drizzle-orm";
 import type { GenericDb } from "@/app/services/db/GenericDb";
 import { getAllSongIds, updateSongs } from "@/app/services/db/queries/song";
-import { artistTable, downloadedSongTable, downloadQueueTable, playlistSongTable, playlistTable, recentlyPlayedSongTable, songArtistTable, songTagTable, tagTable, userSongTable, userTable } from "@/app/services/db/schema";
+import { artistTable, downloadedSongTable, downloadQueueTable, playlistSongTable, playlistTable, recentlyPlayedSongTable, songArtistTable, songTable, songTagTable, tagTable, userSongTable, userTable } from "@/app/services/db/schema";
 import type { Song } from "@/app/services/db/models";
 import { STORAGE_KEYS } from "@/app/constants/storageKeys";
-import { SONG_RECONCILE_INTERVAL_MS, SONG_RECONFIRM_INTERVAL_MS } from "@/app/services/sync-manager/syncLogic";
+import { SONG_FIELDS_REVISION, SONG_RECONCILE_INTERVAL_MS, SONG_RECONFIRM_INTERVAL_MS } from "@/app/services/sync-manager/syncLogic";
 import { ApiStatusFailureError } from "@/app/services/api/errors";
 
 const { storage, deleteLocalSongFiles } = vi.hoisted(() => ({
@@ -65,12 +65,14 @@ async function rowsFor(db: GenericDb, songId: string) {
     return count;
 }
 
-// The server: holds `serverSongIds`, and answers /songs/list with whichever of the requested ids it has.
-function makeApi(serverSongIds: string[]) {
+// The server: holds `serverSongIds`, and answers /songs/list with whichever of the requested ids it has, each with
+// any fields `rows` gives it.
+function makeApi(serverSongIds: string[], rows: Record<string, object> = {}) {
     const server = new Set(serverSongIds);
     return {
         server,
-        songGetList: vi.fn(async (songIds: string[]) => songIds.filter(x => server.has(x)).map(songId => ({ songId }))),
+        songGetList: vi.fn(async (songIds: string[]) =>
+            songIds.filter(x => server.has(x)).map(songId => ({ songId, ...rows[songId] }))),
     };
 }
 
@@ -228,5 +230,58 @@ describe("SyncManager: songs deleted on the server are removed locally", () => {
 
         expect(await getAllSongIds(db)).toEqual(["reimported"]);
         expect(deleteLocalSongFiles).not.toHaveBeenCalled();
+    });
+});
+
+describe("SyncManager: the songs check fills in fields the feed can't bring (ShuffullApp#126)", () => {
+    let db: GenericDb;
+    beforeEach(async () => {
+        storage.clear();
+        storage.set(STORAGE_KEYS.HOST_ADDRESS, HOST);
+        db = makeDb();
+        await db.insert(userTable).values({ userId: USER, username: "max", version: new Date(), isCurator: false });
+    });
+
+    const held = async (songId: string) => (await db.select().from(songTable).where(eq(songTable.songId, songId)))[0];
+
+    it("writes a held song's start point alone, so a Keep the server hasn't recorded stays kept", async () => {
+        // Kept on this device, but still an audition on the server: its Keep is queued, or was refused. Rewriting
+        // the whole row would make it an audition again, purgeable with its mix.
+        await updateSongs(db, [song("kept"), song("plain")]);
+        const api = makeApi(["kept", "plain"], {
+            kept: { hookStartPercent: 37.5, exploratory: true, name: "Server name" },
+            plain: { hookStartPercent: null },
+        });
+
+        await makeManager(db, api).sync();
+
+        expect(await held("kept")).toMatchObject({ hookStartPercent: 37.5, exploratory: false, name: "Song kept" });
+        expect((await held("plain")).hookStartPercent).toBeNull();
+        expect(storage.get(STORAGE_KEYS.SONG_FIELDS_REVISION)).toBe(SONG_FIELDS_REVISION);
+    });
+
+    it("runs the next full check within the hour, not the day, when this build stores a field the last one didn't", async () => {
+        await updateSongs(db, [song("s1")]);
+        const api = makeApi(["s1"], { s1: { hookStartPercent: 62.5 } });
+        storage.set(STORAGE_KEYS.SONG_RECONCILE_AT, String(Date.now() - SONG_RECONFIRM_INTERVAL_MS));
+
+        await makeManager(db, api).sync();
+
+        expect(api.songGetList).toHaveBeenCalledTimes(1);
+        expect((await held("s1")).hookStartPercent).toBe(62.5);
+    });
+
+    it("leaves the fields behind after a failed check, and waits an hour rather than retrying every sync", async () => {
+        await updateSongs(db, [song("s1")]);
+        const api = makeApi(["s1"], { s1: { hookStartPercent: 62.5 } });
+        api.songGetList.mockRejectedValueOnce(new ApiStatusFailureError("/api/v1/songs/list", { status: 503, data: {} }));
+        vi.spyOn(console, "warn").mockImplementation(() => {});
+
+        await makeManager(db, api).sync();
+        await makeManager(db, api).sync();
+
+        expect(api.songGetList).toHaveBeenCalledTimes(1);
+        expect(storage.has(STORAGE_KEYS.SONG_FIELDS_REVISION)).toBe(false);
+        expect((await held("s1")).hookStartPercent).toBeNull();
     });
 });
