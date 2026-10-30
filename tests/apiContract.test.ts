@@ -325,6 +325,7 @@ describe("API contract: request bodies the app sends (shuffull-workspace#92)", (
 
         await api.userSongUpdateLastPlayed([row("song-full", "2026-10-01T12:34:56.123Z"), row("song-sparse", "2026-10-01T12:38:56.123Z")]);
 
+        expect(sent).toHaveLength(1);
         expect([sent[0].method, sent[0].url]).toEqual(["post", "/api/v1/user-songs/last-played"]);
         sentAsJson(sent[0]);
         expect(JSON.parse(sent[0].data)).toMatchObject(golden("user-songs-last-played") as object[]);
