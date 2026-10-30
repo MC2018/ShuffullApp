@@ -1,0 +1,12 @@
+{
+  "playlist": {
+    "playlistId": "playlist-audition",
+    "userId": "user-1",
+    "name": "New playlist",
+    "currentSongId": null,
+    "percentUntilReplayable": 0.5,
+    "version": "2026-10-02T08:00:00.000001Z",
+    "songIds": [],
+    "isExploratory": false
+  }
+}

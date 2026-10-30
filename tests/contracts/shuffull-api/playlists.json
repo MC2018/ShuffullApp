@@ -1,0 +1,27 @@
+{
+  "playlists": [
+    {
+      "playlistId": "playlist-full",
+      "userId": "user-1",
+      "name": "Road trip",
+      "currentSongId": "song-full",
+      "percentUntilReplayable": 0.75,
+      "version": "2026-10-01T12:34:56.123456Z",
+      "songIds": [
+        "song-full",
+        "song-sparse"
+      ],
+      "isExploratory": false
+    },
+    {
+      "playlistId": "playlist-audition",
+      "userId": "user-1",
+      "name": "Audition 2026-10-01",
+      "currentSongId": null,
+      "percentUntilReplayable": 0.5,
+      "version": "2026-10-02T08:00:00.000001Z",
+      "songIds": [],
+      "isExploratory": true
+    }
+  ]
+}
