@@ -32,6 +32,8 @@ export interface ListenRecorderDeps {
 interface CurrentListen {
     row: OpenListen;
     clock: ListenClock;
+    /** Playback failed since this song last played (playbackFailed). */
+    failed: boolean;
 }
 
 /**
@@ -103,17 +105,24 @@ export class ListenRecorder {
                 checkpointedAt: new Date(now),
             },
             clock: newListenClock(start.playing ?? false, now),
+            failed: false,
         };
         this.syncTimer();
         await Promise.all([closing, this.checkpoint()]);
     }
 
-    /** Closes the open listen, if any, for `reason`. Call it before the track it was for is unloaded. */
+    /**
+     * Closes the open listen, if any, for `reason`. Call it before the track it was for is unloaded.
+     *
+     * A song that failed to play and hasn't played since closes as "stopped" whatever the reason: moving off a song
+     * that couldn't load isn't a skip, and the server's maybe-drop rule counts quick skips.
+     */
     async end(reason: ListenEndReason): Promise<void> {
         const current = this.current;
         if (current == undefined) {
             return;
         }
+        const endReason = current.failed && reason !== "finished" ? "stopped" : reason;
 
         // Taken now, not when the queue gets to it: the listen ends when the player says so.
         const endedAt = this.now();
@@ -123,7 +132,7 @@ export class ListenRecorder {
 
         await this.guarded("close", async db => {
             const row = { ...current.row, songDurationSeconds: current.row.songDurationSeconds ?? await this.knownDuration(current.row.songId) };
-            await closeListen(db, finishedListen(row, endedAt, seconds, reason));
+            await closeListen(db, finishedListen(row, endedAt, seconds, endReason));
         });
     }
 
@@ -132,6 +141,9 @@ export class ListenRecorder {
         const current = this.current;
         if (current == undefined) {
             return Promise.resolve();
+        }
+        if (playing) {
+            current.failed = false; // it plays again: a skip from here on is the user's
         }
 
         const next = clockAt(current.clock, playing, this.now());
@@ -142,6 +154,13 @@ export class ListenRecorder {
         current.clock = next;
         this.syncTimer();
         return this.checkpoint();
+    }
+
+    /** The player couldn't play `songId` (a load error, a stall, offline). Marks its listen, if it is the open one. */
+    playbackFailed(songId: string): void {
+        if (this.current?.row.songId === songId) {
+            this.current.failed = true;
+        }
     }
 
     /** Saves the open listen's seconds so far, so a kill from here on loses nothing before now. */

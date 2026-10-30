@@ -207,6 +207,13 @@ export const usePlaybackIssue = create<PlaybackIssueState>((set) => ({
     setIssue: (issue) => set({ issue }),
 }));
 
+// Moving off a song that couldn't play isn't a skip: its listen ends as stopped (ListenRecorder.end).
+usePlaybackIssue.subscribe(({ issue }) => {
+    if (issue?.songId != undefined) {
+        listenRecorder.playbackFailed(issue.songId);
+    }
+});
+
 interface SongStateRevisionState {
     // Bumped after every local write that can change a song's audition state: a song starting (lastPlayed), a
     // like/dislike, a Keep. Screens that derive per-song states read it to re-derive them while open; before,
@@ -1330,8 +1337,10 @@ async function beginListen(song: Song, userId: string, playing: boolean, context
 }
 
 /**
- * Opens a listen when the current song plays with none open: resumed after the end of an audition stopped it, or
- * already playing when this JS context started. Under the transport lock, so it sees the track change a skip made.
+ * Opens a listen when the current song starts playing with none open: resumed after the end of an audition stopped
+ * it, or after the app restarted. Under the transport lock, so it sees the track change a skip made. It runs only on
+ * a transition to Playing, so audio still playing when a fresh JS context starts goes unrecorded until the next one
+ * (ShuffullApp#143).
  */
 async function openListenForResume() {
     const songId = useActiveSong.getState().songId;

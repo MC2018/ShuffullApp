@@ -148,6 +148,46 @@ describe("ListenRecorder", () => {
         expect(listens.map(x => [x.songId, x.payload.songDurationSeconds])).toEqual([["a", 100], ["b", 250]]);
     });
 
+    describe("a song that failed to play", () => {
+        it.each(["skipped", "previous"] as const)("moving off it as %s closes the listen as stopped, not a skip", async reason => {
+            const recorder = makeRecorder();
+            await recorder.begin(start());
+            recorder.playbackFailed("s1");               // never loaded: the player stopped on it
+            now += 8_000;
+            await recorder.end(reason);
+
+            const [listen] = await queuedListens(db);
+            expect([listen.payload.endReason, listen.payload.secondsListened]).toEqual(["stopped", 0]);
+        });
+
+        it("once it plays again, a skip is a skip", async () => {
+            const recorder = makeRecorder();
+            await recorder.begin(start({ playing: true }));
+            now += 2_000;
+            await recorder.playbackStateChanged(false);  // stalled
+            recorder.playbackFailed("s1");
+            await recorder.playbackStateChanged(true);   // reconnected
+            now += 3_000;
+            await recorder.end("skipped");
+
+            const [listen] = await queuedListens(db);
+            expect([listen.payload.endReason, listen.payload.secondsListened]).toEqual(["skipped", 5]);
+        });
+
+        it("a failure of another song leaves the open listen alone, and finished stays finished", async () => {
+            const recorder = makeRecorder();
+            await recorder.begin(start({ songId: "a" }));
+            recorder.playbackFailed("b");
+            await recorder.end("skipped");
+            await recorder.begin(start({ songId: "c" }));
+            recorder.playbackFailed("c");
+            await recorder.end("finished");
+
+            const listens = await queuedListens(db);
+            expect(listens.map(x => [x.songId, x.payload.endReason])).toEqual([["a", "skipped"], ["c", "finished"]]);
+        });
+    });
+
     it("an unknown track duration is sent as null", async () => {
         duration = undefined;
         const recorder = makeRecorder();

@@ -1,4 +1,4 @@
-import type { ListenContext, ListenEndReason, RecordListenPayload } from "@/app/services/db/schema";
+import type { ListenContext, ListenEndReason, listenTable, RecordListenPayload } from "@/app/services/db/schema";
 
 // The pure parts of recording a listen (ShuffullApp#57): the clock that counts playback seconds, the context a song
 // was played in, and the wire item a finished listen becomes. listenRecorder.ts drives them from the player.
@@ -74,17 +74,8 @@ export function listenPlatform(os: string, desktop: boolean): string {
     return desktop ? "desktop" : os;
 }
 
-/** An open listen as the payload builder needs it. Structurally a `listens` row. */
-export interface OpenListenFields {
-    listenId: string;
-    userId: string;
-    songId: string;
-    startedAt: Date;
-    songDurationSeconds: number | null;
-    context: ListenContext;
-    playlistId: string | null;
-    platform: string | null;
-}
+/** An open listen as the payload builder needs it: a `listens` row, less the progress fields the builder is given. */
+export type OpenListenFields = Omit<typeof listenTable.$inferSelect, "secondsListened" | "checkpointedAt">;
 
 /**
  * The wire item for a listen that ended at `endedAtMs` with `secondsListened` played.
