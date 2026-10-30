@@ -11,7 +11,7 @@ import { withTransaction } from "@/app/services/db/transaction";
 import { Downloader } from "@/app/services/downloader/Downloader";
 import { STORAGE_KEYS } from "@/app/constants/storageKeys";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { collectNewSongIds, FEED_START, FeedKey, failedKeeps, groupRequestsIntoBatches, keepsDueForRetry, OUTBOX_MAX_BATCH_SIZE, pageFeed, partitionRejectedRequests, playlistDeleteHold, playlistsToFetch, pendingSongMisses, SONG_LIST_MAX_IDS, songFeedStart, songReconcileDue, SongReconcileState, songsGoneFromServer, summarizeRetagFailures, toRetagItems, withoutPendingDeletes } from "@/app/services/sync-manager/syncLogic";
+import { collectNewSongIds, FEED_START, failedKeeps, groupRequestsIntoBatches, keepsDueForRetry, OUTBOX_MAX_BATCH_SIZE, pageFeed, partitionRejectedRequests, playlistDeleteHold, playlistsToFetch, pendingSongMisses, SONG_LIST_MAX_IDS, songFeedStart, songReconcileDue, SongReconcileState, songsGoneFromServer, summarizeRetagFailures, toRetagItems, withoutPendingDeletes } from "@/app/services/sync-manager/syncLogic";
 
 /** What one outbox batch came back with: the status sync() acts on, and the error text when it failed. */
 interface RunResult {
@@ -355,7 +355,7 @@ export class SyncManager {
                 { afterDate: oldUser != undefined ? oldUser.version.toISOString() : FEED_START },
                 cursor => this.api.userSongGetAll(cursor));
             if (userSongFeed.stalled) {
-                console.error("[sync] The user-songs feed repeated a page; stopped paging it for this sync.");
+                console.error("[sync] The user-songs feed repeated a page; stopped paging it, and the user version stays put.");
             }
 
             // Consecutive pages can OVERLAP, so the concatenation above can hold the same user song twice: the
@@ -388,7 +388,7 @@ export class SyncManager {
             const fetchedChangedSongs: ApiModels.ChangedSong[] = [];
             // Where the next sync starts: the last row this one received, across ALL changed songs (not just the local
             // ones), so changes already accounted for are never re-paged. Undefined leaves the stored cursor alone.
-            let nextSongKey: FeedKey | undefined;
+            let nextSongKey: ApiModels.FeedKey | undefined;
             if (songFeedFrom != null) {
                 const localSongIdSet = new Set(localSongIds);
                 const songFeed = await pageFeed(songFeedFrom, cursor => this.api.songGetChanged(cursor));
@@ -510,7 +510,11 @@ export class SyncManager {
                 // Last: the user's version is the cursor the next sync pages user songs from (afterDate above), so it
                 // moves only once everything it covers is written. The transaction already guarantees that; writing it
                 // last keeps it true if this ever silently stops being one, as it had (ShuffullApp#91).
-                await DbQueries.updateUser(tx, user);
+                // A stalled user-songs feed never reached the rows the new version covers, so the next sync starts from
+                // the old one again rather than skip them for good.
+                await DbQueries.updateUser(tx, userSongFeed.stalled
+                    ? { ...user, version: oldUser?.version ?? new Date(FEED_START) }
+                    : user);
             });
 
             // Post-commit, outside the write txn: delete the now-orphaned local files (file I/O) and advance

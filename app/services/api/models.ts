@@ -90,8 +90,15 @@ export const FeedKeySchema = z.object({
     version: z.string(),
     songId: z.string()
 });
+export type FeedKey = z.infer<typeof FeedKeySchema>;
 export const ChangedSongKeysSchema = z.object({ songs: FeedKeySchema.array() });
 export const UserSongKeysSchema = z.object({ userSongs: FeedKeySchema.array() });
+
+/** Where a feed request starts. With `afterId` the server pages by (Version, SongId); without it, `Version > afterDate`. */
+export interface FeedCursor {
+    afterDate: string;
+    afterId?: string;
+}
 
 export const UserSongSchema = z.object({
     userId: z.string(),

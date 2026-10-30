@@ -1,4 +1,5 @@
 import { getProcessingMethod, ProcessingMethod, RequestType } from "@/app/enums";
+import type { FeedCursor, FeedKey } from "@/app/services/api/models";
 import type { DeletePlaylistPayload } from "@/app/services/db/schema";
 
 // Pure, dependency-free pieces lifted out of SyncManager.overallSync so they can be unit-tested without
@@ -50,18 +51,6 @@ export function collectNewSongIds(
 // loops forever once 500 or more rows share one Version: the next page is the same page (shuffull-workspace#38, the
 // 2026-10-23 phone hang). The server now also takes `afterId` and then pages by the keyset (Version, SongId)
 // (Shuffull#64). That needs the row's Version exactly: a JS Date keeps milliseconds and Version has microseconds.
-
-/** A row's `version` exactly as the server wrote it, and its song id: the keyset a page ends on. */
-export interface FeedKey {
-    version: string;
-    songId: string;
-}
-
-/** Where a feed request starts. With `afterId` the server pages by (Version, SongId); without it, `Version > afterDate`. */
-export interface FeedCursor {
-    afterDate: string;
-    afterId?: string;
-}
 
 /** One page of a feed: its rows, the key of each row (same order), and whether the server says it is the last. */
 export interface FeedPage<T> {
@@ -129,6 +118,12 @@ export async function pageFeed<T>(
 
     while (cursor) {
         const page: FeedPage<T> = await fetchPage(cursor);
+        if (cursor.afterId != undefined && page.keys.length && page.keys[0].version !== cursor.afterDate) {
+            // Either the tie ended exactly at the page boundary, or the server predates Shuffull#64: it ignored
+            // `afterId`, read the request as `Version > afterDate`, and skipped the rest of the tie. Can't tell which.
+            console.warn(`[sync] A feed page after ${cursor.afterDate}/${cursor.afterId} held no more rows at that Version. `
+                + "If the API predates keyset paging (Shuffull#64), the rest of that tie was skipped.");
+        }
         items.push(...page.items);
         last = page.keys[page.keys.length - 1] ?? last;
         if (page.endOfList) {

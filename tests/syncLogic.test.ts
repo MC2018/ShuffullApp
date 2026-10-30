@@ -1,5 +1,6 @@
-import { describe, it, expect } from "vitest";
-import { playlistsToFetch, collectNewSongIds, FeedCursor, FeedKey, justBefore, nextFeedCursor, pageFeed, pendingSongMisses, SONG_RECONCILE_INTERVAL_MS, SONG_RECONFIRM_INTERVAL_MS, songFeedStart, songReconcileDue, songsGoneFromServer } from "@/app/services/sync-manager/syncLogic";
+import { describe, it, expect, vi, afterEach } from "vitest";
+import { playlistsToFetch, collectNewSongIds, justBefore, nextFeedCursor, pageFeed, pendingSongMisses, SONG_RECONCILE_INTERVAL_MS, SONG_RECONFIRM_INTERVAL_MS, songFeedStart, songReconcileDue, songsGoneFromServer } from "@/app/services/sync-manager/syncLogic";
+import type { FeedCursor, FeedKey } from "@/app/services/api/models";
 
 describe("playlistsToFetch", () => {
     const d = (s: string) => new Date(s);
@@ -150,14 +151,19 @@ describe("nextFeedCursor", () => {
 describe("pageFeed", () => {
     const START = { afterDate: "0001-01-01T00:00:00.000Z" };
     const ids = (rows: FeedKey[]) => rows.map(x => x.songId).sort();
+    const warned = () => vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    afterEach(() => vi.restoreAllMocks());
 
     it("pages a tie bigger than a page out once each, and ends (the 2026-10-23 hang)", async () => {
         const rows = tiedRows(1200, TIE);
         const server = feedServer(rows, true);
+        const warn = warned();
 
         const feed = await pageFeed(START, server.fetchPage);
 
         expect(feed.stalled).toBe(false);
+        expect(warn).not.toHaveBeenCalled();
         expect(feed.items).toHaveLength(1200);
         expect(ids(feed.items)).toEqual(ids(rows));
         expect(feed.last).toEqual({ songId: "s01199", version: TIE });
@@ -198,13 +204,28 @@ describe("pageFeed", () => {
 
     it("still ends on a server without afterId when a tie is bigger than a page", async () => {
         const server = feedServer(tiedRows(1200, TIE), false);
+        const warn = warned();
 
         const feed = await pageFeed(START, server.fetchPage);
 
-        // That server can't page inside the tie; ending beats repeating the same page forever.
+        // That server can't page inside the tie; ending beats repeating the same page forever. But not silently.
         expect(feed.stalled).toBe(false);
         expect(feed.items).toHaveLength(500);
         expect(server.requests).toHaveLength(2);
+        expect(warn).not.toHaveBeenCalled(); // the old server's second page is empty: nothing to compare
+    });
+
+    it("warns when a keyset request comes back with no rows at the tied Version", async () => {
+        const rows = [...tiedRows(1200, TIE), { songId: "z", version: "2026-10-23T13:00:00Z" }];
+        const server = feedServer(rows, false);
+        const warn = warned();
+
+        const feed = await pageFeed(START, server.fetchPage);
+
+        // A server that ignores afterId jumps straight past the tie to z.
+        expect(feed.items.map(x => x.songId)).toContain("z");
+        expect(feed.items).toHaveLength(501);
+        expect(warn).toHaveBeenCalledOnce();
     });
 
     it("stops and says so when the server repeats a page", async () => {
