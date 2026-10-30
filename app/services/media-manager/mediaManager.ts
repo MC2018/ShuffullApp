@@ -12,7 +12,7 @@ import { Downloader } from "../downloader/Downloader";
 import { create } from "zustand";
 import path from "path-browserify";
 import { SongFilters } from "../../types/SongFilters";
-import { asIfJustPlayed, selectNextSong } from "../../tools/shuffle";
+import { asIfJustPlayed, selectNextSong, ShuffleCandidate } from "../../tools/shuffle";
 import { Lookahead } from "../../tools/lookahead";
 import { prefetcher } from "../prefetch/Prefetcher";
 import { loadPrefetchSetting, savePrefetchSetting, usePrefetchSetting } from "../prefetch/prefetchSetting";
@@ -71,9 +71,11 @@ const lookahead = new Lookahead({
     current: () => useActiveSong.getState().songId,
     queue: () => queue,
     forwardHistory: async (limit) => (await DbQueries.getNextRecentlyPlayedSongs(db, limit)).map(x => x.songId),
-    pick: (played) => pickShuffleSongAhead(played),
+    pick: (played) => pickShuffleSong(played),
     isEligible: (songId) => isShuffleEligible(songId),
 });
+// How many times a whole-library pick re-rolls to avoid a song already lined up, before taking it anyway.
+const LIBRARY_PICK_ATTEMPTS = 3;
 let lookaheadRefreshRunning = false;
 let lookaheadRefreshAgain = false;
 
@@ -822,6 +824,8 @@ export async function clear() {
     clearStall();
     clearQueue();
     lookahead.reset();
+    // Nothing plays after a clear until a new song starts (on logout, never), so stop the old list's fetch now.
+    prefetcher.want([]);
     // A new scope is a fresh start: pressing Play on a mix that has just finished must play, not stop again.
     await setAuditionInProgress(undefined);
     await clearSong();
@@ -1063,29 +1067,9 @@ async function startNewSong(songId: string, recentlyPlayedSong?: RecentlyPlayedS
     scheduleLookaheadRefresh();
 }
 
+/** skip()'s shuffle pick at the moment of the skip: the same rule the lookahead picks ahead with, nothing played yet. */
 async function getRandomSongId(): Promise<string | undefined> {
-    const songFilters = await getSongFilters();
-    let songId: string | undefined;
-
-    if (songFilters.hasAnyFilter()) {
-        const filteredSongs = await DbQueries.getFilteredSong(db, songFilters);
-
-        if (!filteredSongs.length) {
-            return undefined;
-        }
-
-        // getFilteredSong orders by last_played ASC, so the song that just finished is at the END and the
-        // selection window off the front cannot reach it. See shuffle.ts - it is extracted so that property
-        // can actually be tested.
-        songId = selectNextSong(filteredSongs);
-    } else {
-        // No scope set => shuffle the whole library rather than stopping. This used to return undefined, which
-        // made playback halt after a single song whenever the filters happened to be empty — the same dead end
-        // reached from any list screen, since those cleared the filters on the way in.
-        songId = await DbQueries.getRandomSongId(db);
-    }
-
-    return songId;
+    return pickShuffleSong([]);
 }
 
 function isLookaheadEnabled(): boolean {
@@ -1150,17 +1134,32 @@ async function refreshLookaheadOnce() {
     prefetcher.want(songs);
 }
 
-/** A shuffle pick made ahead of the skip, from the same pool and window rules getRandomSongId uses at the skip. */
-async function pickShuffleSongAhead(played: readonly string[]): Promise<string | undefined> {
+/**
+ * The songs the shuffle picks from: the scope's songs when any filter is set, ordered by last_played ASC, or
+ * undefined for "the whole library". No scope set used to return nothing, which halted playback after a single
+ * song whenever the filters happened to be empty, the dead end reached from any list screen.
+ */
+async function getShufflePool(): Promise<ShuffleCandidate[] | undefined> {
     const songFilters = await getSongFilters();
+    return songFilters.hasAnyFilter() ? await DbQueries.getFilteredSong(db, songFilters) : undefined;
+}
 
-    if (songFilters.hasAnyFilter()) {
-        return selectNextSong(asIfJustPlayed(await DbQueries.getFilteredSong(db, songFilters), played));
+/**
+ * The shuffle's next song once `played` have played. skip() calls it with nothing played; the lookahead calls it
+ * ahead of the skip with the songs lined up before this one, so both modes pick by one rule.
+ */
+async function pickShuffleSong(played: readonly string[]): Promise<string | undefined> {
+    const pool = await getShufflePool();
+
+    if (pool != undefined) {
+        // The song that just finished is at the END of the pool, so the selection window off the front cannot
+        // reach it; asIfJustPlayed moves the lined-up songs back the same way. See shuffle.ts, where both are tested.
+        return selectNextSong(asIfJustPlayed(pool, played));
     }
 
     // The whole library has no window to keep the lined-up songs out of, so just don't line one up twice.
     let songId: string | undefined;
-    for (let attempt = 0; attempt < 3; attempt++) {
+    for (let attempt = 0; attempt < LIBRARY_PICK_ATTEMPTS; attempt++) {
         songId = await DbQueries.getRandomSongId(db);
         if (songId == undefined || !played.includes(songId)) {
             break;
@@ -1172,10 +1171,10 @@ async function pickShuffleSongAhead(played: readonly string[]): Promise<string |
 
 /** Whether a song picked ahead may still be the shuffle's next song: still in the scope's pool, or the library. */
 async function isShuffleEligible(songId: string): Promise<boolean> {
-    const songFilters = await getSongFilters();
+    const pool = await getShufflePool();
 
-    if (songFilters.hasAnyFilter()) {
-        return (await DbQueries.getFilteredSong(db, songFilters)).some(x => x.songId === songId);
+    if (pool != undefined) {
+        return pool.some(x => x.songId === songId);
     }
 
     return (await DbQueries.getSong(db, songId)) != undefined;

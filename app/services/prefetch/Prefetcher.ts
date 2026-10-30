@@ -6,6 +6,7 @@ import { STORAGE_KEYS } from "../../constants/storageKeys";
 import { Song } from "../db/models";
 import { Downloader } from "../downloader/Downloader";
 import { verifyFileIntegrity } from "../../tools/utils";
+import { decideArtDownload } from "../../tools/downloadFailure";
 import { choosePrefetchEvictions, PREFETCH_CACHE_CAP_BYTES, PrefetchEntry } from "../../tools/prefetchCache";
 import { PrefetchedFiles, Prefetcher } from "./types";
 
@@ -187,6 +188,11 @@ class NativePrefetcher implements Prefetcher {
             return;
         }
 
+        // want() and markPlaying() can't cancel a job until inFlight is set, so check again after the awaits.
+        if (!this.isWanted(song.songId) || song.songId === this.playing) {
+            return;
+        }
+
         const fileName = Downloader.generateSongFileName(song);
         const artFileName = Downloader.generateAlbumArtFileName(song);
         const tempAudio = path.join(this.tempFolder, fileName);
@@ -224,7 +230,7 @@ class NativePrefetcher implements Prefetcher {
                 return;
             }
 
-            const hasArt = art != undefined && art.status < 400;
+            const hasArt = decideArtDownload(art) === "keep";
             await FileSystem.moveAsync({ from: tempAudio, to: audioUri });
             if (hasArt) {
                 await FileSystem.moveAsync({ from: tempArt, to: artUri });
