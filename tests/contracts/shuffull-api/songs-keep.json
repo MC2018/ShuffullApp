@@ -1,0 +1,14 @@
+{
+  "results": [
+    {
+      "songId": "song-full",
+      "outcome": "kept",
+      "error": null
+    },
+    {
+      "songId": "song-sparse",
+      "outcome": "failed",
+      "error": "Song is not in your library."
+    }
+  ]
+}

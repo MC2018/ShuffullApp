@@ -1,0 +1,52 @@
+{
+  "songs": [
+    {
+      "songId": "song-full",
+      "name": "Everybody Wants You",
+      "fileExtension": ".mp3",
+      "fileHash": "0f343b0931126a20f133d67c2b018a3b",
+      "externalSongId": "dQw4w9WgXcQ",
+      "artists": [
+        "Billy Squier",
+        "Beyonc\u00E9"
+      ],
+      "tags": [
+        "Rock",
+        "1980s",
+        "English"
+      ],
+      "version": "2026-10-01T12:34:56.123456Z",
+      "syncedLyrics": "[00:01.00] First line",
+      "plainLyrics": "First line",
+      "lyricsInstrumental": false,
+      "lyricsSource": "lrclib",
+      "bpm": 128,
+      "heaviness": 6,
+      "exploratory": false,
+      "tagsStale": true,
+      "hookStartPercent": 37.5,
+      "energy": 6
+    },
+    {
+      "songId": "song-sparse",
+      "name": "Untitled",
+      "fileExtension": ".m4a",
+      "fileHash": "9e107d9d372bb6826bd81d3542a419d6",
+      "externalSongId": null,
+      "artists": [],
+      "tags": [],
+      "version": "2026-10-02T08:00:00.000001Z",
+      "syncedLyrics": null,
+      "plainLyrics": null,
+      "lyricsInstrumental": false,
+      "lyricsSource": null,
+      "bpm": null,
+      "heaviness": null,
+      "exploratory": true,
+      "tagsStale": false,
+      "hookStartPercent": null,
+      "energy": null
+    }
+  ],
+  "endOfList": false
+}

@@ -1,0 +1,14 @@
+[
+  {
+    "ratingRequestId": "rating-1",
+    "songId": "song-full",
+    "videoId": "dQw4w9WgXcQ",
+    "rating": "like"
+  },
+  {
+    "ratingRequestId": "rating-2",
+    "songId": "song-other",
+    "videoId": "9bZkp7q19f0",
+    "rating": "none"
+  }
+]

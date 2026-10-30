@@ -1,0 +1,23 @@
+{
+  "tags": {
+    "mainGenres": [
+      "Rock"
+    ],
+    "subGenres": [
+      "Arena Rock"
+    ],
+    "languages": [
+      "English"
+    ],
+    "timePeriod": "1980s",
+    "moods": [
+      "Energetic"
+    ],
+    "heaviness": 6,
+    "themes": [
+      "Rebellion"
+    ]
+  },
+  "tagModel": "gpt-5.6-terra",
+  "tagRevision": 3
+}

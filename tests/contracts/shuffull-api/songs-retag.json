@@ -1,0 +1,19 @@
+{
+  "results": [
+    {
+      "songId": "song-full",
+      "outcome": "enriched",
+      "error": null
+    },
+    {
+      "songId": "song-locked",
+      "outcome": "skipped",
+      "error": null
+    },
+    {
+      "songId": "song-sparse",
+      "outcome": "failed",
+      "error": "AI is not enabled; cannot enrich songs."
+    }
+  ]
+}
