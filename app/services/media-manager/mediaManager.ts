@@ -1,17 +1,17 @@
 import { GenericDb } from "../db/GenericDb";
 import TrackPlayer, { Capability, Event, PlaybackState, RemoteSeekEvent, State, usePlaybackState } from "react-native-track-player";
-import { CreateUserSongRequest, RecentlyPlayedSong, Song, UpdateSongLastPlayedRequest } from "../db/models";
+import { RecentlyPlayedSong, Song } from "../db/models";
 import DbQueries from "../db/queries";
 import { shouldSkipOnDislike } from "../../tools/promotion";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { STORAGE_KEYS } from "../../constants/storageKeys";
 import { generateRange, generateId } from "../../tools/utils";
-import { RequestType, LikeStatus } from "../../enums";
+import { LikeStatus } from "../../enums";
 import { getPlaybackState } from "react-native-track-player/lib/src/trackPlayer";
 import { Downloader } from "../downloader/Downloader";
 import { create } from "zustand";
 import path from "path-browserify";
-import { SongFilters } from "../../types/SongFilters";
+import { SongFilters, SongFilterType } from "../../types/SongFilters";
 import { asIfJustPlayed, selectNextSong, ShuffleCandidate } from "../../tools/shuffle";
 import { Lookahead } from "../../tools/lookahead";
 import { prefetcher } from "../prefetch/Prefetcher";
@@ -25,6 +25,7 @@ import {
 import { Platform } from "react-native";
 import { createSerialLock } from "../../tools/serialLock";
 import { playerSetupOptions } from "../../tools/playerSetup";
+import { SongDetails } from "../db/types";
 
 let queue: string[] = [];
 let db: GenericDb;
@@ -78,6 +79,28 @@ const lookahead = new Lookahead({
 const LIBRARY_PICK_ATTEMPTS = 3;
 let lookaheadRefreshRunning = false;
 let lookaheadRefreshAgain = false;
+
+/**
+ * Audition mode (ShuffullApp#125) while its screen is open. The deck decides what plays next, so every way of moving
+ * the player on - next, previous, play, a song ending, the notification's buttons - goes to it instead of to the
+ * shuffle. The shuffle's skip() would start the next song through startNewSong, which stamps it as played at once:
+ * the very thing audition mode exists not to do.
+ */
+export interface AuditionController {
+    resume(): Promise<void>;
+    next(): Promise<void>;
+    previous(): Promise<void>;
+    rate(likeStatus: LikeStatus): Promise<void>;
+    keep(): Promise<void>;
+    onPlaybackState(playing: boolean): void;
+    onEnded(songId: string | undefined): Promise<void>;
+}
+
+let auditionController: AuditionController | undefined;
+// How long a start at the start point waits for the track's length before playing it from the top instead.
+const START_POINT_WAIT_MS = 1_500;
+// How much longer it keeps trying to jump to the start point after that, while the song is still near its start.
+const START_POINT_LATE_SEEK_MS = 8_000;
 
 interface ActiveSongState {
     songId: string | undefined;
@@ -303,9 +326,14 @@ async function setupEventListeners() {
         if (event.customAction === "like") {
             const next =
                 current === LikeStatus.Like ? LikeStatus.Love : current === LikeStatus.Love ? LikeStatus.Neutral : LikeStatus.Like;
-            await applyLikeStatus(activeSongId, next);
+            await (auditionController ? auditionController.rate(next) : applyLikeStatus(activeSongId, next));
         } else if (event.customAction === "dislike") {
-            await applyLikeStatus(activeSongId, current === LikeStatus.Dislike ? LikeStatus.Neutral : LikeStatus.Dislike);
+            const next = current === LikeStatus.Dislike ? LikeStatus.Neutral : LikeStatus.Dislike;
+            await (auditionController ? auditionController.rate(next) : applyLikeStatus(activeSongId, next));
+        } else if (event.customAction === "keep" && auditionController) {
+            // The deck records the Keep itself (through keepSong), so it counts toward the song being heard.
+            await auditionController.keep();
+            await refreshNotificationButtons(current, false);
         } else if (event.customAction === "keep") {
             // One-way, and a no-op for anything that isn't an audition song (keepSong guards on that itself).
             await keepSong(activeSongId);
@@ -316,12 +344,19 @@ async function setupEventListeners() {
     TrackPlayer.addEventListener(Event.PlaybackState, async (state: PlaybackState) => {
         // A track reaching the speakers is the only proof that BOTH the source and the path to it are good, so
         // it is what clears the retry budget and any flag on screen.
+        auditionController?.onPlaybackState(state.state == State.Playing);
+
         if (state.state == State.Playing) {
             clearStall();
             return;
         }
 
         if (state.state != State.Ended) {
+            return;
+        }
+
+        if (auditionController) {
+            await auditionController.onEnded(useActiveSong.getState().songId);
             return;
         }
 
@@ -535,6 +570,9 @@ function beginUserInitiatedPlayback() {
 }
 
 export function play(): Promise<void> {
+    if (auditionController) {
+        return auditionController.resume();
+    }
     return transportLock.run(playLocked);
 }
 
@@ -634,11 +672,15 @@ export function useIsPlaybackActive(): boolean {
 export function togglePlayback(): Promise<void> {
     // The state is read INSIDE the lock, so a double tap toggles twice: the second tap sees what the first one
     // left, rather than both reading "playing" and both pausing.
+    const controller = auditionController;
     return transportLock.run(async () => {
         const state = (await getPlaybackState()).state;
 
         if (isPlaybackActive(state, usePlaybackIssue.getState().issue)) {
             await pauseLocked();
+        } else if (controller) {
+            // Not awaited: the deck's resume takes this lock itself.
+            void controller.resume();
         } else {
             await playLocked();
         }
@@ -663,6 +705,9 @@ async function pauseLocked() {
  * stops and flags the song instead, and moving on is left to the user.
  */
 export function skip(): Promise<void> {
+    if (auditionController) {
+        return auditionController.next();
+    }
     return transportLock.run(skipLocked);
 }
 
@@ -774,6 +819,9 @@ async function setAuditionInProgress(playlistId: string | undefined) {
 }
 
 export function previous(): Promise<void> {
+    if (auditionController) {
+        return auditionController.previous();
+    }
     return transportLock.run(previousLocked);
 }
 
@@ -895,7 +943,7 @@ export async function applyLikeStatus(songId: string, likeStatus: LikeStatus) {
     // already have been written.
     const playbackState = (await getPlaybackState()).state;
     const isPlaying = playbackState === State.Playing || playbackState === State.Buffering || playbackState === State.Loading;
-    if (shouldSkipOnDislike(isActiveSong, likeStatus, isPlaying)) {
+    if (shouldSkipOnDislike(isActiveSong, likeStatus, isPlaying, auditionController != undefined)) {
         await skipFrom(songId);
     }
 }
@@ -917,12 +965,167 @@ export async function keepSong(songId: string) {
     }
 }
 
+/**
+ * Hands the player to audition mode for `playlistId`. Clears what was playing, and scopes the normal player to the
+ * mix's unheard songs, so Play after leaving the deck carries on with the mix the ordinary way.
+ */
+export function beginAuditionMode(playlistId: string, controller: AuditionController): Promise<void> {
+    return transportLock.run(async () => {
+        const scope = new SongFilters();
+        scope.setSoleFilter(SongFilterType.Playlist, [playlistId]);
+        scope.unheardOnly = true;
+        await saveSongFilters(scope);
+        await clear();
+        auditionController = controller;
+        auditionLoadEpoch++;
+    });
+}
+
+/**
+ * Gives the player back. Stops and unloads the deck's song: nothing recorded it as playing (that was the point), so
+ * the normal player must not pick it up half-way and play on from it unrecorded.
+ */
+export function endAuditionMode(controller: AuditionController): Promise<void> {
+    return transportLock.run(async () => {
+        if (auditionController !== controller) {
+            return;
+        }
+        auditionController = undefined;
+        auditionLoadEpoch++;
+        userPaused = true;
+        clearStall();
+        try {
+            await TrackPlayer.pause();
+        } catch {
+            // Never set up (web without a session): nothing to stop.
+        }
+        await clear();
+        scheduleLookaheadRefresh();
+    });
+}
+
+// Bumped by every audition load, so a late jump to the start point never lands on a song the deck has moved past.
+let auditionLoadEpoch = 0;
+
+/**
+ * Starts `songId` at `startFraction` of its length for audition mode. Unlike startNewSong it writes NOTHING: no
+ * lastPlayed stamp, no history row, no audition-in-progress marker. A song flicked past in two seconds has to stay
+ * unheard, and only markAuditionHeard (called once the heard rule is met) records it as played.
+ */
+export function playAuditionSong(songId: string, startFraction: number): Promise<void> {
+    return transportLock.run(async () => {
+        // A deck step still queued when the screen closed: the player is no longer the deck's to drive.
+        if (auditionController == undefined) {
+            return;
+        }
+        beginUserInitiatedPlayback();
+        const epoch = ++auditionLoadEpoch;
+        const songWithArtist = await DbQueries.fetchSongDetails(db, songId);
+        await loadTrack(songWithArtist);
+        useActiveSong.getState().setSongId(songId);
+        useAuditionFinished.getState().setPlaylistId(undefined);
+
+        if (startFraction > 0) {
+            const duration = await waitForDuration(START_POINT_WAIT_MS);
+            if (duration > 0) {
+                await TrackPlayer.seekTo(duration * startFraction);
+            } else {
+                // The length isn't known yet (a slow stream): start it now and jump once it is, rather than hold
+                // every other control up behind the wait.
+                void seekToStartPointLate(epoch, startFraction);
+            }
+        }
+        await TrackPlayer.play();
+
+        const sessionData = await DbQueries.getActiveLocalSessionData(db);
+        const userSong = sessionData ? await DbQueries.getUserSong(db, sessionData.userId, songId) : undefined;
+        await refreshNotificationButtons((userSong?.likeStatus as LikeStatus) ?? LikeStatus.Neutral, songWithArtist.song.exploratory);
+    });
+}
+
+async function waitForDuration(timeoutMs: number): Promise<number> {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+        const { duration } = await TrackPlayer.getProgress();
+        if (duration > 0 || Date.now() >= deadline) {
+            return duration;
+        }
+        await new Promise(resolve => setTimeout(resolve, 100));
+    }
+}
+
+async function seekToStartPointLate(epoch: number, startFraction: number) {
+    const deadline = Date.now() + START_POINT_LATE_SEEK_MS;
+    while (Date.now() < deadline) {
+        await new Promise(resolve => setTimeout(resolve, 250));
+        if (epoch !== auditionLoadEpoch) {
+            return;
+        }
+        const { duration, position } = await TrackPlayer.getProgress();
+        if (duration > 0) {
+            // Only while the song is still near its top: past that, the user has scrubbed or chosen From the start.
+            if (position < 5) {
+                await transportLock.run(async () => {
+                    if (epoch === auditionLoadEpoch) {
+                        await TrackPlayer.seekTo(duration * startFraction);
+                    }
+                });
+            }
+            return;
+        }
+    }
+}
+
+/** Resumes the deck's paused song where it is. Never moves on to another: the deck decides that. */
+export function auditionResume(): Promise<void> {
+    return transportLock.run(async () => {
+        if (auditionController == undefined) {
+            return;
+        }
+        beginUserInitiatedPlayback();
+        if ((await getPlaybackState()).state == State.Error) {
+            await retryCurrentTrack();
+            return;
+        }
+        await TrackPlayer.play();
+    });
+}
+
+export function auditionPause(): Promise<void> {
+    return transportLock.run(pauseLocked);
+}
+
+/** Records an auditioned song as played, once the heard rule says it was heard. */
+export async function markAuditionHeard(songId: string): Promise<void> {
+    const sessionData = await DbQueries.getActiveLocalSessionData(db);
+    if (!sessionData) {
+        throw new Error("No local session data found in markAuditionHeard");
+    }
+    await DbQueries.recordPlayed(db, sessionData.userId, songId, new Date());
+    useSongStateRevision.getState().bump();
+}
+
+/** Lines the deck's next songs up in the prefetch cache, when "Load upcoming songs ahead" is on. */
+export async function prefetchAudition(songIds: string[]): Promise<void> {
+    if (!isLookaheadEnabled() || db == undefined) {
+        prefetcher.want([]);
+        return;
+    }
+    const songs: Song[] = [];
+    for (const songId of songIds) {
+        const song = await DbQueries.getSong(db, songId);
+        if (song != undefined) {
+            songs.push(song);
+        }
+    }
+    prefetcher.want(songs);
+}
+
 async function startNewSong(songId: string, recentlyPlayedSong?: RecentlyPlayedSong) {
     const localSessionData = await DbQueries.getActiveLocalSessionData(db);
     const songWithArtist = await DbQueries.fetchSongDetails(db, songId);
     const song = songWithArtist.song;
     let recentlyPlayedSongFound = false;
-    let songUri: string;
 
     if (!localSessionData) {
         throw Error("No local session data found in startNewSong");
@@ -943,6 +1146,61 @@ async function startNewSong(songId: string, recentlyPlayedSong?: RecentlyPlayedS
             recentlyPlayedSongFound = true;
         }
     }
+
+    await loadTrack(songWithArtist);
+    await TrackPlayer.play();
+
+    const timeSongStarted = new Date(Date.now());
+
+    // Update state
+    useActiveSong.getState().setSongId(songId);
+    useAuditionFinished.getState().setPlaylistId(undefined);
+
+    if (recentlyPlayedSongFound) {
+        const timestampSeconds = recentlyPlayedSong?.timestampSeconds ?? 0;
+        await TrackPlayer.seekTo(timestampSeconds);
+        // markCurrent, not the progress writer: every marker was just cleared above, and only a genuine
+        // start/resume may set one. The progress writer deliberately cannot, so a late tick from the song that
+        // just finished can't resurrect it as "current" and get itself played twice.
+        await DbQueries.markRecentlyPlayedSongCurrent(db, recentlyPlayedSong?.recentlyPlayedSongId!, timestampSeconds);
+    } else {
+        await DbQueries.addRecentlyPlayedSong(db, {
+            songId: songId,
+            recentlyPlayedSongId: generateId(),
+            timestampSeconds: 0,
+            lastPlayed: timeSongStarted
+        });
+    }
+
+    // Read BEFORE this start stamps lastPlayed below (a new UserSong row is stamped too): if this is the song that
+    // completes the mix, the mix has to count as unfinished as it starts, so that it can finish when it ends.
+    // A RESUME keeps what was recorded when the song first started: it was stamped then, so re-reading now would
+    // find the mix finished and never stop - the case after Android kills a paused player mid-way through the
+    // last song.
+    if (!recentlyPlayedSongFound) {
+        await setAuditionInProgress(
+            await DbQueries.getIncompleteAuditionPlaylistId(db, localSessionData.userId, await getSongFilters()));
+    }
+
+    const userSong = await DbQueries.recordPlayed(db, localSessionData.userId, songId, timeSongStarted);
+    useSongStateRevision.getState().bump();
+
+    // Reflect the new active song's saved like state on the notification buttons — and offer Keep only when
+    // this one is actually an audition song.
+    await refreshNotificationButtons((userSong.likeStatus as LikeStatus) ?? LikeStatus.Neutral, song.exploratory);
+
+    // Last: the history and lastPlayed writes above are what the next picks are made from.
+    scheduleLookaheadRefresh();
+}
+
+/**
+ * Hands the song to the player, from downloads, the prefetch cache or a stream, without starting it. Writes nothing:
+ * stamping it as played is the caller's business (startNewSong does at once; audition mode only once it is heard).
+ */
+async function loadTrack(songWithArtist: SongDetails) {
+    const song = songWithArtist.song;
+    const songId = song.songId;
+    let songUri: string;
 
     // Before the cache is asked for the file: from here on the prefetcher keeps it, and drops the song before it.
     prefetcher.markPlaying(songId);
@@ -990,81 +1248,6 @@ async function startNewSong(songId: string, recentlyPlayedSong?: RecentlyPlayedS
         artist: songWithArtist.artists.length > 0 ? songWithArtist.artists.map(x => x.name).join(", ") : "Unknown Artist",
         artwork: artworkUri,
     }]);
-    await TrackPlayer.play();
-
-    const timeSongStarted = new Date(Date.now());
-
-    // Update state
-    useActiveSong.getState().setSongId(songId);
-    useAuditionFinished.getState().setPlaylistId(undefined);
-
-    if (recentlyPlayedSongFound) {
-        const timestampSeconds = recentlyPlayedSong?.timestampSeconds ?? 0;
-        await TrackPlayer.seekTo(timestampSeconds);
-        // markCurrent, not the progress writer: every marker was just cleared above, and only a genuine
-        // start/resume may set one. The progress writer deliberately cannot, so a late tick from the song that
-        // just finished can't resurrect it as "current" and get itself played twice.
-        await DbQueries.markRecentlyPlayedSongCurrent(db, recentlyPlayedSong?.recentlyPlayedSongId!, timestampSeconds);
-    } else {
-        await DbQueries.addRecentlyPlayedSong(db, {
-            songId: songId,
-            recentlyPlayedSongId: generateId(),
-            timestampSeconds: 0,
-            lastPlayed: timeSongStarted
-        });
-    }
-
-    // Read BEFORE this start stamps lastPlayed below (a new UserSong row is stamped too): if this is the song that
-    // completes the mix, the mix has to count as unfinished as it starts, so that it can finish when it ends.
-    // A RESUME keeps what was recorded when the song first started: it was stamped then, so re-reading now would
-    // find the mix finished and never stop - the case after Android kills a paused player mid-way through the
-    // last song.
-    if (!recentlyPlayedSongFound) {
-        await setAuditionInProgress(
-            await DbQueries.getIncompleteAuditionPlaylistId(db, localSessionData.userId, await getSongFilters()));
-    }
-
-    let userSong = await DbQueries.getUserSong(db, localSessionData.userId, songId);
-
-    if (userSong == undefined) {
-        // TODO: remove CreateUserSongRequest
-        const newUserSongRequest: CreateUserSongRequest = {
-            userId: localSessionData.userId,
-            songId: songId,
-            requestId: generateId(),
-            timeRequested: timeSongStarted,
-            requestType: RequestType.CreateUserSong
-        };
-        
-        userSong = {
-            userId: newUserSongRequest.userId,
-            songId: newUserSongRequest.songId,
-            lastPlayed: newUserSongRequest.timeRequested,
-            version: newUserSongRequest.timeRequested,
-            likeStatus: LikeStatus.Neutral
-        };
-        await DbQueries.addUserSong(db, userSong);
-        await DbQueries.addRequests(db, [newUserSongRequest]);
-    }
-
-    const updateSongLastPlayedRequest: UpdateSongLastPlayedRequest = {
-        requestId: generateId(),
-        lastPlayed: timeSongStarted,
-        songId: songId,
-        timeRequested: timeSongStarted,
-        requestType: RequestType.UpdateSongLastPlayed,
-        userId: localSessionData.userId
-    };
-    await DbQueries.updateUserSongLastPlayed(db, localSessionData.userId, songId, timeSongStarted);
-    await DbQueries.addRequests(db, [updateSongLastPlayedRequest]);
-    useSongStateRevision.getState().bump();
-
-    // Reflect the new active song's saved like state on the notification buttons — and offer Keep only when
-    // this one is actually an audition song.
-    await refreshNotificationButtons((userSong.likeStatus as LikeStatus) ?? LikeStatus.Neutral, song.exploratory);
-
-    // Last: the history and lastPlayed writes above are what the next picks are made from.
-    scheduleLookaheadRefresh();
 }
 
 /** skip()'s shuffle pick at the moment of the skip: the same rule the lookahead picks ahead with, nothing played yet. */
@@ -1109,6 +1292,11 @@ function scheduleLookaheadRefresh() {
 }
 
 async function refreshLookaheadOnce() {
+    // The deck lines its own songs up (prefetchAudition); the shuffle's picks would only push them out.
+    if (auditionController != undefined) {
+        return;
+    }
+
     if (!isLookaheadEnabled() || db == undefined) {
         lookahead.reset();
         prefetcher.want([]);

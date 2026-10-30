@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { View } from "react-native";
-import { router, useLocalSearchParams } from "expo-router";
+import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { Playlist } from "@/app/services/db/models";
 import DbQueries from "@/app/services/db/queries";
 import { useDb } from "@/app/services/db/DbProvider";
@@ -9,15 +9,13 @@ import { SongList } from "@/app/components/songs/molecules/SongList";
 import { SongFilters, SongFilterType } from "@/app/types/SongFilters";
 import { DownloadPriority, SongDetails } from "@/app/services/db/types";
 import { useDownloader } from "@/app/services/downloader/DownloaderProvider";
-import { Downloader } from "@/app/services/downloader/Downloader";
 import { MediaManager } from "@/app/services/media-manager";
 import { useSongStateRevision } from "@/app/services/media-manager/mediaManager";
 import { Button, Chip, Screen, Text, TextField } from "@/app/components/ui";
 import { useTheme } from "@/app/theme";
-import { LikeStatus, RequestType } from "@/app/enums";
-import { generateId } from "@/app/tools";
+import { LikeStatus } from "@/app/enums";
 import { AuditionRowState, auditionProgress, deriveAuditionRowState } from "@/app/tools/audition";
-import { showAlert } from "@/app/tools/dialog";
+import { confirmDeletePlaylist } from "@/app/services/playlists/deletePlaylist";
 
 export default function PlaylistScreen() {
     const theme = useTheme();
@@ -82,6 +80,26 @@ export default function PlaylistScreen() {
         }
     }, [playlist, songStateRevision, loadSongStates]);
 
+    // Audition mode's summary can delete this playlist from a screen on top of this one. Coming back to a playlist
+    // that no longer exists goes back to the list instead of showing it.
+    const loaded = playlist != undefined;
+    useFocusEffect(
+        useCallback(() => {
+            if (!loaded || playlistId == undefined) {
+                return;
+            }
+            let cancelled = false;
+            (async () => {
+                if ((await DbQueries.getPlaylist(db, playlistId)) == undefined && !cancelled) {
+                    router.back();
+                }
+            })();
+            return () => {
+                cancelled = true;
+            };
+        }, [db, playlistId, loaded]),
+    );
+
     // Search + the unheard-only chip compose over the loaded list; both derive, never mutate.
     const visibleSongs = useMemo(() => {
         let result = songs;
@@ -145,42 +163,7 @@ export default function PlaylistScreen() {
         await MediaManager.setSongFilters(songFilters, true);
     };
 
-    const confirmDelete = () => {
-        const message = playlist.isExploratory
-            ? "Delete this audition playlist? Songs you didn't keep will be removed from your library; kept (liked) songs stay."
-            : "Delete this playlist? Its songs stay in your library.";
-        showAlert("Delete playlist", message, [
-            { text: "Cancel", style: "cancel" },
-            {
-                text: "Delete",
-                style: "destructive",
-                onPress: async () => {
-                    // Read before the purge removes them: the queued delete carries them so it waits only for Keeps
-                    // of songs in THIS playlist.
-                    const songIds = await DbQueries.getPlaylistSongIds(db, playlist.playlistId);
-                    // Purge locally (mirrors the server) and clean up any downloaded media for the removed songs.
-                    const purged = await DbQueries.deletePlaylistAndPurge(db, playlist.playlistId);
-                    // Media is stored by hash: leave a file another local song still plays.
-                    const filesInUse = await DbQueries.fileHashesInUse(db, purged.map(x => x.fileHash));
-                    for (const song of purged.filter(x => !filesInUse.has(x.fileHash))) {
-                        await Downloader.deleteLocalSongFiles(song);
-                    }
-                    // Tell the server (also performs the purge). Queued so a delete made offline still lands.
-                    await DbQueries.addRequests(db, [
-                        {
-                            requestId: generateId(),
-                            timeRequested: new Date(),
-                            requestType: RequestType.DeletePlaylist,
-                            userId: playlist.userId,
-                            playlistId: playlist.playlistId,
-                            payload: { songIds },
-                        },
-                    ]);
-                    router.back();
-                },
-            },
-        ]);
-    };
+    const confirmDelete = () => confirmDeletePlaylist(db, playlist, () => router.back());
 
     return (
         <Screen>
@@ -203,6 +186,16 @@ export default function PlaylistScreen() {
                     />
                     <Button label="Delete" icon="trash-outline" variant="ghost" onPress={confirmDelete} />
                 </View>
+                {playlist.isExploratory ? (
+                    <Button
+                        label={progress.evaluated < progress.total ? "Audition mode" : "Audition mode · all heard"}
+                        icon="albums-outline"
+                        variant="ghost"
+                        disabled={progress.evaluated >= progress.total}
+                        onPress={() => router.push({ pathname: "/audition/[id]", params: { id: playlist.playlistId } })}
+                        style={{ marginBottom: theme.space.md }}
+                    />
+                ) : null}
                 <View style={{ flexDirection: "row", gap: theme.space.sm, alignItems: "center", marginBottom: theme.space.md }}>
                     <TextField
                         placeholder="Search in playlist"
