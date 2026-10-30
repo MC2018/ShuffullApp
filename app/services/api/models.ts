@@ -217,6 +217,61 @@ export const ListenStatsResponseSchema = z.object({
 });
 export type ListenStatsResponse = z.infer<typeof ListenStatsResponseSchema>;
 export type MaybeDropRule = ListenStatsResponse["maybeDropRule"];
+
+// GET /api/v1/recap/{year}?timeZone= -> the caller's recap of one year, from their own listens (ShuffullApp#116;
+// Shuffull's GetRecapResponse documents every field). Months, days and hours are local to timeZone. Names and genres
+// are the song's current ones; a song the server no longer has comes back with a null name and no artists.
+const RecapSongSchema = z.object({
+    songId: z.string(),
+    name: z.string().nullable(),
+    artists: z.array(z.string()),
+    minutes: z.number(),
+    plays: z.number(),
+});
+export type RecapSong = z.infer<typeof RecapSongSchema>;
+const RecapArtistSchema = z.object({
+    artistId: z.string(),
+    name: z.string(),
+    minutes: z.number(),
+    plays: z.number(),
+});
+export const RecapSchema = z.object({
+    year: z.number(),
+    timeZone: z.string(),
+    from: z.coerce.date(),
+    to: z.coerce.date(),
+    // When the caller's first listen ever started (Shuffull#104). Absent from an API older than that, so optional.
+    firstListen: z.coerce.date().nullish(),
+    totalMinutes: z.number(),
+    plays: z.number(),
+    // 12 entries, January first.
+    minutesByMonth: z.array(z.number()).length(12),
+    // 7 rows, Sunday first, of 24 hours each, midnight first.
+    heatmap: z.array(z.array(z.number()).length(24)).length(7),
+    topSongsByMinutes: z.array(RecapSongSchema),
+    topSongsByPlays: z.array(RecapSongSchema),
+    topArtistsByMinutes: z.array(RecapArtistSchema),
+    topArtistsByPlays: z.array(RecapArtistSchema),
+    topGenres: z.array(z.object({ tagId: z.string(), name: z.string(), minutes: z.number() })),
+    // 12 months, each with the shares of the year's top genres. A song with two genres counts towards both, so a
+    // month's percents can add up to more than 100.
+    genresByMonth: z.array(z.object({
+        month: z.number(),
+        totalMinutes: z.number(),
+        genres: z.array(z.object({ tagId: z.string(), name: z.string(), minutes: z.number(), percent: z.number() })),
+    })).length(12),
+    auditionMinutes: z.number(),
+    // Of the songs auditioned that year, how many are kept now. percent is null when nothing was auditioned.
+    keepRate: z.object({ auditionedSongs: z.number(), keptSongs: z.number(), percent: z.number().nullable() }),
+    // Local days as "YYYY-MM-DD", kept as strings: parsing them as dates would read them as UTC midnight.
+    longestStreak: z.object({ days: z.number(), start: z.string(), end: z.string() }).nullable(),
+    longestSession: z.object({ start: z.coerce.date(), end: z.coerce.date(), minutes: z.number(), plays: z.number() }).nullable(),
+    biggestGrower: z.object({ song: RecapSongSchema, month: z.number(), previousMonthMinutes: z.number() }).nullable(),
+    // winter (Jan, Feb and that year's Dec), spring, summer, autumn.
+    songOfEachSeason: z.array(z.object({ season: z.string(), song: RecapSongSchema.nullable() })),
+    mostSkipped: z.object({ song: RecapSongSchema, skips: z.number() }).nullable(),
+});
+export type Recap = z.infer<typeof RecapSchema>;
 /** One song to re-tag and its engine tier — the wire item of POST /songs/retag {items}. */
 export interface SongRetagWireItem {
     songId: string;

@@ -25,4 +25,7 @@ export const STORAGE_KEYS = {
     SONG_RECONCILE_STATE: "SONG_RECONCILE_STATE",
     // "0" once the user has turned off "Load upcoming songs ahead". Anything else, unset included, means on.
     PREFETCH_UPCOMING: "PREFETCH_UPCOMING",
+    // JSON SavedRecap { recap, fetchedAt }: the last fetched December recap, keyed by `${RECAP_PREFIX}${userId}:${year}`
+    // (recapCacheKey), so the recap screen can still show it offline.
+    RECAP_PREFIX: "RECAP:",
 }

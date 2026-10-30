@@ -15,6 +15,7 @@ import PlayerBar, { totalPlayerBarHeight } from "@/app/components/music-control/
 import { AlbumArt, Card, IconButton, Screen, SectionHeader, Text } from "@/app/components/ui";
 import AppVersion from "@/app/components/common/AppVersion";
 import { useTheme } from "@/app/theme";
+import { useRecapButton } from "@/app/services/recap/useRecapButton";
 
 const defaultArt: ImageURISource = require("@/assets/images/default-album-art.jpg");
 type ArtSource = ImageURISource | { uri: string };
@@ -27,6 +28,7 @@ export default function HomeScreen() {
     const [details, setDetails] = useState<SongDetails | null>(null);
     const [art, setArt] = useState<ArtSource>(defaultArt);
     const [jams, setJams] = useState<GenreJam[]>([]);
+    const recapButton = useRecapButton();
 
     useEffect(() => {
         let cancelled = false;
@@ -109,6 +111,21 @@ export default function HomeScreen() {
                         </Text>
                     </Card>
                 )}
+
+                {recapButton.visible ? (
+                    <Pressable onPress={() => router.push("/recap")} style={{ marginTop: theme.space.md }} accessibilityRole="button">
+                        <Card tint style={{ flexDirection: "row", alignItems: "center", gap: theme.space.md, borderColor: theme.color.accentDeep }}>
+                            <Ionicons name="sparkles" size={22} color={theme.color.accent} />
+                            <View style={{ flex: 1, minWidth: 0 }}>
+                                <Text variant="micro" color="accentTint">
+                                    December only
+                                </Text>
+                                <Text variant="bodyStrong">Your {recapButton.year} recap is here</Text>
+                            </View>
+                            <Ionicons name="chevron-forward" size={18} color={theme.color.textMuted} />
+                        </Card>
+                    </Pressable>
+                ) : null}
 
                 <SectionHeader title="Start something" />
                 <Pressable onPress={() => router.push("/genre-jam")}>
