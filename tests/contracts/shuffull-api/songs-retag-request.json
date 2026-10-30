@@ -1,0 +1,12 @@
+{
+  "items": [
+    {
+      "songId": "song-full",
+      "model": "strong"
+    },
+    {
+      "songId": "song-sparse",
+      "model": "weak"
+    }
+  ]
+}

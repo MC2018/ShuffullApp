@@ -1,7 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
+import axios, { AxiosHeaders, InternalAxiosRequestConfig } from "axios";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
+import { ApiClient } from "@/app/services/api/ApiClient";
 import {
     AuthenticateResponseSchema,
     ChangedSongKeysSchema,
@@ -22,6 +24,8 @@ import {
     UserSongPageSchema,
 } from "@/app/services/api/models";
 import { TagType } from "@/app/services/db/schema";
+import { LikeStatus, RequestType } from "@/app/enums";
+import { RecordListenPayload, UpdateSongLastPlayedRequest } from "@/app/services/db/models";
 import { failedKeeps, failedListens, summarizeRetagFailures } from "@/app/services/sync-manager/syncLogic";
 import { finishedListen } from "@/app/tools/listens";
 
@@ -226,3 +230,116 @@ describe("API contract: the listen log (ShuffullApp#57)", () => {
         expect(Date.parse(sent.endedAt)).toBe(Date.parse(full.endedAt as string));
     });
 });
+
+/**
+ * What the app sends, against the request bodies the API binds (the `*-request` files and the others the Golden README
+ * marks "app sends"). The API reads an unknown key as nothing, so a field renamed on either side would land as a quiet
+ * null; these fail instead (shuffull-workspace#92). Requests go through the real ApiClient with axios's adapter stubbed.
+ *
+ * The listen log above already checks each listen's fields (finishedListen); the listens row here pins only the
+ * `{ listens }` envelope and the URL ApiClient puts them under.
+ */
+describe("API contract: request bodies the app sends (shuffull-workspace#92)", () => {
+    const originalAdapter = axios.defaults.adapter;
+    afterEach(() => { axios.defaults.adapter = originalAdapter; });
+
+    /** A client whose every call answers 200 with `data`, and the requests it sent. Set before the client is made. */
+    function stubbedClient(data: unknown = {}) {
+        const sent: InternalAxiosRequestConfig[] = [];
+        axios.defaults.adapter = async (config) => {
+            sent.push(config);
+            return { data, status: 200, statusText: "OK", headers: {}, config };
+        };
+        return { api: new ApiClient("http://api", "t"), sent };
+    }
+
+    /** The body as sent, without its null-valued keys: the API binds an optional field left out and one sent as null alike. */
+    const body = (config: InternalAxiosRequestConfig) => withoutNulls(JSON.parse(config.data));
+
+    /** One call: the request golden its body must match, and the response golden the call needs to parse, if any. */
+    interface Case {
+        request: string;
+        method: string;
+        url: string;
+        call: (api: ApiClient) => Promise<unknown>;
+        response?: string;
+    }
+
+    const cases: Case[] = [
+        { request: "users-authenticate-request", method: "post", url: "/api/v1/users/authenticate",
+            call: api => api.userAuthenticate("listener", "hash-abc"), response: "users-authenticate" },
+        { request: "users-authenticate-request", method: "post", url: "/api/v1/users",
+            call: api => api.userCreate("listener", "hash-abc"), response: "users-authenticate" },
+        { request: "songs-list-request", method: "post", url: "/api/v1/songs/list",
+            call: api => api.songGetList(["song-full", "song-sparse"]), response: "songs-list" },
+        { request: "playlists-list-request", method: "post", url: "/api/v1/playlists/list",
+            call: api => api.playlistGetList(["playlist-full", "playlist-audition"]), response: "playlists-list" },
+        { request: "user-songs-create", method: "put", url: "/api/v1/user-songs",
+            call: api => api.userSongCreateMany(["song-full", "song-sparse"]) },
+        { request: "user-songs-like", method: "post", url: "/api/v1/user-songs/song-full/like",
+            call: api => api.userSongSetLikeStatus("song-full", LikeStatus.Like) },
+        { request: "songs-update", method: "put", url: "/api/v1/songs/song-full", call: api => api.songUpdate("song-full", {
+            name: "Everybody Wants You",
+            bpm: 128,
+            heaviness: 6,
+            artists: ["Billy Squier"],
+            tags: [{ name: "Rock", type: TagType.Genre }, { name: "1980s", type: TagType.TimePeriod }],
+        }) },
+        { request: "songs-keep-request", method: "post", url: "/api/v1/songs/keep",
+            call: api => api.songKeep(["song-full", "song-sparse"]), response: "songs-keep" },
+        { request: "songs-retag-request", method: "post", url: "/api/v1/songs/retag",
+            call: api => api.songRetag([{ songId: "song-full", model: "strong" }, { songId: "song-sparse", model: "weak" }]),
+            response: "songs-retag" },
+        { request: "replacements-request", method: "post", url: "/api/v1/replacements",
+            call: api => api.flagSongForReplacement("song-full") },
+        { request: "listens-request", method: "post", url: "/api/v1/listens",
+            call: api => api.listenRecord((golden("listens-request") as { listens: RecordListenPayload[] }).listens),
+            response: "listens" },
+    ];
+
+    /** [FromBody] binds JSON only, and axios sets no content type for a body passed as a string, which most calls do. */
+    const sentAsJson = (config: InternalAxiosRequestConfig) =>
+        expect(AxiosHeaders.from(config.headers).getContentType()).toMatch(/^application\/json/);
+
+    it.each(cases)("$request: $method $url sends the body the API binds", async ({ request, method, url, call, response }) => {
+        const { api, sent } = stubbedClient(response ? golden(response) : {});
+
+        await call(api);
+
+        expect(sent).toHaveLength(1);
+        expect([sent[0].method, sent[0].url]).toEqual([method, url]);
+        sentAsJson(sent[0]);
+        expect(body(sent[0])).toStrictEqual(withoutNulls(golden(request)));
+    });
+
+    it("user-songs-last-played: the outbox's rows carry the two fields the API binds", async () => {
+        // SyncManager hands ApiClient the outbox rows whole, so the body also carries the row's own columns. The API
+        // ignores those; what it binds must still match.
+        const row = (songId: string, lastPlayed: string): UpdateSongLastPlayedRequest => ({
+            requestId: `request-${songId}`,
+            timeRequested: new Date(lastPlayed),
+            requestType: RequestType.UpdateSongLastPlayed,
+            userId: "user-1",
+            songId,
+            lastPlayed: new Date(lastPlayed),
+        });
+        const { api, sent } = stubbedClient();
+
+        await api.userSongUpdateLastPlayed([row("song-full", "2026-10-01T12:34:56.123Z"), row("song-sparse", "2026-10-01T12:38:56.123Z")]);
+
+        expect(sent).toHaveLength(1);
+        expect([sent[0].method, sent[0].url]).toEqual(["post", "/api/v1/user-songs/last-played"]);
+        sentAsJson(sent[0]);
+        expect(JSON.parse(sent[0].data)).toMatchObject(golden("user-songs-last-played") as object[]);
+    });
+});
+
+function withoutNulls(value: unknown): unknown {
+    if (Array.isArray(value)) {
+        return value.map(withoutNulls);
+    }
+    if (value !== null && typeof value === "object") {
+        return Object.fromEntries(Object.entries(value).filter(([, v]) => v !== null).map(([k, v]) => [k, withoutNulls(v)]));
+    }
+    return value;
+}
