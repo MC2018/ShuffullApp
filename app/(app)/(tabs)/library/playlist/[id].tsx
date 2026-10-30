@@ -116,6 +116,8 @@ export default function PlaylistScreen() {
     }, [songs, search, unheardOnly, songStates]);
 
     const progress = useMemo(() => auditionProgress(Object.values(songStates)), [songStates]);
+    // Not before the states load: an empty count would read as "all heard" for a moment on every open.
+    const allHeard = progress.total > 0 && progress.evaluated >= progress.total;
 
     const handleSelectSong = async (songDetails: SongDetails) => {
         // Scope shuffle to this playlist, so when the tapped song ends the next one comes from the same
@@ -188,10 +190,10 @@ export default function PlaylistScreen() {
                 </View>
                 {playlist.isExploratory ? (
                     <Button
-                        label={progress.evaluated < progress.total ? "Audition mode" : "Audition mode · all heard"}
+                        label={allHeard ? "Audition mode · all heard" : "Audition mode"}
                         icon="albums-outline"
                         variant="ghost"
-                        disabled={progress.evaluated >= progress.total}
+                        disabled={allHeard}
                         onPress={() => router.push({ pathname: "/audition/[id]", params: { id: playlist.playlistId } })}
                         style={{ marginBottom: theme.space.md }}
                     />

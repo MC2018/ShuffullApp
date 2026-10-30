@@ -1,16 +1,18 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-    Animated, AppState, ImageURISource, LayoutChangeEvent, PanResponder, Pressable, Vibration, View,
+    AccessibilityActionEvent, Animated, AppState, ImageURISource, LayoutChangeEvent, PanResponder, Pressable, Vibration, View,
 } from "react-native";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useDb } from "@/app/services/db/DbProvider";
 import DbQueries from "@/app/services/db/queries";
-import { Playlist, Song } from "@/app/services/db/models";
+import { Playlist } from "@/app/services/db/models";
 import { SongDetails } from "@/app/services/db/types";
 import { Downloader } from "@/app/services/downloader/Downloader";
-import { useIsPlaybackActive, useSongStateRevision } from "@/app/services/media-manager/mediaManager";
+import {
+    PLAYBACK_ISSUE_LABEL, useIsPlaybackActive, usePlaybackIssue, useSongStateRevision,
+} from "@/app/services/media-manager/mediaManager";
 import { startAuditionMode, stopAuditionMode, useAuditionMode } from "@/app/services/audition/auditionMode";
 import { confirmDeletePlaylist } from "@/app/services/playlists/deletePlaylist";
 import Skimmer from "@/app/components/music-control/atoms/Skimmer";
@@ -44,6 +46,7 @@ export default function AuditionScreen() {
     const { id: playlistId } = useLocalSearchParams<{ id: string }>();
     const snapshot = useAuditionMode((s) => s.snapshot);
     const [playlist, setPlaylist] = useState<Playlist | undefined>(undefined);
+    const [startFailed, setStartFailed] = useState(false);
     const sessionRef = useRef<AuditionSession | undefined>(undefined);
 
     // The deck lives exactly as long as this screen.
@@ -52,13 +55,21 @@ export default function AuditionScreen() {
             return;
         }
         let closed = false;
+        setStartFailed(false);
         (async () => {
             setPlaylist(await DbQueries.getPlaylist(db, playlistId));
             const session = await startAuditionMode(db, playlistId);
             if (!closed) {
                 sessionRef.current = session;
+                // Undefined while still open means it found no signed-in session to deal for.
+                setStartFailed(session == undefined);
             }
-        })().catch((e) => console.warn("[audition] could not start", e));
+        })().catch((e) => {
+            console.warn("[audition] could not start", e);
+            if (!closed) {
+                setStartFailed(true);
+            }
+        });
         return () => {
             closed = true;
             sessionRef.current = undefined;
@@ -66,14 +77,14 @@ export default function AuditionScreen() {
         };
     }, [db, playlistId]);
 
-    // Leaving the screen for another (song info) or the app (home, lock) pauses. Nothing advances on its own while
-    // nobody is listening.
+    // Leaving the screen, or the app (home, lock), pauses. Nothing advances on its own while nobody is listening.
+    // Only "background": iOS goes "inactive" for Control Center and call banners, which aren't leaving.
     useFocusEffect(
         useCallback(() => () => void sessionRef.current?.pause(), []),
     );
     useEffect(() => {
         const sub = AppState.addEventListener("change", (state) => {
-            if (state !== "active") {
+            if (state === "background") {
                 void sessionRef.current?.pause();
             }
         });
@@ -102,6 +113,20 @@ export default function AuditionScreen() {
             </View>
         </View>
     );
+
+    if (startFailed) {
+        return (
+            <Screen>
+                {header}
+                <View style={{ flex: 1, justifyContent: "center", gap: theme.space.lg }}>
+                    <Text variant="body" color="textMuted" style={{ textAlign: "center" }}>
+                        {"Couldn't start audition mode. Nothing was played or recorded."}
+                    </Text>
+                    <Button label="Back" icon="chevron-back" onPress={() => router.back()} full />
+                </View>
+            </Screen>
+        );
+    }
 
     if (snapshot == undefined) {
         return <Screen>{header}</Screen>;
@@ -166,6 +191,9 @@ function Deck({ songId, session }: { songId: string; session: React.RefObject<Au
     const theme = useTheme();
     const db = useDb();
     const playing = useIsPlaybackActive();
+    const { issue } = usePlaybackIssue();
+    // Only this song's: a stale issue from the song before must not label this one.
+    const songIssue = issue != undefined && issue.songId === songId ? issue : undefined;
     const [details, setDetails] = useState<SongDetails | undefined>(undefined);
     const [art, setArt] = useState<ImageURISource>(defaultArt);
     const [height, setHeight] = useState(0);
@@ -180,7 +208,7 @@ function Deck({ songId, session }: { songId: string; session: React.RefObject<Au
                 return;
             }
             setDetails(fetched);
-            const resolved = await resolveArt(fetched.song);
+            const resolved = await Downloader.resolveAlbumArt(fetched.song);
             if (!cancelled) {
                 setArt(resolved);
             }
@@ -270,8 +298,36 @@ function Deck({ songId, session }: { songId: string; session: React.RefObject<Au
     const dislikeTint = offset.x.interpolate({ inputRange: [-VERDICT_PX, 0], outputRange: [0.45, 0], extrapolate: "clamp" });
     const artists = details && details.artists.length > 0 ? details.artists.map((a) => a.name).join(", ") : "";
 
+    // The same moves for a screen reader, which can't drag.
+    const onAccessibilityAction = (e: AccessibilityActionEvent) => {
+        const deck = session.current;
+        switch (e.nativeEvent.actionName) {
+            case "activate": void (playing ? deck?.pause() : deck?.resume()); break;
+            case "like": void deck?.like(); break;
+            case "dislike": void deck?.dislike(); break;
+            case "next": void deck?.next(); break;
+            case "previous": void deck?.previous(); break;
+        }
+    };
+
     return (
-        <View ref={container} style={{ flex: 1 }} onLayout={onLayout} {...responder.panHandlers}>
+        <View
+            ref={container}
+            style={{ flex: 1 }}
+            onLayout={onLayout}
+            accessible
+            accessibilityLabel={details ? `${details.song.name}${artists ? `, ${artists}` : ""}` : "Song"}
+            accessibilityHint="Swipe up or down to change song, right to Like, left to Dislike. Tap to play or pause."
+            accessibilityActions={[
+                { name: "activate", label: playing ? "Pause" : "Play" },
+                { name: "like", label: "Like" },
+                { name: "dislike", label: "Dislike" },
+                { name: "next", label: "Next song" },
+                { name: "previous", label: "Previous song" },
+            ]}
+            onAccessibilityAction={onAccessibilityAction}
+            {...responder.panHandlers}
+        >
             <Animated.View
                 style={{
                     flex: 1,
@@ -302,6 +358,14 @@ function Deck({ songId, session }: { songId: string; session: React.RefObject<Au
                 <Text variant="body" color="textMuted" numberOfLines={1} style={{ marginTop: 2, textAlign: "center" }}>
                     {artists}
                 </Text>
+                {songIssue ? (
+                    // "Reconnecting" counts as playing, so without this the card would look like it plays in silence.
+                    <Text variant="caption" color="textFaint" style={{ marginTop: theme.space.sm, textAlign: "center" }}>
+                        {songIssue.kind === "unplayable"
+                            ? `${PLAYBACK_ISSUE_LABEL.unplayable} · flick up for the next one`
+                            : PLAYBACK_ISSUE_LABEL[songIssue.kind]}
+                    </Text>
+                ) : null}
             </Animated.View>
         </View>
     );
@@ -401,12 +465,4 @@ function AuditionSummaryView({ db, playlist, summary, empty }: {
             ) : null}
         </View>
     );
-}
-
-async function resolveArt(song: Song): Promise<ImageURISource> {
-    const localUri = Downloader.generateLocalAlbumArtUri(song);
-    if (await Downloader.fileExists(localUri)) {
-        return { uri: localUri };
-    }
-    return { uri: await Downloader.generateServerAlbumArtUrl(song) };
 }

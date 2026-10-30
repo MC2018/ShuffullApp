@@ -10,11 +10,10 @@ import { AuditionPort, AuditionSession, AuditionSnapshot } from "@/app/tools/aud
 // tools/auditionSession; this file only plugs the real player into them and keeps the screen's copy current.
 
 interface AuditionModeState {
-    playlistId: string | undefined;
     snapshot: AuditionSnapshot | undefined;
 }
 
-export const useAuditionMode = create<AuditionModeState>(() => ({ playlistId: undefined, snapshot: undefined }));
+export const useAuditionMode = create<AuditionModeState>(() => ({ snapshot: undefined }));
 
 type Active = {
     session: AuditionSession;
@@ -67,7 +66,7 @@ export async function startAuditionMode(db: GenericDb, playlistId: string): Prom
     const unsubscribe = session.subscribe(() => useAuditionMode.setState({ snapshot: session.snapshot() }));
     const timer = setInterval(() => void tick(session), 1000);
     active = { session, controller, timer, unsubscribe };
-    useAuditionMode.setState({ playlistId, snapshot: session.snapshot() });
+    useAuditionMode.setState({ snapshot: session.snapshot() });
 
     await MediaManager.beginAuditionMode(playlistId, controller);
     await session.start();
@@ -87,7 +86,7 @@ export async function stopAuditionMode(): Promise<void> {
     // Settles the clock of the song on screen, so time heard right up to leaving still counts.
     current.session.onPlaybackState(false);
     current.session.tick();
-    useAuditionMode.setState({ playlistId: undefined, snapshot: undefined });
+    useAuditionMode.setState({ snapshot: undefined });
     await MediaManager.endAuditionMode(current.controller);
 }
 

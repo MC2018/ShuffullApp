@@ -326,17 +326,12 @@ async function setupEventListeners() {
         if (event.customAction === "like") {
             const next =
                 current === LikeStatus.Like ? LikeStatus.Love : current === LikeStatus.Love ? LikeStatus.Neutral : LikeStatus.Like;
-            await (auditionController ? auditionController.rate(next) : applyLikeStatus(activeSongId, next));
+            await rateActiveSong(activeSongId, next);
         } else if (event.customAction === "dislike") {
-            const next = current === LikeStatus.Dislike ? LikeStatus.Neutral : LikeStatus.Dislike;
-            await (auditionController ? auditionController.rate(next) : applyLikeStatus(activeSongId, next));
-        } else if (event.customAction === "keep" && auditionController) {
-            // The deck records the Keep itself (through keepSong), so it counts toward the song being heard.
-            await auditionController.keep();
-            await refreshNotificationButtons(current, false);
+            await rateActiveSong(activeSongId, current === LikeStatus.Dislike ? LikeStatus.Neutral : LikeStatus.Dislike);
         } else if (event.customAction === "keep") {
             // One-way, and a no-op for anything that isn't an audition song (keepSong guards on that itself).
-            await keepSong(activeSongId);
+            await keepActiveSong(activeSongId);
             // keepSong clears `exploratory`, so the button has done its job — take it back off the notification.
             await refreshNotificationButtons(current, false);
         }
@@ -963,6 +958,20 @@ export async function keepSong(songId: string) {
     if (await DbQueries.recordKeep(db, localSessionData.userId, songId)) {
         useSongStateRevision.getState().bump();
     }
+}
+
+/**
+ * Rates the song that is playing, from anywhere outside the screens (notification, desktop shortcuts). While audition
+ * mode is open it goes through the deck, which moves on after a Dislike and counts the verdict; otherwise it is
+ * applyLikeStatus.
+ */
+export function rateActiveSong(songId: string, likeStatus: LikeStatus): Promise<void> {
+    return auditionController ? auditionController.rate(likeStatus) : applyLikeStatus(songId, likeStatus);
+}
+
+/** Keeps the song that is playing, through the deck while audition mode is open (rateActiveSong). */
+export function keepActiveSong(songId: string): Promise<void> {
+    return auditionController ? auditionController.keep() : keepSong(songId);
 }
 
 /**

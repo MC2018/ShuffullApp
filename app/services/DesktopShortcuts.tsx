@@ -44,7 +44,7 @@ export default function DesktopShortcuts() {
                         shell.notify("Shuffull", `${label} isn't an audition song — nothing to keep.`);
                         return;
                     }
-                    await MediaManager.keepSong(songId);
+                    await MediaManager.keepActiveSong(songId);
                     shell.notify("Kept", label);
                     return;
                 }
@@ -59,7 +59,7 @@ export default function DesktopShortcuts() {
                 const current = MediaManager.useLikeStatus.getState().statuses[songId];
                 const next = current === status && status !== LikeStatus.Neutral ? LikeStatus.Neutral : status;
 
-                await MediaManager.applyLikeStatus(songId, next);
+                await MediaManager.rateActiveSong(songId, next);
 
                 const verb =
                     next === LikeStatus.Like ? "Liked" :

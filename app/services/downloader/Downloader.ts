@@ -477,4 +477,13 @@ export class Downloader {
 
         return path.join(hostAddress, "albumart", `${song.fileHash}.jpg`);
     }
+
+    /** The song's album art as an image source: the downloaded copy if there is one, else the server's. */
+    public static async resolveAlbumArt(song: Song): Promise<{ uri: string }> {
+        const localUri = Downloader.generateLocalAlbumArtUri(song);
+        if (await Downloader.fileExists(localUri)) {
+            return { uri: localUri };
+        }
+        return { uri: await Downloader.generateServerAlbumArtUrl(song) };
+    }
 }

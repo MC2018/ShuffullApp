@@ -61,38 +61,40 @@ export async function recordKeep(db: GenericDb, userId: string, songId: string):
  * ends up keying off. The normal player calls it as a song starts; audition mode only once its heard rule is met.
  */
 export async function recordPlayed(db: GenericDb, userId: string, songId: string, playedAt: Date): Promise<UserSong> {
-    let userSong = await getUserSong(db, userId, songId);
+    return await withTransaction(db, async tx => {
+        let userSong = await getUserSong(tx, userId, songId);
 
-    if (userSong == undefined) {
-        // TODO: remove CreateUserSongRequest
-        const newUserSongRequest: CreateUserSongRequest = {
-            userId: userId,
-            songId: songId,
+        if (userSong == undefined) {
+            // TODO: remove CreateUserSongRequest
+            const newUserSongRequest: CreateUserSongRequest = {
+                userId: userId,
+                songId: songId,
+                requestId: generateId(),
+                timeRequested: playedAt,
+                requestType: RequestType.CreateUserSong
+            };
+
+            userSong = {
+                userId: newUserSongRequest.userId,
+                songId: newUserSongRequest.songId,
+                lastPlayed: newUserSongRequest.timeRequested,
+                version: newUserSongRequest.timeRequested,
+                likeStatus: LikeStatus.Neutral
+            };
+            await addUserSong(tx, userSong);
+            await addRequests(tx, [newUserSongRequest]);
+        }
+
+        const updateSongLastPlayedRequest: UpdateSongLastPlayedRequest = {
             requestId: generateId(),
+            lastPlayed: playedAt,
+            songId: songId,
             timeRequested: playedAt,
-            requestType: RequestType.CreateUserSong
+            requestType: RequestType.UpdateSongLastPlayed,
+            userId: userId
         };
-
-        userSong = {
-            userId: newUserSongRequest.userId,
-            songId: newUserSongRequest.songId,
-            lastPlayed: newUserSongRequest.timeRequested,
-            version: newUserSongRequest.timeRequested,
-            likeStatus: LikeStatus.Neutral
-        };
-        await addUserSong(db, userSong);
-        await addRequests(db, [newUserSongRequest]);
-    }
-
-    const updateSongLastPlayedRequest: UpdateSongLastPlayedRequest = {
-        requestId: generateId(),
-        lastPlayed: playedAt,
-        songId: songId,
-        timeRequested: playedAt,
-        requestType: RequestType.UpdateSongLastPlayed,
-        userId: userId
-    };
-    await updateUserSongLastPlayed(db, userId, songId, playedAt);
-    await addRequests(db, [updateSongLastPlayedRequest]);
-    return userSong;
+        await updateUserSongLastPlayed(tx, userId, songId, playedAt);
+        await addRequests(tx, [updateSongLastPlayedRequest]);
+        return userSong;
+    });
 }

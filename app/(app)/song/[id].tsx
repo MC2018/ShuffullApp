@@ -67,7 +67,7 @@ export default function SongScreen() {
         const songTags = await DbQueries.getTagsFromSong(db, songId);
         setDetails(fetched);
         setTags(songTags);
-        setArt(await resolveArt(fetched.song));
+        setArt(await Downloader.resolveAlbumArt(fetched.song));
     }
 
     useEffect(() => {
@@ -86,7 +86,7 @@ export default function SongScreen() {
                 setDetails(fetched);
                 setTags(songTags);
                 setIsCurator(user?.isCurator ?? false);
-                setArt(await resolveArt(fetched.song));
+                setArt(await Downloader.resolveAlbumArt(fetched.song));
             } catch {
                 // Song not found locally — leave the empty state.
             }
@@ -549,12 +549,4 @@ function ChipRow({ items }: { items: string[] }) {
             ))}
         </View>
     );
-}
-
-async function resolveArt(song: Song): Promise<ArtSource> {
-    const localUri = Downloader.generateLocalAlbumArtUri(song);
-    if (await Downloader.fileExists(localUri)) {
-        return { uri: localUri };
-    }
-    return { uri: await Downloader.generateServerAlbumArtUrl(song) };
 }

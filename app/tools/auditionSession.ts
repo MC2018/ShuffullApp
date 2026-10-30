@@ -319,6 +319,12 @@ export class AuditionSession {
         return result;
     }
 
+    /** Resolves once every step and write queued so far has finished, failed ones included. */
+    async settled(): Promise<void> {
+        await this.chain;
+        await this.writes;
+    }
+
     private write(task: () => Promise<void>): Promise<void> {
         const result = this.writes.then(task);
         this.writes = result.catch(() => undefined);

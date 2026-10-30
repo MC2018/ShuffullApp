@@ -375,9 +375,6 @@ describe("against the real database", () => {
         };
     }
 
-    // markHeard is fire-and-forget inside the deck; let its writes land.
-    const settle = () => new Promise(resolve => setTimeout(resolve, 20));
-
     it("deals out the unheard songs in playlist order", async () => {
         await recordPlayed(db, USER, "b", new Date("2026-10-30T10:00:00Z"));
         expect(await getAuditionDeckSongIds(db, USER, "mix")).toEqual(["a", "c", "d"]);
@@ -402,7 +399,8 @@ describe("against the real database", () => {
         ms += 19_900;
         session.tick(200, true, "c");
         await session.next();
-        await settle();
+        // markHeard is fire-and-forget inside the deck; let its writes land.
+        await session.settled();
 
         expect(await rowStates()).toEqual({ a: "unheard", b: "heard", c: "unheard", d: "unheard" });
         // No lastPlayed write was queued for the server for a, c or d either.
@@ -420,7 +418,8 @@ describe("against the real database", () => {
         await session.keep();
         await session.next();
         await session.dislike();
-        await settle();
+        // markHeard is fire-and-forget inside the deck; let its writes land.
+        await session.settled();
 
         expect(await rowStates()).toMatchObject({ a: "liked", b: "kept", c: "heard", d: "unheard" });
         const requests = await getRequests(db, USER);
