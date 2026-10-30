@@ -11,11 +11,14 @@ import { localSessionDataTable, playlistSongTable, playlistTable, songTable, use
 import { enqueueSongRetag, getRequests } from "@/app/services/db/queries/request";
 import { withTransaction } from "@/app/services/db/transaction";
 
-let songCursor: string | null = null;
+const storage = new Map<string, string>();
 vi.mock("@/app/tools", () => import("@/app/tools/pure"));
 vi.mock("@/app/services/downloader/Downloader", () => ({ Downloader: { deleteLocalSongFiles: async () => {} } }));
 vi.mock("@react-native-async-storage/async-storage", () => ({
-    default: { getItem: async () => songCursor, setItem: async (_key: string, value: string) => { songCursor = value; } },
+    default: {
+        getItem: async (key: string) => storage.get(key) ?? null,
+        setItem: async (key: string, value: string) => { storage.set(key, value); },
+    },
 }));
 
 const { SyncManager } = await import("@/app/services/sync-manager/SyncManager");
@@ -81,9 +84,13 @@ function makeApi(changedS1: object) {
             playlistId: "p1", userId: USER, name: "Renamed", percentUntilReplayable: 0.5,
             version: NEW_VERSION, songIds: ["s1", "s2"], isExploratory: false,
         }]),
-        userSongGetAll: vi.fn(async () => ({ items: [], endOfList: true })),
+        userSongGetAll: vi.fn(async () => ({ items: [], keys: [], endOfList: true })),
         songGetList: vi.fn(async () => [apiSong("s2", "New song")]),
-        songGetChanged: vi.fn(async () => ({ items: [{ ...changedS1, version: NEW_VERSION }], endOfList: true })),
+        songGetChanged: vi.fn(async () => ({
+            items: [{ ...changedS1, version: NEW_VERSION }],
+            keys: [{ version: NEW_VERSION.toISOString(), songId: "s1" }],
+            endOfList: true,
+        })),
     };
 }
 
@@ -126,7 +133,8 @@ describe("overallSync: the write phase is all-or-nothing", () => {
     beforeEach(async () => {
         db = makeDb();
         await seed(db);
-        songCursor = CURSOR;
+        storage.clear();
+        storage.set("SONG_SYNC_CURSOR", CURSOR);
         syncError = vi.fn<(...args: unknown[]) => void>();
         vi.spyOn(console, "error").mockImplementation(syncError);
     });
@@ -144,7 +152,8 @@ describe("overallSync: the write phase is all-or-nothing", () => {
         expect(failedWith()).toMatch(/NOT NULL constraint failed: songs\.name/);
         expect(await snapshot(db)).toEqual(before);
         // The song cursor is only written after a commit, so the same change is fetched again next time.
-        expect(songCursor).toBe(CURSOR);
+        expect(storage.get("SONG_SYNC_CURSOR")).toBe(CURSOR);
+        expect(storage.has("SONG_SYNC_KEY")).toBe(false);
     });
 
     it("a failure after the user is written rolls the user's version back", async () => {
@@ -192,7 +201,8 @@ describe("overallSync: the write phase is all-or-nothing", () => {
         expect(after.playlists[0].name).toBe("Renamed");
         expect(after.songs.map(x => [x.songId, x.name])).toEqual([["s1", "Changed"], ["s2", "New song"]]);
         expect(after.playlistSongs.map(x => x.songId)).toEqual(["s1", "s2"]);
-        expect(songCursor).toBe(NEW_VERSION.toISOString());
+        expect(storage.get("SONG_SYNC_CURSOR")).toBe(NEW_VERSION.toISOString());
+        expect(JSON.parse(storage.get("SONG_SYNC_KEY")!)).toEqual({ version: NEW_VERSION.toISOString(), songId: "s1" });
     });
 });
 

@@ -78,11 +78,20 @@ export const ChangedSongSchema = z.preprocess(withLegacyHeaviness, SongFields.ex
 }));
 export type ChangedSong = z.infer<typeof ChangedSongSchema>;
 
-// GET /api/v1/songs/changed?afterDate=... -> { songs: [...], endOfList }
+// GET /api/v1/songs/changed?afterDate=...&afterId=... -> { songs: [...], endOfList }
 export const ChangedSongPageSchema = z.object({
     songs: ChangedSongSchema.array(),
     endOfList: z.boolean()
 });
+
+// Each row's `version` exactly as the server wrote it, with its song id: the keyset the next page starts after
+// (`afterDate` + `afterId`). Parsed apart from the rows because a Date keeps milliseconds and Version has microseconds.
+export const FeedKeySchema = z.object({
+    version: z.string(),
+    songId: z.string()
+});
+export const ChangedSongKeysSchema = z.object({ songs: FeedKeySchema.array() });
+export const UserSongKeysSchema = z.object({ userSongs: FeedKeySchema.array() });
 
 export const UserSongSchema = z.object({
     userId: z.string(),

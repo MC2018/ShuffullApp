@@ -1,7 +1,8 @@
 import axios, { AxiosHeaders, AxiosInstance } from "axios";
-import { AuthenticateResponse, AuthenticateResponseSchema, ChangedSongPageSchema, CreatePlaylistResponseSchema, KeepResponse, KeepResponseSchema, Playlist, PlaylistListResponseSchema, RetagResponse, RetagStaleResponse, SongListResponseSchema, SongRetagWireItem, Tag, TagListResponseSchema, UserResponseSchema, UserSongPageSchema } from "./models";
+import { AuthenticateResponse, AuthenticateResponseSchema, ChangedSongKeysSchema, ChangedSongPageSchema, CreatePlaylistResponseSchema, KeepResponse, KeepResponseSchema, Playlist, PlaylistListResponseSchema, RetagResponse, RetagStaleResponse, SongListResponseSchema, SongRetagWireItem, Tag, TagListResponseSchema, UserResponseSchema, UserSongKeysSchema, UserSongPageSchema } from "./models";
 import { ApiStatusFailureError } from "./errors";
 import { UpdateSongLastPlayedRequest, UpdateSongMetadataPayload } from "../db/models";
+import type { FeedCursor } from "../sync-manager/syncLogic";
 
 export class ApiClient {
     private client: AxiosInstance;
@@ -200,13 +201,15 @@ export class ApiClient {
         }
     }
 
-    public async userSongGetAll(afterDate: Date) {
+    // One page of the caller's user songs after `cursor`. The cursor is sent exactly as given (see FeedCursor).
+    public async userSongGetAll(cursor: FeedCursor) {
         const endpoint = "/api/v1/user-songs";
         console.log(`[API] Calling endpoint: ${endpoint}`);
         try {
             const response = await this.client.get(endpoint, {
                 params: {
-                    afterDate: afterDate.toISOString()
+                    afterDate: cursor.afterDate,
+                    afterId: cursor.afterId
                 }
             });
 
@@ -218,7 +221,8 @@ export class ApiClient {
             console.log(`[API] Endpoint ${endpoint} succeeded`);
             // Keep the { items, endOfList } shape SyncManager consumes; the API key is `userSongs`.
             const page = UserSongPageSchema.parse(response.data);
-            return { items: page.userSongs, endOfList: page.endOfList };
+            const keys = UserSongKeysSchema.parse(response.data).userSongs;
+            return { items: page.userSongs, keys, endOfList: page.endOfList };
         } catch (error) {
             console.log(`[API] Endpoint ${endpoint} failed with error:`, error);
             throw error;
@@ -435,15 +439,16 @@ export class ApiClient {
         }
     }
 
-    // Songs whose server-side Version is newer than `afterDate` (exclusive), one page at a time. Used to
-    // refresh already-synced songs in place — e.g. after a song is replaced with better-quality audio.
-    public async songGetChanged(afterDate: Date) {
+    // Songs whose server-side Version is after `cursor`, one page at a time. Used to refresh already-synced songs in
+    // place — e.g. after a song is replaced with better-quality audio. The cursor is sent exactly as given.
+    public async songGetChanged(cursor: FeedCursor) {
         const endpoint = "/api/v1/songs/changed";
         console.log(`[API] Calling endpoint: ${endpoint}`);
         try {
             const response = await this.client.get(endpoint, {
                 params: {
-                    afterDate: afterDate.toISOString()
+                    afterDate: cursor.afterDate,
+                    afterId: cursor.afterId
                 }
             });
 
@@ -454,7 +459,8 @@ export class ApiClient {
 
             console.log(`[API] Endpoint ${endpoint} succeeded`);
             const page = ChangedSongPageSchema.parse(response.data);
-            return { items: page.songs, endOfList: page.endOfList };
+            const keys = ChangedSongKeysSchema.parse(response.data).songs;
+            return { items: page.songs, keys, endOfList: page.endOfList };
         } catch (error) {
             console.log(`[API] Endpoint ${endpoint} failed with error:`, error);
             throw error;
