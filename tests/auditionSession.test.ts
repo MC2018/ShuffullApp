@@ -311,6 +311,17 @@ describe("verdicts move the deck exactly once", () => {
         expect(deck.session.snapshot().likeStatus).toBe(LikeStatus.Neutral);
     });
 
+    it("clearing a rating is not a verdict: an unheard song stays unheard", async () => {
+        const deck = setup(["a", "b"]);
+        await deck.session.start();
+        await deck.session.rateFromRemote(LikeStatus.Neutral); // desktop's clear-rating shortcut
+        await deck.session.settled();
+
+        expect(deck.port.heard()).toEqual([]);
+        expect(deck.port.of("rate")).toEqual([]);
+        expect(deck.port.loads()).toEqual(["a"]);
+    });
+
     it("flicks queued back to back each move one step", async () => {
         const deck = setup(["a", "b", "c", "d"]);
         await deck.session.start();

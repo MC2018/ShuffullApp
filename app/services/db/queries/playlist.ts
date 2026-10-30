@@ -110,7 +110,7 @@ export async function getAuditionDeckSongIds(db: GenericDb, userId: string, play
     return rows
         .filter(r => deriveAuditionRowState(r.exploratory, (r.likeStatus ?? LikeStatus.Neutral) as LikeStatus, r.lastPlayed) === "unheard")
         .map(r => r.songId)
-        .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+        .sort(); // by song id, the order the playlist screen lists them in
 }
 
 /**

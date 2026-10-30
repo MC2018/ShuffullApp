@@ -104,7 +104,7 @@ const START_POINT_LATE_SEEK_MS = 8_000;
 
 interface ActiveSongState {
     songId: string | undefined;
-    setSongId: (songId: string) => void;
+    setSongId: (songId: string | undefined) => void;
 }
 
 export async function getSongFilters(): Promise<SongFilters> {
@@ -992,7 +992,8 @@ export function beginAuditionMode(playlistId: string, controller: AuditionContro
 
 /**
  * Gives the player back. Stops and unloads the deck's song: nothing recorded it as playing (that was the point), so
- * the normal player must not pick it up half-way and play on from it unrecorded.
+ * the normal player must not pick it up half-way and play on from it unrecorded. The player bar goes with it, rather
+ * than show a song that is no longer loaded.
  */
 export function endAuditionMode(controller: AuditionController): Promise<void> {
     return transportLock.run(async () => {
@@ -1009,6 +1010,7 @@ export function endAuditionMode(controller: AuditionController): Promise<void> {
             // Never set up (web without a session): nothing to stop.
         }
         await clear();
+        useActiveSong.getState().setSongId(undefined);
         scheduleLookaheadRefresh();
     });
 }

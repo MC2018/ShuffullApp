@@ -341,8 +341,12 @@ export class AuditionSession {
             return;
         }
         const progress = this.songs.get(entry.songId)!;
-        // Any verdict counts as heard at once, whatever the time.
-        this.markHeard(entry.songId);
+        // Any verdict counts as heard at once, whatever the time. Clearing a rating (Neutral) is not a verdict: on an
+        // unrated song it would stamp it heard, and so purgeable, with nothing heard or judged. Un-loving stays safe,
+        // since the Love already stamped it.
+        if (likeStatus !== LikeStatus.Neutral) {
+            this.markHeard(entry.songId);
+        }
         // Re-rating a song with the rating it already has writes nothing: a second Like would be a second outbox row.
         if (progress.likeStatus === likeStatus) {
             return;
