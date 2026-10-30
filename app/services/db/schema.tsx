@@ -270,6 +270,40 @@ export const listenTable = sqliteTable("listens", {
     checkpointedAt: integer("checkpointed_at", { mode: "timestamp_ms" }).notNull(),
 });
 
+// The server's per-song listen stats (GET /api/v1/listens/stats, ShuffullApp#115) as of the last refresh, so song
+// details and the "Maybe drop this" list work offline. A cache, not data: every refresh replaces the user's rows, and
+// a schema rebuild may drop it, since the next sync fetches it again. No foreign key to songs: the server keeps
+// stats for songs this device doesn't have (or that were purged), and the screens join to the songs it does have.
+export const listenStatTable = sqliteTable("listen_stats", {
+    userId: text("user_id").notNull(),
+    songId: text("song_id").notNull(),
+    plays: integer("plays").notNull(),
+    skips: integer("skips").notNull(),
+    averageSecondsListened: real("average_seconds_listened").notNull(),
+    // Null when none of the song's listens carried its length.
+    completionPercent: real("completion_percent"),
+    lastPlayed: integer("last_played", { mode: "timestamp_ms" }).notNull(),
+    recentQuickSkips: integer("recent_quick_skips").notNull(),
+    // The server's flag. The app never works it out itself: the rule lives only in the API (Shuffull's MaybeDropRule).
+    maybeDrop: integer("maybe_drop", { mode: "boolean" }).notNull(),
+}, (table) => {
+    return {
+        pk: primaryKey({
+            columns: [table.userId, table.songId]
+        }),
+    };
+});
+
+// When each user's listen_stats rows were last replaced, and the "maybe drop" rule the server computed them with,
+// so the screens can say how old the numbers are and what the flag means. Written in the same transaction as the rows.
+export const listenStatsSyncTable = sqliteTable("listen_stats_syncs", {
+    userId: text("user_id").primaryKey(),
+    syncedAt: integer("synced_at", { mode: "timestamp_ms" }).notNull(),
+    skippedUnderSeconds: real("skipped_under_seconds").notNull(),
+    quickSkips: integer("quick_skips").notNull(),
+    ofLastPlays: integer("of_last_plays").notNull(),
+});
+
 export const downloadQueueTable = sqliteTable("download_queue", {
     downloadQueueId: text("download_queue_id").primaryKey(),
     songId: text("song_id").notNull().references(() => songTable.songId).unique(),

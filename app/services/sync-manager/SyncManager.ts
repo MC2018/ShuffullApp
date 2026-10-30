@@ -11,6 +11,7 @@ import { withTransaction } from "@/app/services/db/transaction";
 import { Downloader } from "@/app/services/downloader/Downloader";
 import { STORAGE_KEYS } from "@/app/constants/storageKeys";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { ListenStatsAttempt, listenStatsDue } from "@/app/tools/listenStats";
 import { collectNewSongIds, FEED_START, failedKeeps, failedListens, groupRequestsIntoBatches, holdBehindRefused, keepsDueForRetry, markRefused, OUTBOX_MAX_BATCH_SIZE, pageFeed, partitionRejectedRequests, playlistDeleteHold, playlistsToFetch, pendingSongMisses, SONG_FIELDS_REVISION, SONG_LIST_MAX_IDS, songFeedStart, songReconcileDue, SongReconcileState, songsGoneFromServer, summarizeRetagFailures, SYNC_INTERVAL_MS, syncTicksToSkip, toRetagItems, withoutPendingDeletes } from "@/app/services/sync-manager/syncLogic";
 
 /** What one outbox batch came back with: the status sync() acts on, and the error text when it failed. */
@@ -32,6 +33,8 @@ export class SyncManager {
     // syncTicksToSkip).
     failedSyncs = 0;
     ticksToSkip = 0;
+    // The last time the listen stats were fetched (see refreshListenStats). In memory only: a restart fetches once.
+    listenStatsAttempt: ListenStatsAttempt | null = null;
     
     constructor(db: GenericDb, api: ApiClient, userId: string, logout: () => Promise<void>) {
         this.db = db;
@@ -101,6 +104,7 @@ export class SyncManager {
         const requestBatches = groupRequestsIntoBatches(await DbQueries.getRequests(this.db, this.userId));
 
         const refused = new Set<string>(); // songs and playlists with a row refused this sync, kept for retry
+        let listensSent = false; // the stats have moved, so refreshListenStats needn't wait out its interval
         for (const queuedBatch of requestBatches) {
             const { ready: requestBatch, held } = holdBehindRefused(queuedBatch, refused);
             if (held.length) {
@@ -132,6 +136,7 @@ export class SyncManager {
             } else if (200 <= statusCode && statusCode <= 299) {
                 // By id: a row replaced while this batch was in flight (enqueueSongRetag) has a new id and stays.
                 await DbQueries.deleteRequests(this.db, requestBatch.map(x => x.requestId));
+                listensSent ||= requestBatch[0]?.requestType == RequestType.RecordListen;
             } else if (400 <= statusCode && statusCode <= 499) {
                 // Client error: replaying the same payload usually won't fix it — but deleting the rows
                 // outright is how queued work used to vanish with nothing logged. Keep them for a bounded
@@ -167,6 +172,7 @@ export class SyncManager {
             return false;
         }
         await this.reconcileSongs();
+        await this.refreshListenStats(listensSent);
         return true;
     }
 
@@ -387,6 +393,31 @@ export class SyncManager {
             }
         } catch (e) {
             console.warn(`[sync] Checking local songs against the server failed with ${statusOfFailure(e)}; nothing removed.`, e);
+        }
+    }
+
+    // Refreshes the local copy of the user's listen stats, which song details and the "Maybe drop this" list read, so
+    // both work offline from the last answer. Optional: it never fails the sync or backs it off, and a failure leaves
+    // the last stats in place. A server from before Shuffull#61 answers 404 to every call, so that is logged quietly
+    // and asked again only once per LISTEN_STATS_REFRESH_MS (listenStatsDue).
+    private async refreshListenStats(listensSent: boolean) {
+        const now = Date.now();
+        if (!listenStatsDue(this.listenStatsAttempt, now, listensSent)) {
+            return;
+        }
+
+        try {
+            const stats = await this.api.listenStats();
+            await DbQueries.replaceListenStats(this.db, this.userId, stats, new Date(now));
+            this.listenStatsAttempt = { at: now, ok: true };
+        } catch (e) {
+            this.listenStatsAttempt = { at: now, ok: false };
+            const statusCode = statusOfFailure(e);
+            if (statusCode == HttpStatusCode.NotFound) {
+                console.log("[sync] This server has no listen stats yet (404); showing the last synced ones.");
+            } else {
+                console.warn(`[sync] Refreshing listen stats failed with ${statusCode}; showing the last synced ones.`, e);
+            }
         }
     }
 

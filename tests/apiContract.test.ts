@@ -10,6 +10,7 @@ import {
     ChangedSongPageSchema,
     CreatePlaylistResponseSchema,
     KeepResponseSchema,
+    ListenStatsResponseSchema,
     PlaylistListResponseSchema,
     PlaylistSchema,
     RecordListensResponseSchema,
@@ -343,3 +344,22 @@ function withoutNulls(value: unknown): unknown {
     }
     return value;
 }
+
+describe("API contract: listen stats (ShuffullApp#115)", () => {
+    it("GET /listens/stats: every field read, the server's flag and rule taken as sent", () => {
+        const raw = golden("listens-stats") as { maybeDropRule: object; songs: object[] };
+        const { maybeDropRule, songs } = ListenStatsResponseSchema.parse(raw);
+
+        expect(unsentFields(ListenStatsResponseSchema, raw)).toEqual([]);
+        expect(unsentFields(ListenStatsResponseSchema.shape.maybeDropRule, raw.maybeDropRule)).toEqual([]);
+        for (const row of raw.songs) {
+            expect(unsentFields(ListenStatsResponseSchema.shape.songs.element, row)).toEqual([]);
+        }
+        expect(maybeDropRule).toEqual({ skippedUnderSeconds: 30, quickSkips: 3, ofLastPlays: 5 });
+        expect(songs.map(x => [x.songId, x.maybeDrop, x.completionPercent])).toEqual([
+            ["song-full", true, 70.5],
+            ["song-sparse", false, null],
+        ]);
+        expect(songs[0].lastPlayed.toISOString()).toBe("2026-10-01T12:34:56.123Z");
+    });
+});

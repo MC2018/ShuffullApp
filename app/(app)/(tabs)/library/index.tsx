@@ -56,6 +56,13 @@ export default function LibraryScreen() {
         setJams(await DbQueries.getGenreJams(db));
     }, [db]);
 
+    // Songs the server flagged as "maybe drop this", from the last synced listen stats. Null until they've synced.
+    const [maybeDropCount, setMaybeDropCount] = React.useState<number | null>(null);
+    const loadMaybeDrop = useCallback(async () => {
+        const synced = await DbQueries.getListenStatsSnapshot(db, userId);
+        setMaybeDropCount(synced == null ? null : (await DbQueries.getMaybeDropSongs(db, userId)).length);
+    }, [db, userId]);
+
     const loadRole = useCallback(async () => {
         const user = await DbQueries.getUser(db, userId);
         setIsCurator(user?.isCurator ?? false);
@@ -68,7 +75,8 @@ export default function LibraryScreen() {
             loadJams();
             loadRole();
             loadDownloadedCount();
-        }, [loadPlaylists, loadJams, loadRole, loadDownloadedCount]),
+            loadMaybeDrop();
+        }, [loadPlaylists, loadJams, loadRole, loadDownloadedCount, loadMaybeDrop]),
     );
 
     const confirmDelete = (jam: GenreJam) => {
@@ -121,6 +129,23 @@ export default function LibraryScreen() {
                         left={
                             <View style={{ width: 48, height: 48, borderRadius: theme.radius.md, backgroundColor: theme.color.surfaceAlt, alignItems: "center", justifyContent: "center" }}>
                                 <Ionicons name="people-outline" size={22} color={theme.color.textMuted} />
+                            </View>
+                        }
+                        right={chevron}
+                    />
+                    <ListRow
+                        title="Maybe drop this"
+                        subtitle={
+                            maybeDropCount == null
+                                ? "Songs you keep skipping early"
+                                : maybeDropCount === 0
+                                  ? "No songs flagged"
+                                  : `${maybeDropCount} song${maybeDropCount === 1 ? "" : "s"} you keep skipping early`
+                        }
+                        onPress={() => router.push("/library/maybe-drop")}
+                        left={
+                            <View style={{ width: 48, height: 48, borderRadius: theme.radius.md, backgroundColor: theme.color.surfaceAlt, alignItems: "center", justifyContent: "center" }}>
+                                <Ionicons name="play-skip-forward-outline" size={22} color={theme.color.textMuted} />
                             </View>
                         }
                         right={chevron}

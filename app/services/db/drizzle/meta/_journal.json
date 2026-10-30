@@ -239,6 +239,13 @@
       "when": 1793388168464,
       "tag": "0033_add_hook_start_percent",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "6",
+      "when": 1793389342545,
+      "tag": "0034_add_listen_stats",
+      "breakpoints": true
     }
   ]
 }
