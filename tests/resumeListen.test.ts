@@ -139,9 +139,11 @@ describe("the media manager", () => {
         expect(setupBody.indexOf("setSongId(currentlyPlayingSong.songId)")).toBeLessThan(setupBody.indexOf("openListenForResume"));
     });
 
-    it("adds this context's player listeners when an earlier context set the player up, and only once", () => {
+    it("adds this JS context's player listeners whether or not the playback service task runs in it, and only once", () => {
+        // After a JS reload the player module is a new instance, so getActiveTrack() throws even though the service
+        // still runs: the listeners must be added after the try/catch, not in either branch.
         const init = source.slice(source.indexOf("async function initTrackPlayer()"), source.indexOf("async function setupEventListeners()"));
-        expect(init).toMatch(/if \(setUpBefore\) \{[\s\S]*await setupEventListeners\(\);/);
+        expect(init.slice(init.lastIndexOf("    }\n"))).toContain("await setupEventListeners();");
         const listeners = source.slice(source.indexOf("async function setupEventListeners()"));
         expect(listeners.slice(0, listeners.indexOf("TrackPlayer.addEventListener("))).toMatch(
             /if \(eventListenersAdded\) \{\s*return;\s*\}\s*eventListenersAdded = true;/,

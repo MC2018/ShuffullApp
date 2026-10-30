@@ -325,24 +325,21 @@ async function refreshNotificationButtons(likeStatus: LikeStatus, canKeep = fals
 }
 
 async function initTrackPlayer() {
-    let setUpBefore = true;
     try {
         await TrackPlayer.getActiveTrack(); // error if not set up
     } catch {
-        setUpBefore = false;
         TrackPlayer.registerPlaybackService(() => setupEventListeners);
         await TrackPlayer.setupPlayer(playerSetupOptions(Platform.OS)); // TODO: ensure safety for this to be run when app is in foreground
         // Start with both buttons in the neutral (outline) state; refreshed once a song becomes active.
         await TrackPlayer.updateOptions(buildPlayerOptions(LikeStatus.Neutral));
     }
 
-    if (setUpBefore) {
-        // An earlier JS context set the player up, and its service outlived that context (a JS reload on Android).
-        // The service runs the playback service task once per its own lifetime, so it ran in that context and won't
-        // run in this one: without this, nothing here would hear a pause, a song ending or the notification's
-        // buttons, and a listen opened for the song still playing would count forever (ShuffullApp#143).
-        await setupEventListeners();
-    }
+    // Not left to the playback service task alone. On Android the player service can outlive a JS context (a JS
+    // reload), and it runs that task once per its own lifetime, so a fresh context that binds to it again never gets
+    // the task: without this nothing here would hear a pause, a song ending or the notification's buttons, and a
+    // listen opened for the song still playing would count forever (ShuffullApp#143). When the task does run, in
+    // the same context, the second call does nothing.
+    await setupEventListeners();
 
     trackPlayerInitialized = true;
 }
