@@ -1,5 +1,6 @@
-import { describe, it, expect } from "vitest";
-import { playlistsToFetch, collectNewSongIds, advanceSongCursor, pendingSongMisses, SONG_RECONCILE_INTERVAL_MS, SONG_RECONFIRM_INTERVAL_MS, songReconcileDue, songsGoneFromServer } from "@/app/services/sync-manager/syncLogic";
+import { describe, it, expect, vi, afterEach } from "vitest";
+import { playlistsToFetch, collectNewSongIds, justBefore, nextFeedCursor, pageFeed, pendingSongMisses, SONG_RECONCILE_INTERVAL_MS, SONG_RECONFIRM_INTERVAL_MS, songFeedStart, songReconcileDue, songsGoneFromServer } from "@/app/services/sync-manager/syncLogic";
+import type { FeedCursor, FeedKey } from "@/app/services/api/models";
 
 describe("playlistsToFetch", () => {
     const d = (s: string) => new Date(s);
@@ -75,23 +76,207 @@ describe("collectNewSongIds", () => {
     });
 });
 
-describe("advanceSongCursor", () => {
-    const d = (s: string) => new Date(s);
+// A server for one Version-ordered feed, as Shuffull pages it: 500 rows, endOfList once no row is left past the page.
+// `keyset` is the server since Shuffull#64 (reads afterId, orders by Version then SongId); without it, the server
+// before: `Version > afterDate` alone, ties in whatever order the rows were stored.
+function feedServer(rows: FeedKey[], keyset: boolean) {
+    const micros = (version: string) => {
+        const [, second, fraction = ""] = /^(.*:\d\d)(?:\.(\d+))?Z$/.exec(version)!;
+        return BigInt(Date.parse(second + "Z")) * 1000n + BigInt(fraction.slice(0, 6).padEnd(6, "0"));
+    };
+    const requests: FeedCursor[] = [];
+    const fetchPage = async (cursor: FeedCursor) => {
+        requests.push(cursor);
+        const after = micros(cursor.afterDate);
+        const matching = rows
+            .filter(row => micros(row.version) > after
+                || (keyset && cursor.afterId != undefined && micros(row.version) == after && row.songId > cursor.afterId))
+            .sort((a, b) => Number(micros(a.version) - micros(b.version)) || (keyset ? (a.songId < b.songId ? -1 : 1) : 0));
+        const page = matching.slice(0, 500);
+        return { items: page, keys: page, endOfList: matching.length <= 500 };
+    };
+    return { fetchPage, requests };
+}
 
-    it("advances to the newest version on the page (last item)", () => {
-        const items = [{ version: d("2024-01-01") }, { version: d("2024-03-01") }];
-        expect(advanceSongCursor(items, d("2023-01-01"))).toEqual(d("2024-03-01"));
+// Ids in an order unrelated to their sort order, the way GUIDs come.
+const tiedRows = (count: number, version: string): FeedKey[] =>
+    Array.from({ length: count }, (_, i) => ({ songId: `s${String((i * 7919) % count).padStart(5, "0")}`, version }));
+
+const TIE = "2026-10-23T12:00:00.123456Z";
+
+describe("justBefore", () => {
+    it("is one microsecond earlier, keeping every digit", () => {
+        expect(justBefore(TIE)).toBe("2026-10-23T12:00:00.123455Z");
     });
 
-    it("leaves the cursor unchanged for an empty page", () => {
-        const current = d("2024-01-01");
-        expect(advanceSongCursor([], current)).toBe(current);
+    it("borrows from the second when the fraction is zero", () => {
+        expect(justBefore("2026-10-23T12:00:00Z")).toBe("2026-10-23T11:59:59.999999Z");
+        expect(justBefore("2026-01-01T00:00:00.000000Z")).toBe("2025-12-31T23:59:59.999999Z");
     });
 
-    it("uses the trailing item even if not chronologically sorted (mirrors source)", () => {
-        // The source takes the LAST item's version regardless of ordering.
-        const items = [{ version: d("2024-05-01") }, { version: d("2024-02-01") }];
-        expect(advanceSongCursor(items, d("2024-01-01"))).toEqual(d("2024-02-01"));
+    it("drops a seventh digit (ticks) before stepping back, so it stays earlier", () => {
+        expect(justBefore("2026-10-23T12:00:00.1234567Z")).toBe("2026-10-23T12:00:00.123455Z");
+    });
+
+    it("reads an offset, and a missing zone as UTC", () => {
+        expect(justBefore("2026-10-23T14:00:00.5+02:00")).toBe("2026-10-23T12:00:00.499999Z");
+        expect(justBefore("2026-10-23T12:00:00.5")).toBe("2026-10-23T12:00:00.499999Z");
+    });
+});
+
+describe("nextFeedCursor", () => {
+    const key = (songId: string, version: string) => ({ songId, version });
+
+    it("pages from just before the last Version when the page holds more than one", () => {
+        const keys = [key("a", "2026-10-23T11:00:00.000001Z"), key("b", TIE)];
+        expect(nextFeedCursor(keys, { afterDate: "0001-01-01T00:00:00.000Z" })).toEqual({ afterDate: justBefore(TIE) });
+    });
+
+    it("pages by the exact (version, id) when the whole page shares one Version", () => {
+        const keys = [key("a", TIE), key("b", TIE)];
+        expect(nextFeedCursor(keys, { afterDate: justBefore(TIE) })).toEqual({ afterDate: TIE, afterId: "b" });
+    });
+
+    it("stops (null) when the next request would be the one just sent", () => {
+        const keys = [key("a", TIE), key("b", TIE)];
+        expect(nextFeedCursor(keys, { afterDate: TIE, afterId: "b" })).toBeNull();
+        expect(nextFeedCursor([key("a", "2026-10-23T11:00:00Z"), key("b", TIE)], { afterDate: justBefore(TIE) })).toBeNull();
+    });
+
+    it("stops on an empty page that isn't the last", () => {
+        expect(nextFeedCursor([], { afterDate: TIE })).toBeNull();
+    });
+});
+
+describe("pageFeed", () => {
+    const START = { afterDate: "0001-01-01T00:00:00.000Z" };
+    const ids = (rows: FeedKey[]) => rows.map(x => x.songId).sort();
+    const warned = () => vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    afterEach(() => vi.restoreAllMocks());
+
+    it("pages a tie bigger than a page out once each, and ends (the 2026-10-23 hang)", async () => {
+        const rows = tiedRows(1200, TIE);
+        const server = feedServer(rows, true);
+        const warn = warned();
+
+        const feed = await pageFeed(START, server.fetchPage);
+
+        expect(feed.stalled).toBe(false);
+        expect(warn).not.toHaveBeenCalled();
+        expect(feed.items).toHaveLength(1200);
+        expect(ids(feed.items)).toEqual(ids(rows));
+        expect(feed.last).toEqual({ songId: "s01199", version: TIE });
+        expect(server.requests).toHaveLength(3);
+        expect(server.requests[1]).toEqual({ afterDate: TIE, afterId: "s00499" });
+    });
+
+    it("gets every row of a tie that crosses pages among other Versions, re-asking only for tied rows", async () => {
+        const before = Array.from({ length: 300 }, (_, i) =>
+            ({ songId: `b${String(i).padStart(3, "0")}`, version: `2026-10-23T11:00:00.${String(i + 1).padStart(6, "0")}Z` }));
+        const after = [{ songId: "z", version: "2026-10-23T13:00:00.000001Z" }];
+        const rows = [...before, ...tiedRows(1100, TIE), ...after];
+        const server = feedServer(rows, true);
+
+        const feed = await pageFeed(START, server.fetchPage);
+
+        expect(feed.stalled).toBe(false);
+        expect(new Set(ids(feed.items))).toEqual(new Set(ids(rows)));
+        expect(feed.last).toEqual(after[0]);
+        // The first page ends 200 rows into the tie; those 200 come back once, never more.
+        expect(feed.items.length).toBe(rows.length + 200);
+    });
+
+    it("loses nothing on a server without afterId when every tie fits a page", async () => {
+        const rows = [
+            ...tiedRows(450, TIE),
+            ...tiedRows(400, "2026-10-23T12:00:01.5Z").map(x => ({ ...x, songId: `t${x.songId}` })),
+            { songId: "z", version: "2026-10-23T13:00:00Z" },
+        ];
+        const server = feedServer(rows, false);
+
+        const feed = await pageFeed(START, server.fetchPage);
+
+        expect(feed.stalled).toBe(false);
+        expect(new Set(ids(feed.items))).toEqual(new Set(ids(rows)));
+        expect(server.requests.every(x => x.afterId == undefined)).toBe(true);
+    });
+
+    it("still ends on a server without afterId when a tie is bigger than a page", async () => {
+        const server = feedServer(tiedRows(1200, TIE), false);
+        const warn = warned();
+
+        const feed = await pageFeed(START, server.fetchPage);
+
+        // That server can't page inside the tie; ending beats repeating the same page forever. But not silently.
+        expect(feed.stalled).toBe(false);
+        expect(feed.items).toHaveLength(500);
+        expect(server.requests).toHaveLength(2);
+        expect(warn).not.toHaveBeenCalled(); // the old server's second page is empty: nothing to compare
+    });
+
+    it("warns when a keyset request comes back with no rows at the tied Version", async () => {
+        const rows = [...tiedRows(1200, TIE), { songId: "z", version: "2026-10-23T13:00:00Z" }];
+        const server = feedServer(rows, false);
+        const warn = warned();
+
+        const feed = await pageFeed(START, server.fetchPage);
+
+        // A server that ignores afterId jumps straight past the tie to z.
+        expect(feed.items.map(x => x.songId)).toContain("z");
+        expect(feed.items).toHaveLength(501);
+        expect(warn).toHaveBeenCalledOnce();
+    });
+
+    it("doesn't warn when a stored start key is followed by newer rows", async () => {
+        const rows = [...tiedRows(3, TIE), { songId: "z", version: "2026-10-23T13:00:00Z" }];
+        const server = feedServer(rows, true);
+        const warn = warned();
+
+        // A stored key comes from the end of a finished feed, so the first page after it is past that Version.
+        const feed = await pageFeed({ afterDate: TIE, afterId: "s00002" }, server.fetchPage);
+
+        expect(feed.items.map(x => x.songId)).toEqual(["z"]);
+        expect(warn).not.toHaveBeenCalled();
+    });
+
+    it("stops and says so when the server repeats a page", async () => {
+        const page = tiedRows(500, TIE);
+        const fetchPage = async () => ({ items: page, keys: page, endOfList: false });
+
+        const feed = await pageFeed({ afterDate: TIE, afterId: page[499].songId }, fetchPage);
+
+        expect(feed.stalled).toBe(true);
+        expect(feed.items).toHaveLength(500);
+    });
+
+    it("keeps the last key from an earlier page when the final page is empty", async () => {
+        const first = [{ songId: "a", version: TIE }, { songId: "b", version: "2026-10-23T13:00:00Z" }];
+        const pages = [
+            { items: first, keys: first, endOfList: false },
+            { items: [], keys: [], endOfList: true },
+        ];
+
+        const feed = await pageFeed(START, async () => pages.shift()!);
+
+        expect(feed.last).toEqual(first[1]);
+    });
+});
+
+describe("songFeedStart", () => {
+    it("is null before the first sync", () => {
+        expect(songFeedStart(null, null)).toBeNull();
+    });
+
+    it("sends the stored key's id while it belongs to the stored cursor", () => {
+        expect(songFeedStart(TIE, JSON.stringify({ version: TIE, songId: "s1" }))).toEqual({ afterDate: TIE, afterId: "s1" });
+    });
+
+    it("pages from the date alone for a cursor an older build wrote", () => {
+        const legacy = "2026-10-23T12:00:00.123Z";
+        expect(songFeedStart(legacy, null)).toEqual({ afterDate: legacy });
+        expect(songFeedStart(legacy, JSON.stringify({ version: TIE, songId: "s1" }))).toEqual({ afterDate: legacy });
+        expect(songFeedStart(legacy, "not json")).toEqual({ afterDate: legacy });
     });
 });
 

@@ -10,6 +10,8 @@ import {
     ChangedSongPageSchema,
     UserSongSchema,
     UserSongPageSchema,
+    ChangedSongKeysSchema,
+    UserSongKeysSchema,
     AuthenticateResponseSchema,
     PlaylistSchema,
     PlaylistListResponseSchema,
@@ -177,6 +179,24 @@ describe("UserSongSchema / UserSongPageSchema", () => {
         const page = UserSongPageSchema.parse({ userSongs: [valid], endOfList: false });
         expect(page.endOfList).toBe(false);
         expect(page.userSongs[0].userId).toBe("u1");
+    });
+});
+
+describe("ChangedSongKeysSchema / UserSongKeysSchema", () => {
+    // The paging cursor is the key's version. As a Date it would drop the microseconds and loop on a tie
+    // (shuffull-workspace#38), so it must come through as the exact string the server wrote.
+    const version = "2026-10-23T12:00:00.123456Z";
+    const song = { songId: "s1", name: "Song", fileExtension: "mp3", fileHash: "abc", version };
+
+    it("keeps each changed song's version byte for byte, while the row's version is a Date", () => {
+        const body = { songs: [song], endOfList: true };
+        expect(ChangedSongKeysSchema.parse(body).songs).toEqual([{ version, songId: "s1" }]);
+        expect(ChangedSongPageSchema.parse(body).songs[0].version).toBeInstanceOf(Date);
+    });
+
+    it("keeps each user song's version byte for byte", () => {
+        const body = { userSongs: [{ userId: "u1", songId: "s1", lastPlayed: version, version }], endOfList: false };
+        expect(UserSongKeysSchema.parse(body).userSongs).toEqual([{ version, songId: "s1" }]);
     });
 });
 

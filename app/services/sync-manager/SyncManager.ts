@@ -11,7 +11,7 @@ import { withTransaction } from "@/app/services/db/transaction";
 import { Downloader } from "@/app/services/downloader/Downloader";
 import { STORAGE_KEYS } from "@/app/constants/storageKeys";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { advanceSongCursor, collectNewSongIds, failedKeeps, groupRequestsIntoBatches, keepsDueForRetry, OUTBOX_MAX_BATCH_SIZE, partitionRejectedRequests, playlistDeleteHold, playlistsToFetch, pendingSongMisses, SONG_LIST_MAX_IDS, songReconcileDue, SongReconcileState, songsGoneFromServer, summarizeRetagFailures, toRetagItems, withoutPendingDeletes } from "@/app/services/sync-manager/syncLogic";
+import { collectNewSongIds, FEED_START, failedKeeps, groupRequestsIntoBatches, keepsDueForRetry, OUTBOX_MAX_BATCH_SIZE, pageFeed, partitionRejectedRequests, playlistDeleteHold, playlistsToFetch, pendingSongMisses, SONG_LIST_MAX_IDS, songFeedStart, songReconcileDue, SongReconcileState, songsGoneFromServer, summarizeRetagFailures, toRetagItems, withoutPendingDeletes } from "@/app/services/sync-manager/syncLogic";
 
 /** What one outbox batch came back with: the status sync() acts on, and the error text when it failed. */
 interface RunResult {
@@ -350,31 +350,20 @@ export class SyncManager {
                 ? await this.api.playlistGetList(playlistIdsToFetch)
                 : [];
 
-            // User songs changed since our last known user version (incremental, paginated).
-            // Year 0001, not 0000: the API binds afterDate to a .NET DateTime whose minimum is 0001-01-01,
-            // so a year-0000 sentinel fails model binding (400) on a first/cleared sync.
-            let afterDate: Date = oldUser != undefined ? oldUser.version : new Date("0001-01-01T00:00:00Z");
-            let endOfList = false;
-            const fetchedUserSongs: ApiModels.UserSong[] = [];
-            while (!endOfList) {
-                const paginatedResponse = await this.api.userSongGetAll(afterDate);
-                fetchedUserSongs.push(...paginatedResponse.items);
-                endOfList = paginatedResponse.endOfList;
-                if (!endOfList && paginatedResponse.items.length) {
-                    afterDate = paginatedResponse.items[paginatedResponse.items.length - 1].version;
-                }
+            // User songs changed since our last known user version (incremental, paginated by pageFeed).
+            const userSongFeed = await pageFeed(
+                { afterDate: oldUser != undefined ? oldUser.version.toISOString() : FEED_START },
+                cursor => this.api.userSongGetAll(cursor));
+            if (userSongFeed.stalled) {
+                console.error("[sync] The user-songs feed repeated a page; stopped paging it, and the user version stays put.");
             }
 
-            // Consecutive pages OVERLAP by design, so the concatenation above can hold the same user song
-            // twice. The server pages on `Version > afterDate` using a .NET DateTime (100-nanosecond ticks),
-            // but the cursor round-trips through a JS Date, which only has millisecond resolution. The
-            // truncated cursor is fractionally EARLIER than the row it came from, so that row still satisfies
-            // the filter and is re-sent at the top of the next page — one duplicate per page boundary.
-            //
-            // (user_id, song_id) is the primary key, so those duplicates make the whole multi-row INSERT
-            // fail, and with it the entire sync: the library stayed empty on any device whose first sync was
-            // large enough to paginate (>500 user songs). Collapse them, newest wins.
-            const updatedUserSongs = distinctByLast(fetchedUserSongs, x => `${x.userId}\0${x.songId}`);
+            // Consecutive pages can OVERLAP, so the concatenation above can hold the same user song twice: the
+            // start cursor is the user's version, a JS Date kept to the millisecond, and between pages pageFeed
+            // re-asks for rows tied on the last Version (see nextFeedCursor). (user_id, song_id) is the primary key,
+            // so a duplicate makes the whole multi-row INSERT fail, and with it the entire sync: the library stayed
+            // empty on any device whose first sync paginated (>500 user songs). Collapse them, newest wins.
+            const updatedUserSongs = distinctByLast(userSongFeed.items, x => `${x.userId}\0${x.songId}`);
 
             // Songs referenced by the updated playlists/user-songs that we don't have locally yet.
             const localSongIds = await DbQueries.getAllSongIds(this.db);
@@ -393,29 +382,22 @@ export class SyncManager {
             // (e.g. a song re-sourced in place with better audio). The very first sync seeds the cursor at
             // "now" and skips: the fetch above already pulled current data, and paging the whole library back
             // through the changes feed would be wasteful. ──
-            const songCursorRaw = await AsyncStorage.getItem(STORAGE_KEYS.SONG_SYNC_CURSOR);
-            let nextSongCursor: Date = songCursorRaw != null ? new Date(songCursorRaw) : syncStartTime;
+            const songFeedFrom = songFeedStart(
+                await AsyncStorage.getItem(STORAGE_KEYS.SONG_SYNC_CURSOR),
+                await AsyncStorage.getItem(STORAGE_KEYS.SONG_SYNC_KEY));
             const fetchedChangedSongs: ApiModels.ChangedSong[] = [];
-            if (songCursorRaw != null) {
+            // Where the next sync starts: the last row this one received, across ALL changed songs (not just the local
+            // ones), so changes already accounted for are never re-paged. Undefined leaves the stored cursor alone.
+            let nextSongKey: ApiModels.FeedKey | undefined;
+            if (songFeedFrom != null) {
                 const localSongIdSet = new Set(localSongIds);
-                let songAfterDate = new Date(songCursorRaw);
-                let songEndOfList = false;
-                while (!songEndOfList) {
-                    const page = await this.api.songGetChanged(songAfterDate);
-                    for (const changed of page.items) {
-                        // Only refresh songs we hold locally; brand-new ones are handled by the fetch above.
-                        if (localSongIdSet.has(changed.songId)) {
-                            fetchedChangedSongs.push(changed);
-                        }
-                    }
-                    songEndOfList = page.endOfList;
-                    if (page.items.length) {
-                        // Cursor advances by the newest Version on the page (across ALL changed songs, not just
-                        // the local ones), so we never re-page changes we've already accounted for.
-                        songAfterDate = advanceSongCursor(page.items, songAfterDate);
-                        nextSongCursor = songAfterDate;
-                    }
+                const songFeed = await pageFeed(songFeedFrom, cursor => this.api.songGetChanged(cursor));
+                if (songFeed.stalled) {
+                    console.error("[sync] The changed-songs feed repeated a page; stopped paging it for this sync.");
                 }
+                // Only refresh songs we hold locally; brand-new ones are handled by the fetch above.
+                fetchedChangedSongs.push(...songFeed.items.filter(changed => localSongIdSet.has(changed.songId)));
+                nextSongKey = songFeed.last;
             }
 
             // Same overlapping-page caveat as the user songs above: songId is this table's primary key, so a
@@ -528,7 +510,11 @@ export class SyncManager {
                 // Last: the user's version is the cursor the next sync pages user songs from (afterDate above), so it
                 // moves only once everything it covers is written. The transaction already guarantees that; writing it
                 // last keeps it true if this ever silently stops being one, as it had (ShuffullApp#91).
-                await DbQueries.updateUser(tx, user);
+                // A stalled user-songs feed never reached the rows the new version covers, so the next sync starts from
+                // the old one again rather than skip them for good.
+                await DbQueries.updateUser(tx, userSongFeed.stalled
+                    ? { ...user, version: oldUser?.version ?? new Date(FEED_START) }
+                    : user);
             });
 
             // Post-commit, outside the write txn: delete the now-orphaned local files (file I/O) and advance
@@ -537,7 +523,13 @@ export class SyncManager {
             for (const staleSong of staleSongs) {
                 await Downloader.deleteLocalSongFiles(staleSong);
             }
-            await AsyncStorage.setItem(STORAGE_KEYS.SONG_SYNC_CURSOR, nextSongCursor.toISOString());
+            if (nextSongKey != undefined) {
+                // The key first: until the cursor matches it, songFeedStart ignores it and pages from the date alone.
+                await AsyncStorage.setItem(STORAGE_KEYS.SONG_SYNC_KEY, JSON.stringify(nextSongKey));
+                await AsyncStorage.setItem(STORAGE_KEYS.SONG_SYNC_CURSOR, nextSongKey.version);
+            } else if (songFeedFrom == null) {
+                await AsyncStorage.setItem(STORAGE_KEYS.SONG_SYNC_CURSOR, syncStartTime.toISOString());
+            }
 
             return HttpStatusCode.Ok;
         } catch (e) {
