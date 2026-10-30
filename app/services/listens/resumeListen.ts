@@ -52,7 +52,8 @@ export type RestartListenOutcome = "tookOver" | "opened" | "none";
  * When the last context's listen is still that play (listenToTakeOver), this context carries it on, so one play stays
  * one listen and a skip right after the restart isn't a quick skip (ShuffullApp#147). Otherwise, the old listen is
  * closed at its last checkpoint and a new one opens from now: what played in between is in neither, and the two never
- * count the same seconds. One play is then two listens, which the takeover rule only allows near a song's start.
+ * count the same seconds. One play is then two listens: near a song's start (where it may have started over), or when
+ * the player's position can't be read, or when this run already opened a listen of its own.
  *
  * The orphans are closed whatever the player says, even if asking it fails.
  */
