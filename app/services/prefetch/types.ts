@@ -9,7 +9,8 @@ export interface PrefetchedFiles {
 
 /**
  * Fetches the lookahead into a cache that is not Downloads (ShuffullApp#124). Native in `Prefetcher.ts`; the web
- * build (`Prefetcher.web.ts`) is a stub that reports `supported: false`, so desktop keeps picking at skip time.
+ * build (`Prefetcher.web.ts`) uses the Electron shell's prefetch store on desktop (ShuffullApp#137) and reports
+ * `supported: false` in a plain browser, which then keeps picking at skip time.
  */
 export interface Prefetcher {
     readonly supported: boolean;

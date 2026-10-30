@@ -4,11 +4,22 @@
 /** Route the Electron `app://` handler serves stored files under. Must match `MEDIA_ROUTE` in desktop/media.js. */
 export const MEDIA_ROUTE = "/__media/";
 
+/** Route the prefetch cache is served under (ShuffullApp#137). Must match `PREFETCH_ROUTE` in desktop/media.js. */
+export const PREFETCH_ROUTE = "/__prefetch/";
+
 export type MediaKind = "music" | "albumart";
 
 /** Where a stored file is played/shown from: the page's own origin, so it is same-origin under COEP. */
 export function localMediaUri(origin: string, kind: MediaKind, fileName: string): string {
     return `${origin}${MEDIA_ROUTE}${kind}/${fileName}`;
+}
+
+/**
+ * Where a prefetched file is played from. A different route from `localMediaUri` on purpose: `parseLocalMediaUri`
+ * doesn't accept it, so `Downloader.fileExists` can never report a prefetched song as downloaded.
+ */
+export function prefetchMediaUri(origin: string, kind: MediaKind, fileName: string): string {
+    return `${origin}${PREFETCH_ROUTE}${kind}/${fileName}`;
 }
 
 /**

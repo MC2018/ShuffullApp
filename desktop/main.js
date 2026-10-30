@@ -51,6 +51,8 @@ const DIST = path.join(__dirname, "..", "dist");
 const SCHEME = "app";
 // Offline songs and album art (see media.js). Under userData so it survives rebuilding dist/ and app updates.
 const MEDIA_ROOT = path.join(app.getPath("userData"), "media");
+// "Load upcoming songs ahead" (ShuffullApp#137). A sibling of MEDIA_ROOT, never inside it, so Downloads can't see it.
+const PREFETCH_ROOT = path.join(app.getPath("userData"), "prefetch");
 
 // Must be declared before `ready`. `standard` gives normal URL parsing, `secure` makes it a secure context
 // (the part OPFS cares about), `supportFetchAPI` lets the wasm/worker assets be fetched.
@@ -125,6 +127,17 @@ function registerMediaIpc() {
     ipcMain.handle("shuffull:media:delete", (_event, { kind, fileName } = {}) => media.deleteMedia(MEDIA_ROOT, kind, fileName));
 }
 
+/** The prefetch cache's IPC, for the web Prefetcher. Same validation as above; media.js decides what is verified. */
+function registerPrefetchIpc() {
+    const store = media.createPrefetchStore({ root: PREFETCH_ROOT, fetchImpl: (target, init) => net.fetch(target, init) });
+
+    ipcMain.handle("shuffull:prefetch:download", (_event, { host, kind, fileName } = {}) => store.download(host, kind, fileName));
+    ipcMain.handle("shuffull:prefetch:cancel", (_event, { kind, fileName } = {}) => store.cancel(kind, fileName));
+    ipcMain.handle("shuffull:prefetch:exists", (_event, { kind, fileName } = {}) => store.exists(kind, fileName));
+    ipcMain.handle("shuffull:prefetch:delete", (_event, { kind, fileName } = {}) => store.remove(kind, fileName));
+    ipcMain.handle("shuffull:prefetch:clear", () => store.clear());
+}
+
 app.whenReady().then(() => {
     // Cross-origin isolation, so SharedArrayBuffer (and therefore the SQLite web driver) is available.
     session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
@@ -146,6 +159,9 @@ app.whenReady().then(() => {
         if (pathname.startsWith(media.MEDIA_ROUTE)) {
             return media.serveMedia(MEDIA_ROOT, pathname, request.headers.get("range"));
         }
+        if (pathname.startsWith(media.PREFETCH_ROUTE)) {
+            return media.serveMedia(PREFETCH_ROOT, pathname, request.headers.get("range"), media.PREFETCH_ROUTE);
+        }
 
         // SPA: unknown paths are routes, not files — hand back index.html and let expo-router resolve them.
         const rel = pathname === "/" || !path.extname(pathname) ? "/index.html" : pathname;
@@ -160,6 +176,7 @@ app.whenReady().then(() => {
     });
 
     registerMediaIpc();
+    registerPrefetchIpc();
     const mainWindow = createWindow();
 
     // Notifications raised by the renderer after a shortcut lands. The shortcuts are GLOBAL, so the user is

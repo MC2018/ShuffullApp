@@ -4,11 +4,11 @@ const { contextBridge, ipcRenderer } = require("electron");
  * The only bridge between the Electron main process and the app.
  *
  * The window runs with contextIsolation on and nodeIntegration off, so the renderer has no access to Node or
- * to ipcRenderer directly. This exposes three things and nothing else: a subscription to the global rating
- * shortcuts, a way to raise a desktop notification, and the offline media store. Anything wider would hand the
- * whole page (which loads remote album art) a route into the main process. The media calls take a kind, a file
- * name and the API host - never a path or a full URL. Main validates the kind and name, accepts only an
- * http(s) host, and builds the URL itself as `<host>/<kind>/<file>` (desktop/media.js).
+ * to ipcRenderer directly. This exposes four things and nothing else: a subscription to the global rating
+ * shortcuts, a way to raise a desktop notification, the offline media store and the prefetch cache. Anything
+ * wider would hand the whole page (which loads remote album art) a route into the main process. The media and
+ * prefetch calls take a kind, a file name and the API host - never a path or a full URL. Main validates the kind
+ * and name, accepts only an http(s) host, and builds the URL itself as `<host>/<kind>/<file>` (desktop/media.js).
  *
  * `window.shuffull` is absent on mobile and in a plain browser, so the app can feature-detect it and simply do
  * nothing there rather than needing platform-specific files.
@@ -46,5 +46,18 @@ contextBridge.exposeInMainWorld("shuffull", {
             ipcRenderer.on("shuffull:media:progress", listener);
             return () => ipcRenderer.removeListener("shuffull:media:progress", listener);
         },
+    },
+
+    /**
+     * The prefetch cache ("Load upcoming songs ahead"), for the web Prefetcher. Same kinds and file names as `media`,
+     * but a separate store served at `/__prefetch/<kind>/<fileName>`, so nothing in it is ever a download.
+     */
+    prefetch: {
+        /** Resolves `{ ok: true, bytes }` or `{ ok: false, error }`. Songs are hash-checked by main. */
+        download: (host, kind, fileName) => ipcRenderer.invoke("shuffull:prefetch:download", { host, kind, fileName }),
+        cancel: (kind, fileName) => ipcRenderer.invoke("shuffull:prefetch:cancel", { kind, fileName }),
+        exists: (kind, fileName) => ipcRenderer.invoke("shuffull:prefetch:exists", { kind, fileName }),
+        remove: (kind, fileName) => ipcRenderer.invoke("shuffull:prefetch:delete", { kind, fileName }),
+        clear: () => ipcRenderer.invoke("shuffull:prefetch:clear"),
     },
 });

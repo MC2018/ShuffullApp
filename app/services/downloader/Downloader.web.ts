@@ -7,7 +7,7 @@ import { DownloadPriority } from "../db/types";
 import { useDownloadStatus } from "./downloadStatus";
 import { derivePhase, retryDelayMs } from "../../tools/downloadStatus";
 import { localMediaUri, parseLocalMediaUri } from "../../tools/desktopMedia";
-import { desktopShell, DesktopMediaStore } from "../desktopShell";
+import { desktopShell, DesktopMediaStore, isOnline, pageOrigin } from "../desktopShell";
 import { sleep } from "../../tools/utils";
 
 /**
@@ -35,14 +35,6 @@ import { sleep } from "../../tools/utils";
 /** The desktop shell's media store, or undefined in a plain browser (and during `expo export`'s prerender). */
 function mediaBridge(): DesktopMediaStore | undefined {
     return desktopShell()?.media;
-}
-
-function pageOrigin(): string {
-    return typeof window === "undefined" ? "" : window.location.origin;
-}
-
-function isOnline(): boolean {
-    return typeof navigator === "undefined" || navigator.onLine !== false;
 }
 
 // Safety net only, as on native: enqueue, resume and coming back online all kick the loop directly.
