@@ -29,8 +29,9 @@ export class ApiStatusFailureError extends ApiError {
 
 // The API explains every rejection in the body — its Result mapping answers a handler or validation failure
 // with { error } and a 400, 403, 404, 409 or 500. The status gives only the kind of failure, and only a 5xx
-// says the server itself failed (see statusOfFailure for how the outbox treats each). The reason is in the body. Interpolating the raw response object rendered "[object Object]",
-// which is what made a looping 400 undiagnosable from the log.
+// says the server itself failed (see statusOfFailure for how the outbox treats each). The reason is in the
+// body. Interpolating the raw response object rendered "[object Object]", which is what made a looping 400
+// undiagnosable from the log.
 function describeBody(data: unknown): string | undefined {
     if (data == null) {
         return undefined;
