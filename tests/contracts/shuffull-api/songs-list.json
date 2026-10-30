@@ -24,6 +24,7 @@
       "heaviness": 6,
       "exploratory": false,
       "tagsStale": true,
+      "hookStartPercent": 37.5,
       "energy": 6
     },
     {
@@ -43,6 +44,7 @@
       "heaviness": null,
       "exploratory": true,
       "tagsStale": false,
+      "hookStartPercent": null,
       "energy": null
     }
   ]
