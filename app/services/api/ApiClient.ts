@@ -1,5 +1,5 @@
 import axios, { AxiosHeaders, AxiosInstance } from "axios";
-import { AuthenticateResponse, AuthenticateResponseSchema, ChangedSongKeysSchema, ChangedSongPageSchema, CreatePlaylistResponseSchema, FeedCursor, KeepResponse, KeepResponseSchema, ListenStatsResponse, ListenStatsResponseSchema, Playlist, PlaylistListResponseSchema, RecordListensResponse, RecordListensResponseSchema, RetagResponse, RetagStaleResponse, SongListResponseSchema, SongRetagWireItem, Tag, TagListResponseSchema, UserResponseSchema, UserSongKeysSchema, UserSongPageSchema } from "./models";
+import { AuthenticateResponse, AuthenticateResponseSchema, ChangedSongKeysSchema, ChangedSongPageSchema, CreatePlaylistResponseSchema, FeedCursor, KeepResponse, KeepResponseSchema, ListenStatsResponse, ListenStatsResponseSchema, Playlist, PlaylistListResponseSchema, Recap, RecapSchema, RecordListensResponse, RecordListensResponseSchema, RetagResponse, RetagStaleResponse, SongListResponseSchema, SongRetagWireItem, Tag, TagListResponseSchema, UserResponseSchema, UserSongKeysSchema, UserSongPageSchema } from "./models";
 import { ApiStatusFailureError } from "./errors";
 import { RecordListenPayload, UpdateSongLastPlayedRequest, UpdateSongMetadataPayload } from "../db/models";
 
@@ -422,6 +422,25 @@ export class ApiClient {
             }
             console.log(`[API] Endpoint ${endpoint} succeeded`);
             return ListenStatsResponseSchema.parse(response.data);
+        } catch (error) {
+            console.log(`[API] Endpoint ${endpoint} failed with error:`, error);
+            throw error;
+        }
+    }
+
+    // Any user: their recap of one year, computed on every call. timeZone is an IANA id or an offset like "+02:00".
+    // An API without the endpoint yet answers 404 (ApiStatusFailureError), which the recap screen reports quietly.
+    public async recapGet(year: number, timeZone: string): Promise<Recap> {
+        const endpoint = `/api/v1/recap/${year}`;
+        console.log(`[API] Calling endpoint: ${endpoint}`);
+        try {
+            const response = await this.client.get(endpoint, { params: { timeZone } });
+            if (!isSuccessfulStatus(response.status)) {
+                console.log(`[API] Endpoint ${endpoint} failed with status: ${response.status}`);
+                throw new ApiStatusFailureError(endpoint, response);
+            }
+            console.log(`[API] Endpoint ${endpoint} succeeded`);
+            return RecapSchema.parse(response.data);
         } catch (error) {
             console.log(`[API] Endpoint ${endpoint} failed with error:`, error);
             throw error;

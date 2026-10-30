@@ -3,6 +3,7 @@
   "timeZone": "America/New_York",
   "from": "2026-01-01T05:00:00Z",
   "to": "2027-01-01T05:00:00Z",
+  "firstListen": "2026-10-01T12:34:56.123456Z",
   "totalMinutes": 125.5,
   "plays": 40,
   "minutesByMonth": [

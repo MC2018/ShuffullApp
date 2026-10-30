@@ -11,7 +11,8 @@ import { PREFETCH_CACHE_CAP_BYTES } from "@/app/tools/prefetchCache";
 const CAP_MB = Math.round(PREFETCH_CACHE_CAP_BYTES / 1024 / 1024);
 
 // App settings. Right now: "Load upcoming songs ahead" (ShuffullApp#124), which fetches the next song or two while
-// the current one plays so a skip starts at once.
+// the current one plays so a skip starts at once. Development builds also get a Developer section that opens the
+// December recap (ShuffullApp#116) at any time of year.
 export default function SettingsScreen() {
     const theme = useTheme();
     const enabled = usePrefetchSetting((state) => state.enabled);
@@ -52,6 +53,22 @@ export default function SettingsScreen() {
                         Loading upcoming songs ahead is not available on this platform yet.
                     </Text>
                 )}
+
+                {__DEV__ ? (
+                    <>
+                        <Text variant="label" color="textMuted" style={{ marginTop: theme.space.lg }}>Developer</Text>
+                        <ListRow
+                            title="Open the recap"
+                            subtitle="This year's, from the server. Home shows it only in December."
+                            onPress={() => router.push("/recap")}
+                        />
+                        <ListRow
+                            title="Open the recap with sample data"
+                            subtitle="Made-up numbers, no server."
+                            onPress={() => router.push("/recap?sample=1")}
+                        />
+                    </>
+                ) : null}
             </ScrollView>
         </Screen>
     );
