@@ -35,6 +35,9 @@ import { desktopShell } from "../desktopShell";
 let queue: string[] = [];
 let db: GenericDb;
 let trackPlayerInitialized = false;
+// Whether this JS context has added the player's event listeners (setupEventListeners). Module state, so a fresh JS
+// context starts without them.
+let eventListenersAdded = false;
 // ── failure recovery ─────────────────────────────────────────────────────────────────────────────────────
 // A track that fails to load is NOT automatically a track worth skipping - see tools/playbackFailure.ts for
 // why the two mistakes here are not symmetric. This module holds the state that decision needs; the decision
@@ -256,7 +259,8 @@ export async function setup(activeDb: GenericDb) {
     }
 
     // Android can keep the player playing across a JS restart, and then no transition to Playing comes to open a
-    // listen for the rest of the song (ShuffullApp#143). Once the player is reachable, open one if it plays now.
+    // listen for the rest of the song (ShuffullApp#143). Once the player is reachable and this context hears its
+    // events (initTrackPlayer), open one if it plays now.
     void playerReady.then(() => transportLock.run(openListenForResume));
 }
 
@@ -321,19 +325,34 @@ async function refreshNotificationButtons(likeStatus: LikeStatus, canKeep = fals
 }
 
 async function initTrackPlayer() {
+    let setUpBefore = true;
     try {
         await TrackPlayer.getActiveTrack(); // error if not set up
     } catch {
+        setUpBefore = false;
         TrackPlayer.registerPlaybackService(() => setupEventListeners);
         await TrackPlayer.setupPlayer(playerSetupOptions(Platform.OS)); // TODO: ensure safety for this to be run when app is in foreground
         // Start with both buttons in the neutral (outline) state; refreshed once a song becomes active.
         await TrackPlayer.updateOptions(buildPlayerOptions(LikeStatus.Neutral));
     }
 
+    if (setUpBefore) {
+        // An earlier JS context set the player up, and its service outlived that context (a JS reload on Android).
+        // The service runs the playback service task once per its own lifetime, so it ran in that context and won't
+        // run in this one: without this, nothing here would hear a pause, a song ending or the notification's
+        // buttons, and a listen opened for the song still playing would count forever (ShuffullApp#143).
+        await setupEventListeners();
+    }
+
     trackPlayerInitialized = true;
 }
 
 async function setupEventListeners() {
+    // Once per JS context: the playback service task and initTrackPlayer can both get here.
+    if (eventListenersAdded) {
+        return;
+    }
+    eventListenersAdded = true;
     TrackPlayer.addEventListener(Event.RemotePlay, async () => await play());
     TrackPlayer.addEventListener(Event.RemotePause, async () => await pause());
     TrackPlayer.addEventListener(Event.RemoteNext, async () => await skip());

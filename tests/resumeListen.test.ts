@@ -139,6 +139,15 @@ describe("the media manager", () => {
         expect(setupBody.indexOf("setSongId(currentlyPlayingSong.songId)")).toBeLessThan(setupBody.indexOf("openListenForResume"));
     });
 
+    it("adds this context's player listeners when an earlier context set the player up, and only once", () => {
+        const init = source.slice(source.indexOf("async function initTrackPlayer()"), source.indexOf("async function setupEventListeners()"));
+        expect(init).toMatch(/if \(setUpBefore\) \{[\s\S]*await setupEventListeners\(\);/);
+        const listeners = source.slice(source.indexOf("async function setupEventListeners()"));
+        expect(listeners.slice(0, listeners.indexOf("TrackPlayer.addEventListener("))).toMatch(
+            /if \(eventListenersAdded\) \{\s*return;\s*\}\s*eventListenersAdded = true;/,
+        );
+    });
+
     it("decides with openListenIfPlaying", () => {
         const body = source.slice(source.indexOf("async function openListenForResume()"));
         expect(body.slice(0, body.indexOf("\n}\n"))).toContain("await openListenIfPlaying({");
