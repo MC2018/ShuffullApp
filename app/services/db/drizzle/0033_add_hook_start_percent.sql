@@ -1,0 +1,1 @@
+ALTER TABLE `songs` ADD `hook_start_percent` real;

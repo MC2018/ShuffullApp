@@ -24,6 +24,7 @@ import {
 } from "../../tools/playbackFailure";
 import { Platform } from "react-native";
 import { createSerialLock } from "../../tools/serialLock";
+import { auditionStartSeconds, AuditionStart } from "../../tools/auditionSession";
 import { playerSetupOptions } from "../../tools/playerSetup";
 import { SongDetails } from "../db/types";
 import { ListenRecorder } from "../listens/listenRecorder";
@@ -1060,13 +1061,13 @@ export function endAuditionMode(controller: AuditionController): Promise<void> {
 let auditionLoadEpoch = 0;
 
 /**
- * Starts `songId` at `startFraction` of its length for audition mode. Unlike startNewSong it writes NOTHING: no
- * lastPlayed stamp, no history row, no audition-in-progress marker. A song flicked past in two seconds has to stay
- * unheard, and only markAuditionHeard (called once the heard rule is met) records it as played.
+ * Starts `songId` for audition mode, at its start point (auditionStartSeconds) or from the top. Unlike startNewSong it
+ * writes NOTHING: no lastPlayed stamp, no history row, no audition-in-progress marker. A song flicked past in two
+ * seconds has to stay unheard, and only markAuditionHeard (called once the heard rule is met) records it as played.
  *
  * It does record a listen, with context Audition (ShuffullApp#57): the listen log is every play, heard or not.
  */
-export function playAuditionSong(songId: string, startFraction: number): Promise<void> {
+export function playAuditionSong(songId: string, start: AuditionStart): Promise<void> {
     return transportLock.run(async () => {
         // A deck step still queued when the screen closed: the player is no longer the deck's to drive.
         if (auditionController == undefined) {
@@ -1086,14 +1087,15 @@ export function playAuditionSong(songId: string, startFraction: number): Promise
         useActiveSong.getState().setSongId(songId);
         useAuditionFinished.getState().setPlaylistId(undefined);
 
-        if (startFraction > 0) {
+        if (start === "startPoint") {
+            const hookStartPercent = songWithArtist.song.hookStartPercent;
             const duration = await waitForDuration(START_POINT_WAIT_MS);
             if (duration > 0) {
-                await TrackPlayer.seekTo(duration * startFraction);
+                await TrackPlayer.seekTo(auditionStartSeconds(duration, hookStartPercent));
             } else {
                 // The length isn't known yet (a slow stream): start it now and jump once it is, rather than hold
                 // every other control up behind the wait.
-                void seekToStartPointLate(epoch, startFraction);
+                void seekToStartPointLate(epoch, hookStartPercent);
             }
         }
         await TrackPlayer.play();
@@ -1114,7 +1116,7 @@ async function waitForDuration(timeoutMs: number): Promise<number> {
     }
 }
 
-async function seekToStartPointLate(epoch: number, startFraction: number) {
+async function seekToStartPointLate(epoch: number, hookStartPercent: number | null) {
     const deadline = Date.now() + START_POINT_LATE_SEEK_MS;
     while (Date.now() < deadline) {
         await new Promise(resolve => setTimeout(resolve, 250));
@@ -1127,7 +1129,7 @@ async function seekToStartPointLate(epoch: number, startFraction: number) {
             if (position < 5) {
                 await transportLock.run(async () => {
                     if (epoch === auditionLoadEpoch) {
-                        await TrackPlayer.seekTo(duration * startFraction);
+                        await TrackPlayer.seekTo(auditionStartSeconds(duration, hookStartPercent));
                     }
                 });
             }

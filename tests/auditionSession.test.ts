@@ -11,14 +11,20 @@ import { getRequests } from "@/app/services/db/queries/request";
 import { playlistSongTable, playlistTable, songTable, userSongTable, userTable } from "@/app/services/db/schema";
 import { LikeStatus, RequestType } from "@/app/enums";
 import { AuditionRowState, deriveAuditionRowState } from "@/app/tools/audition";
-import { AuditionPort, AuditionSession, DEFAULT_START_FRACTION, heardThresholdSeconds } from "@/app/tools/auditionSession";
+import {
+    AuditionPort,
+    AuditionSession,
+    AuditionStart,
+    auditionStartSeconds,
+    heardThresholdSeconds,
+} from "@/app/tools/auditionSession";
 
 // Audition mode's deck (ShuffullApp#125). The deck runs against a fake player here, and in the last block against
 // the real query layer, to prove the property everything else rests on: flicking past a song never makes it look
 // heard - and so never makes it purgeable with its mix.
 
 type Call =
-    | { kind: "load"; songId: string; startFraction: number }
+    | { kind: "load"; songId: string; start: AuditionStart }
     | { kind: "rate"; songId: string; likeStatus: LikeStatus }
     | { kind: "keep"; songId: string }
     | { kind: "markHeard"; songId: string }
@@ -29,7 +35,7 @@ class FakePort implements AuditionPort {
     calls: Call[] = [];
     /** Why each song's listen ended, in order. Kept out of `calls`, which the tests match whole. */
     listenEnds: ListenEndReason[] = [];
-    async load(songId: string, startFraction: number) { this.calls.push({ kind: "load", songId, startFraction }); }
+    async load(songId: string, start: AuditionStart) { this.calls.push({ kind: "load", songId, start }); }
     async endListen(reason: ListenEndReason) { this.listenEnds.push(reason); }
     async resume() { this.calls.push({ kind: "resume" }); }
     async pause() { this.calls.push({ kind: "pause" }); }
@@ -160,6 +166,41 @@ describe("the heard rule", () => {
     });
 });
 
+describe("auditionStartSeconds: where lap 1 starts (ShuffullApp#126)", () => {
+    it("starts at the synced start point", () => {
+        expect(auditionStartSeconds(200, 62.5)).toBe(125);
+        expect(auditionStartSeconds(200, 0)).toBe(0);
+    });
+
+    it("starts at 35% with no start point: an API from before Shuffull#79, or a song without one", () => {
+        expect(auditionStartSeconds(200, null)).toBe(70);
+        expect(auditionStartSeconds(200, undefined)).toBe(70);
+    });
+
+    it("treats a start point outside 0-100 as missing", () => {
+        expect(auditionStartSeconds(200, -5)).toBe(70);
+        expect(auditionStartSeconds(200, 150)).toBe(70);
+        expect(auditionStartSeconds(200, Number.NaN)).toBe(70);
+    });
+
+    it("moves a start point near the end back so 20 s remain", () => {
+        expect(auditionStartSeconds(200, 95)).toBe(180);
+        expect(auditionStartSeconds(200, 100)).toBe(180);
+        // The 35% default too, on a short song.
+        expect(auditionStartSeconds(30, null)).toBe(10);
+    });
+
+    it("starts a song too short to leave 20 s from anywhere at 0", () => {
+        expect(auditionStartSeconds(20, 50)).toBe(0);
+        expect(auditionStartSeconds(15, null)).toBe(0);
+    });
+
+    it("starts at 0 when the length is unknown", () => {
+        expect(auditionStartSeconds(0, 50)).toBe(0);
+        expect(auditionStartSeconds(Number.NaN, 50)).toBe(0);
+    });
+});
+
 describe("laps", () => {
     it("starts lap 1 at the start point and replays quick skips from 0:00 in lap 2, with one notice", async () => {
         const deck = setup(["a", "b", "c"]);
@@ -172,10 +213,10 @@ describe("laps", () => {
         await deck.session.next(); // c: quick skip, end of lap 1
 
         expect(deck.port.of("load")).toEqual([
-            { kind: "load", songId: "a", startFraction: DEFAULT_START_FRACTION },
-            { kind: "load", songId: "b", startFraction: DEFAULT_START_FRACTION },
-            { kind: "load", songId: "c", startFraction: DEFAULT_START_FRACTION },
-            { kind: "load", songId: "a", startFraction: 0 },
+            { kind: "load", songId: "a", start: "startPoint" },
+            { kind: "load", songId: "b", start: "startPoint" },
+            { kind: "load", songId: "c", start: "startPoint" },
+            { kind: "load", songId: "a", start: "top" },
         ]);
         expect(deck.session.snapshot()).toMatchObject({ songId: "a", lap: 2, position: 4, total: 5, notice: { kind: "lap2", count: 2 } });
         expect(deck.port.heard()).toEqual(["b"]);

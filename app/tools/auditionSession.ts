@@ -12,7 +12,7 @@ import type { ListenEndReason } from "@/app/services/db/models";
 
 /** Seconds of actual playback, summed across visits, after which a song counts as heard. */
 export const HEARD_SECONDS = 20;
-/** Where lap 1 starts a song until the start point syncs (ShuffullApp#126). Lap 2 always starts at 0:00. */
+/** Where lap 1 starts a song with no synced start point. Lap 2 always starts at 0:00. */
 export const DEFAULT_START_FRACTION = 0.35;
 /** How many songs ahead of the current one are handed to the prefetcher. */
 export const PREFETCH_AHEAD = 2;
@@ -24,9 +24,29 @@ export function heardThresholdSeconds(durationSeconds: number | undefined): numb
         : HEARD_SECONDS;
 }
 
+/**
+ * Where lap 1 starts a song, in seconds (ShuffullApp#126): at its synced start point, a percent of its length, or at
+ * 35% when it has none. Moved earlier so at least HEARD_SECONDS of the song remain to be heard, and 0 for a song too
+ * short to leave that much from anywhere. A start point outside 0-100 is treated as missing.
+ */
+export function auditionStartSeconds(durationSeconds: number, hookStartPercent: number | null | undefined): number {
+    if (!(durationSeconds > 0)) {
+        return 0;
+    }
+    const fraction = hookStartPercent != undefined && Number.isFinite(hookStartPercent)
+        && hookStartPercent >= 0 && hookStartPercent <= 100
+        ? hookStartPercent / 100
+        : DEFAULT_START_FRACTION;
+    const latest = durationSeconds - HEARD_SECONDS;
+    return latest > 0 ? Math.min(durationSeconds * fraction, latest) : 0;
+}
+
+/** Where the deck starts a song: lap 1 at its start point (auditionStartSeconds), lap 2 from the top. */
+export type AuditionStart = "startPoint" | "top";
+
 export interface AuditionPort {
-    /** Loads the song and starts it at `startFraction` of its length. Must NOT stamp it as played. */
-    load(songId: string, startFraction: number): Promise<void>;
+    /** Loads the song and starts it at `start`. Must NOT stamp it as played. */
+    load(songId: string, start: AuditionStart): Promise<void>;
     /** Ends the current song's listen (ShuffullApp#57) for why the deck left it: before every move, and at the end. */
     endListen(reason: ListenEndReason): Promise<void>;
     resume(): Promise<void>;
@@ -102,7 +122,6 @@ export class AuditionSession {
         songIds: string[],
         private readonly port: AuditionPort,
         private readonly now: () => number = Date.now,
-        private readonly startFraction: number = DEFAULT_START_FRACTION,
     ) {
         this.entries = songIds.map(songId => ({ songId, lap: 1 as const }));
         this.lap1Length = this.entries.length;
@@ -460,7 +479,7 @@ export class AuditionSession {
         }
         this.emit();
         this.port.prefetch(this.entries.slice(this.index + 1, this.index + 1 + PREFETCH_AHEAD).map(e => e.songId));
-        await this.port.load(entry.songId, entry.lap === 1 ? this.startFraction : 0);
+        await this.port.load(entry.songId, entry.lap === 1 ? "startPoint" : "top");
     }
 
     private summary(): AuditionSummary {

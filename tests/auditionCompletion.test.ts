@@ -25,7 +25,7 @@ function makeDb(): GenericDb {
             song_id TEXT PRIMARY KEY, file_extension TEXT NOT NULL, file_hash TEXT NOT NULL, name TEXT NOT NULL,
             synced_lyrics TEXT, plain_lyrics TEXT, lyrics_instrumental INTEGER NOT NULL DEFAULT 0,
             lyrics_source TEXT, bpm INTEGER, heaviness INTEGER, exploratory INTEGER NOT NULL DEFAULT 0,
-            tags_stale INTEGER NOT NULL DEFAULT 0
+            tags_stale INTEGER NOT NULL DEFAULT 0, hook_start_percent REAL
         );
         CREATE TABLE playlists (
             playlist_id TEXT PRIMARY KEY, user_id TEXT NOT NULL, name TEXT NOT NULL,
@@ -45,7 +45,7 @@ function song(id: string, exploratory: boolean): Song {
     return {
         songId: id, fileExtension: "mp3", fileHash: `hash-${id}`, name: `Song ${id}`,
         syncedLyrics: null, plainLyrics: null, lyricsInstrumental: false, lyricsSource: null,
-        bpm: null, heaviness: null, exploratory, tagsStale: false,
+        bpm: null, heaviness: null, exploratory, tagsStale: false, hookStartPercent: null,
     };
 }
 

@@ -35,7 +35,7 @@ function makeDb(): GenericDb {
             bpm INTEGER,
             heaviness INTEGER,
             exploratory INTEGER NOT NULL DEFAULT 0,
-            tags_stale INTEGER NOT NULL DEFAULT 0
+            tags_stale INTEGER NOT NULL DEFAULT 0, hook_start_percent REAL
         );
         CREATE TABLE artists (artist_id TEXT PRIMARY KEY, name TEXT NOT NULL);
         CREATE TABLE song_artists (song_artist_id TEXT PRIMARY KEY, song_id TEXT NOT NULL, artist_id TEXT NOT NULL);

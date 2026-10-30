@@ -167,6 +167,13 @@ export function songFeedStart(cursorRaw: string | null, keyRaw: string | null): 
 export const SONG_LIST_MAX_IDS = 500;
 
 /**
+ * Bump when the app starts storing a song field it used to drop, so the next sync re-reads every local song once
+ * (STORAGE_KEYS.SONG_FIELDS_REVISION). The server doesn't move a song's Version for that, so /songs/changed alone
+ * would never send the field for songs already held. "1": hookStartPercent (ShuffullApp#126).
+ */
+export const SONG_FIELDS_REVISION = "1";
+
+/**
  * How often the app checks every song it holds against the server. Each check is a full `/songs/list` round trip
  * per 500 songs, artists, tags and lyrics included, for the ids alone, so it runs daily rather than every sync.
  */

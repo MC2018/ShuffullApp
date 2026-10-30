@@ -4,13 +4,14 @@ import { drizzle as betterSqliteDrizzle } from "drizzle-orm/better-sqlite3";
 import { drizzle as expoDrizzle } from "drizzle-orm/expo-sqlite/driver";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { eq } from "drizzle-orm";
+import { readFileSync } from "node:fs";
 import path from "path";
 import type { GenericDb } from "@/app/services/db/GenericDb";
 import DbQueries from "@/app/services/db/queries";
 import { localSessionDataTable, playlistSongTable, playlistTable, songTable, userTable } from "@/app/services/db/schema";
 import { enqueueSongRetag, getRequests } from "@/app/services/db/queries/request";
 import { withTransaction } from "@/app/services/db/transaction";
-import type { FeedKey } from "@/app/services/api/models";
+import { ChangedSongKeysSchema, ChangedSongPageSchema, SongListResponseSchema, type FeedKey } from "@/app/services/api/models";
 
 const storage = new Map<string, string>();
 vi.mock("@/app/tools", () => import("@/app/tools/pure"));
@@ -70,7 +71,7 @@ function apiSong(songId: string, name: string, fileHash = `hash-${songId}`) {
     return {
         songId, name, fileHash, fileExtension: "mp3", artists: [], tags: [],
         syncedLyrics: null, plainLyrics: null, lyricsInstrumental: false, lyricsSource: null,
-        bpm: null, heaviness: null, exploratory: false, tagsStale: false,
+        bpm: null, heaviness: null, exploratory: false, tagsStale: false, hookStartPercent: null,
     };
 }
 
@@ -86,7 +87,8 @@ function makeApi(changedS1: object) {
             version: NEW_VERSION, songIds: ["s1", "s2"], isExploratory: false,
         }]),
         userSongGetAll: vi.fn(async () => ({ items: [], keys: [] as FeedKey[], endOfList: true })),
-        songGetList: vi.fn(async () => [apiSong("s2", "New song")]),
+        songGetList: vi.fn(async (songIds: string[]) =>
+            [apiSong("s1", "Original"), apiSong("s2", "New song")].filter(x => songIds.includes(x.songId))),
         songGetChanged: vi.fn(async () => ({
             items: [{ ...changedS1, version: NEW_VERSION }],
             keys: [{ version: NEW_VERSION.toISOString(), songId: "s1" }],
@@ -95,7 +97,7 @@ function makeApi(changedS1: object) {
     };
 }
 
-function makeManager(db: GenericDb, api: ReturnType<typeof makeApi>) {
+function makeManager(db: GenericDb, api: object) {
     const manager = Object.create(SyncManager.prototype);
     Object.assign(manager, { db, api, userId: USER, logout: async () => {}, syncing: false, keepRetriedAt: new Map() });
     return manager as { overallSync(): Promise<number> };
@@ -155,6 +157,8 @@ describe("overallSync: the write phase is all-or-nothing", () => {
         // The song cursor is only written after a commit, so the same change is fetched again next time.
         expect(storage.get("SONG_SYNC_CURSOR")).toBe(CURSOR);
         expect(storage.has("SONG_SYNC_KEY")).toBe(false);
+        // Nor is the one-time re-read of held songs marked done.
+        expect(storage.has("SONG_FIELDS_REVISION")).toBe(false);
     });
 
     it("a failure after the user is written rolls the user's version back", async () => {
@@ -306,5 +310,112 @@ describe("withTransaction", () => {
 
     it("returns what the work returns", async () => {
         expect(await withTransaction(db, async () => 42)).toBe(42);
+    });
+});
+
+describe("overallSync: the audition start point (ShuffullApp#126)", () => {
+    let db: GenericDb;
+
+    // What the API sends, from the golden files its own serializer writes: song-full has hookStartPercent 37.5,
+    // song-sparse null. `preHook` strips the field, as an API from before Shuffull#79 sends them.
+    const serverRows = (name: "songs-list" | "songs-changed", preHook = false) => {
+        const raw = JSON.parse(readFileSync(path.resolve(__dirname, "contracts/shuffull-api", `${name}.json`), "utf8"));
+        if (preHook) {
+            for (const song of raw.songs) {
+                delete song.hookStartPercent;
+            }
+        }
+        return { ...raw, endOfList: true };
+    };
+
+    // The real parsers between the server's JSON and the sync, as ApiClient runs them.
+    function makeHookApi(list: unknown, changed?: unknown) {
+        return {
+            userGet: vi.fn(async () => ({ userId: USER, username: "max", version: NEW_VERSION, isCurator: false })),
+            tagGetAll: vi.fn(async () => []),
+            playlistGetAll: vi.fn(async () => [{ playlistId: "p1", version: NEW_VERSION }]),
+            playlistGetList: vi.fn(async () => [{
+                playlistId: "p1", userId: USER, name: "Audition", percentUntilReplayable: 0.5,
+                version: NEW_VERSION, songIds: ["song-full", "song-sparse"], isExploratory: true,
+            }]),
+            userSongGetAll: vi.fn(async () => ({ items: [], keys: [] as FeedKey[], endOfList: true })),
+            songGetList: vi.fn(async (songIds: string[]) =>
+                SongListResponseSchema.parse(list).songs.filter(x => songIds.includes(x.songId))),
+            songGetChanged: vi.fn(async () => changed
+                ? { items: ChangedSongPageSchema.parse(changed).songs, keys: ChangedSongKeysSchema.parse(changed).songs, endOfList: true }
+                : { items: [], keys: [] as FeedKey[], endOfList: true }),
+        };
+    }
+
+    const startPoints = async () => Object.fromEntries((await db
+        .select({ songId: songTable.songId, hookStartPercent: songTable.hookStartPercent })
+        .from(songTable)).map(x => [x.songId, x.hookStartPercent]));
+
+    // A song this device already held from before the field existed.
+    const holdSongFull = () => db.insert(songTable).values({
+        songId: "song-full", name: "Everybody Wants You", fileExtension: ".mp3", fileHash: "0f343b0931126a20f133d67c2b018a3b",
+    });
+
+    beforeEach(async () => {
+        db = makeDb();
+        await seed(db);
+        storage.clear();
+        storage.set("SONG_SYNC_CURSOR", CURSOR);
+        storage.set("SONG_FIELDS_REVISION", "1");
+    });
+
+    afterEach(() => vi.restoreAllMocks());
+
+    it("a full sync stores each new song's start point, and null for one without", async () => {
+        const status = await makeManager(db, makeHookApi(serverRows("songs-list"))).overallSync();
+
+        expect(status).toBe(200);
+        expect(await startPoints()).toMatchObject({ "song-full": 37.5, "song-sparse": null });
+    });
+
+    it("a /songs/changed page brings a held song its start point", async () => {
+        await holdSongFull();
+
+        const status = await makeManager(db, makeHookApi(serverRows("songs-list"), serverRows("songs-changed"))).overallSync();
+
+        expect(status).toBe(200);
+        expect(await startPoints()).toMatchObject({ "song-full": 37.5, "song-sparse": null });
+    });
+
+    it("an API from before Shuffull#79 still syncs, with no start points", async () => {
+        await holdSongFull();
+        const api = makeHookApi(serverRows("songs-list", true), serverRows("songs-changed", true));
+
+        const status = await makeManager(db, api).overallSync();
+
+        expect(status).toBe(200);
+        expect(await startPoints()).toMatchObject({ "song-full": null, "song-sparse": null });
+    });
+
+    it("the first sync after the upgrade re-reads every held song once, since their Version never moves", async () => {
+        storage.delete("SONG_FIELDS_REVISION");
+        await holdSongFull();
+        const api = makeHookApi(serverRows("songs-list"));
+
+        expect(await makeManager(db, api).overallSync()).toBe(200);
+
+        expect(await startPoints()).toMatchObject({ "s1": null, "song-full": 37.5, "song-sparse": null });
+        expect(storage.get("SONG_FIELDS_REVISION")).toBe("1");
+        const calls = api.songGetList.mock.calls.length;
+        expect(await makeManager(db, api).overallSync()).toBe(200);
+        expect(api.songGetList.mock.calls.length).toBe(calls);
+    });
+
+    it("a sync that fails leaves the re-read to the next one", async () => {
+        storage.delete("SONG_FIELDS_REVISION");
+        vi.spyOn(console, "error").mockImplementation(() => {});
+        await holdSongFull();
+        const api = makeHookApi(serverRows("songs-list"));
+        api.songGetChanged.mockRejectedValue(new Error("network down"));
+
+        expect(await makeManager(db, api).overallSync()).toBe(500);
+
+        expect(storage.has("SONG_FIELDS_REVISION")).toBe(false);
+        expect(await startPoints()).toMatchObject({ "song-full": null });
     });
 });

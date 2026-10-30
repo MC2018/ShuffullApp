@@ -511,6 +511,7 @@ export async function fetchSongDetails(db: GenericDb, songId: string): Promise<S
             heaviness: songTable.heaviness,
             exploratory: songTable.exploratory,
             tagsStale: songTable.tagsStale,
+            hookStartPercent: songTable.hookStartPercent,
             artist: {
                 artistId: artistTable.artistId,
                 name: artistTable.name

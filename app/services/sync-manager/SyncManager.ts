@@ -11,7 +11,7 @@ import { withTransaction } from "@/app/services/db/transaction";
 import { Downloader } from "@/app/services/downloader/Downloader";
 import { STORAGE_KEYS } from "@/app/constants/storageKeys";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { collectNewSongIds, FEED_START, failedKeeps, failedListens, groupRequestsIntoBatches, holdBehindRefused, keepsDueForRetry, markRefused, OUTBOX_MAX_BATCH_SIZE, pageFeed, partitionRejectedRequests, playlistDeleteHold, playlistsToFetch, pendingSongMisses, SONG_LIST_MAX_IDS, songFeedStart, songReconcileDue, SongReconcileState, songsGoneFromServer, summarizeRetagFailures, SYNC_INTERVAL_MS, syncTicksToSkip, toRetagItems, withoutPendingDeletes } from "@/app/services/sync-manager/syncLogic";
+import { collectNewSongIds, FEED_START, failedKeeps, failedListens, groupRequestsIntoBatches, holdBehindRefused, keepsDueForRetry, markRefused, OUTBOX_MAX_BATCH_SIZE, pageFeed, partitionRejectedRequests, playlistDeleteHold, playlistsToFetch, pendingSongMisses, SONG_FIELDS_REVISION, SONG_LIST_MAX_IDS, songFeedStart, songReconcileDue, SongReconcileState, songsGoneFromServer, summarizeRetagFailures, SYNC_INTERVAL_MS, syncTicksToSkip, toRetagItems, withoutPendingDeletes } from "@/app/services/sync-manager/syncLogic";
 
 /** What one outbox batch came back with: the status sync() acts on, and the error text when it failed. */
 interface RunResult {
@@ -429,6 +429,17 @@ export class SyncManager {
                 songBatches.push(await this.api.songGetList(idChunk));
             }
 
+            // Songs synced by a build that dropped a field this one stores (see SONG_FIELDS_REVISION) are re-read
+            // once, all of them, and refreshed below like changed songs. Their server Version never moves for it.
+            const refreshSongFields =
+                (await AsyncStorage.getItem(STORAGE_KEYS.SONG_FIELDS_REVISION)) !== SONG_FIELDS_REVISION;
+            const refreshedSongs: ApiModels.Song[] = [];
+            if (refreshSongFields) {
+                for (const idChunk of chunk(localSongIds, SONG_LIST_MAX_IDS)) {
+                    refreshedSongs.push(...await this.api.songGetList(idChunk));
+                }
+            }
+
             // ── Incremental refresh of songs we ALREADY hold whose server Version changed since last sync
             // (e.g. a song re-sourced in place with better audio). The very first sync seeds the cursor at
             // "now" and skips: the fetch above already pulled current data, and paging the whole library back
@@ -452,8 +463,9 @@ export class SyncManager {
             }
 
             // Same overlapping-page caveat as the user songs above: songId is this table's primary key, so a
-            // row repeated across a page boundary would break the whole insert. Newest wins.
-            const changedLocalSongs = distinctByLast(fetchedChangedSongs, x => x.songId);
+            // row repeated across a page boundary would break the whole insert. Newest wins, so a re-read song the feed
+            // also sent takes the feed's row.
+            const changedLocalSongs = distinctByLast([...refreshedSongs, ...fetchedChangedSongs], x => x.songId);
 
             // Of those, find the songs whose audio (fileHash) actually changed: their local files are now
             // orphaned and any "downloaded" flag is stale. Read the OLD records BEFORE the write below
@@ -580,6 +592,9 @@ export class SyncManager {
                 await AsyncStorage.setItem(STORAGE_KEYS.SONG_SYNC_CURSOR, nextSongKey.version);
             } else if (songFeedFrom == null) {
                 await AsyncStorage.setItem(STORAGE_KEYS.SONG_SYNC_CURSOR, syncStartTime.toISOString());
+            }
+            if (refreshSongFields) {
+                await AsyncStorage.setItem(STORAGE_KEYS.SONG_FIELDS_REVISION, SONG_FIELDS_REVISION);
             }
 
             return HttpStatusCode.Ok;
