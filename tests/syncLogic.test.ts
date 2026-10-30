@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { playlistsToFetch, collectNewSongIds, justBefore, nextFeedCursor, pageFeed, pendingSongMisses, SONG_RECONCILE_INTERVAL_MS, SONG_RECONFIRM_INTERVAL_MS, songFeedStart, songReconcileDue, songsGoneFromServer, holdBehindRefused, markRefused, SYNC_MAX_BACKOFF_TICKS, syncTicksToSkip } from "@/app/services/sync-manager/syncLogic";
 import type { FeedCursor, FeedKey } from "@/app/services/api/models";
+import { RequestType } from "@/app/enums";
 
 describe("playlistsToFetch", () => {
     const d = (s: string) => new Date(s);
@@ -348,27 +349,37 @@ describe("syncTicksToSkip", () => {
 });
 
 describe("holdBehindRefused", () => {
+    const like = (id: string, songId: string) => ({ id, requestType: RequestType.SetSongLikeStatus, songId });
+
     it("holds rows about a refused song or playlist, and whatever is queued behind those", () => {
         const refused = new Set<string>();
-        markRefused([{ songId: "s1" }], refused);
+        markRefused([like("x", "s1")], refused);
 
         const { ready, held } = holdBehindRefused([
-            { id: "a", songId: "s1" },
-            { id: "b", songId: "s2" },
-            { id: "c", songId: null, playlistId: "p1" },
+            like("a", "s1"),
+            like("b", "s2"),
+            { id: "c", requestType: RequestType.DeletePlaylist, playlistId: "p1" },
         ], refused);
         expect(ready.map(x => x.id)).toEqual(["b", "c"]);
         expect(held.map(x => x.id)).toEqual(["a"]);
 
-        markRefused([{ playlistId: "p1" }], refused);
-        expect(holdBehindRefused([{ id: "d", playlistId: "p1" }, { id: "e", songId: "s3" }], refused).ready.map(x => x.id))
-            .toEqual(["e"]);
+        markRefused([{ requestType: RequestType.DeletePlaylist, playlistId: "p1" }], refused);
+        const next = holdBehindRefused([{ id: "d", requestType: RequestType.DeletePlaylist, playlistId: "p1" }, like("e", "s3")], refused);
+        expect(next.ready.map(x => x.id)).toEqual(["e"]);
+    });
+
+    it("never holds a Keep, and a refused Keep holds nothing", () => {
+        const refused = new Set<string>();
+        markRefused([like("x", "s1"), { requestType: RequestType.SongRetag, songId: "s2" }], refused);
+
+        const { ready } = holdBehindRefused([{ id: "keep", requestType: RequestType.SongRetag, songId: "s1" }, like("b", "s2")], refused);
+        expect(ready.map(x => x.id)).toEqual(["keep", "b"]);
     });
 
     it("keeps a song id and a playlist id with the same value apart", () => {
         const refused = new Set<string>();
-        markRefused([{ songId: "x" }], refused);
+        markRefused([like("x", "x")], refused);
 
-        expect(holdBehindRefused([{ playlistId: "x" }], refused).held).toEqual([]);
+        expect(holdBehindRefused([{ requestType: RequestType.DeletePlaylist, playlistId: "x" }], refused).held).toEqual([]);
     });
 });

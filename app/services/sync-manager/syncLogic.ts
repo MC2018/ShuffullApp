@@ -332,9 +332,23 @@ export function partitionRejectedRequests<T extends AgedRequest>(
     return { abandon, keep };
 }
 
-/** What an outbox row acts on: its song and its playlist, as keys that can't collide. */
-function outboxSubjects(request: { songId?: string | null; playlistId?: string | null }): string[] {
+/** An outbox row as the hold-behind-refused rule needs it. */
+export interface OutboxSubject {
+    requestType: number;
+    songId?: string | null;
+    playlistId?: string | null;
+}
+
+/**
+ * What an outbox row acts on, as keys that can't collide: its song and its playlist. None for a Keep: it promotes the
+ * song whatever came before, so it has no order to keep, and it must never wait days behind an unrelated refused row
+ * (a play, a metadata edit) and hold its playlist's delete with it.
+ */
+function outboxSubjects(request: OutboxSubject): string[] {
     const subjects: string[] = [];
+    if (request.requestType == RequestType.SongRetag) {
+        return subjects;
+    }
     if (request.songId) {
         subjects.push(`song:${request.songId}`);
     }
@@ -345,7 +359,7 @@ function outboxSubjects(request: { songId?: string | null; playlistId?: string |
 }
 
 /** Records the subjects of rows refused this sync and kept for retry, so later rows about them wait (holdBehindRefused). */
-export function markRefused(requests: { songId?: string | null; playlistId?: string | null }[], refused: Set<string>): void {
+export function markRefused(requests: OutboxSubject[], refused: Set<string>): void {
     for (const request of requests) {
         for (const subject of outboxSubjects(request)) {
             refused.add(subject);
@@ -359,10 +373,7 @@ export function markRefused(requests: { songId?: string | null; playlistId?: str
  * first: the old API answers 400 to any handler failure, so a refused Like retried after the Neutral the user chose
  * since would leave the song liked. Held rows are marked too, so the rows behind them wait as well.
  */
-export function holdBehindRefused<T extends { songId?: string | null; playlistId?: string | null }>(
-    batch: T[],
-    refused: Set<string>,
-): { ready: T[]; held: T[] } {
+export function holdBehindRefused<T extends OutboxSubject>(batch: T[], refused: Set<string>): { ready: T[]; held: T[] } {
     const ready: T[] = [];
     const held: T[] = [];
     for (const request of batch) {
