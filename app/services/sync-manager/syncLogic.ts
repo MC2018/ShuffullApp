@@ -167,6 +167,14 @@ export function songFeedStart(cursorRaw: string | null, keyRaw: string | null): 
 export const SONG_LIST_MAX_IDS = 500;
 
 /**
+ * Bump when the app starts storing a song field it used to drop, so the songs check (SyncManager.reconcileSongs) runs
+ * a full one within the hour instead of the day, and fills the field in (STORAGE_KEYS.SONG_FIELDS_REVISION). The
+ * server doesn't move a song's Version for that, so /songs/changed alone would never send the field for songs already
+ * held. "1": hookStartPercent (ShuffullApp#126).
+ */
+export const SONG_FIELDS_REVISION = "1";
+
+/**
  * How often the app checks every song it holds against the server. Each check is a full `/songs/list` round trip
  * per 500 songs, artists, tags and lyrics included, for the ids alone, so it runs daily rather than every sync.
  */
@@ -202,12 +210,15 @@ export function pendingSongMisses(raw: string | null, host: string | null, userI
     }
 }
 
-/** Whether a check is due: soon when the last one left misses to confirm, otherwise daily. */
-export function songReconcileDue(lastCheckAt: number | null, now: number, pendingMisses: number): boolean {
+/**
+ * Whether a check is due: soon when the last one left misses to confirm or no full check has filled in the current
+ * SONG_FIELDS_REVISION yet (`fieldsBehind`), otherwise daily.
+ */
+export function songReconcileDue(lastCheckAt: number | null, now: number, pendingMisses: number, fieldsBehind = false): boolean {
     if (lastCheckAt == null || !Number.isFinite(lastCheckAt)) {
         return true;
     }
-    const interval = pendingMisses ? SONG_RECONFIRM_INTERVAL_MS : SONG_RECONCILE_INTERVAL_MS;
+    const interval = pendingMisses || fieldsBehind ? SONG_RECONFIRM_INTERVAL_MS : SONG_RECONCILE_INTERVAL_MS;
     return now - lastCheckAt >= interval;
 }
 

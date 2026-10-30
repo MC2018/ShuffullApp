@@ -4,13 +4,14 @@ import { drizzle as betterSqliteDrizzle } from "drizzle-orm/better-sqlite3";
 import { drizzle as expoDrizzle } from "drizzle-orm/expo-sqlite/driver";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { eq } from "drizzle-orm";
+import { readFileSync } from "node:fs";
 import path from "path";
 import type { GenericDb } from "@/app/services/db/GenericDb";
 import DbQueries from "@/app/services/db/queries";
 import { localSessionDataTable, playlistSongTable, playlistTable, songTable, userTable } from "@/app/services/db/schema";
 import { enqueueSongRetag, getRequests } from "@/app/services/db/queries/request";
 import { withTransaction } from "@/app/services/db/transaction";
-import type { FeedKey } from "@/app/services/api/models";
+import { ChangedSongKeysSchema, ChangedSongPageSchema, SongListResponseSchema, type FeedKey } from "@/app/services/api/models";
 
 const storage = new Map<string, string>();
 vi.mock("@/app/tools", () => import("@/app/tools/pure"));
@@ -70,7 +71,7 @@ function apiSong(songId: string, name: string, fileHash = `hash-${songId}`) {
     return {
         songId, name, fileHash, fileExtension: "mp3", artists: [], tags: [],
         syncedLyrics: null, plainLyrics: null, lyricsInstrumental: false, lyricsSource: null,
-        bpm: null, heaviness: null, exploratory: false, tagsStale: false,
+        bpm: null, heaviness: null, exploratory: false, tagsStale: false, hookStartPercent: null,
     };
 }
 
@@ -95,7 +96,38 @@ function makeApi(changedS1: object) {
     };
 }
 
-function makeManager(db: GenericDb, api: ReturnType<typeof makeApi>) {
+// What the API sends, from the golden files its own serializer writes: song-full has hookStartPercent 37.5,
+// song-sparse null. `preHook` strips the field, as an API from before Shuffull#79 sends them.
+const serverRows = (name: "songs-list" | "songs-changed", preHook = false) => {
+    const raw = JSON.parse(readFileSync(path.resolve(__dirname, "contracts/shuffull-api", `${name}.json`), "utf8"));
+    if (preHook) {
+        for (const song of raw.songs) {
+            delete song.hookStartPercent;
+        }
+    }
+    return { ...raw, endOfList: true };
+};
+
+// The real parsers between the server's JSON and the sync, as ApiClient runs them.
+function makeHookApi(list: unknown, changed?: unknown) {
+    return {
+        userGet: vi.fn(async () => ({ userId: USER, username: "max", version: NEW_VERSION, isCurator: false })),
+        tagGetAll: vi.fn(async () => []),
+        playlistGetAll: vi.fn(async () => [{ playlistId: "p1", version: NEW_VERSION }]),
+        playlistGetList: vi.fn(async () => [{
+            playlistId: "p1", userId: USER, name: "Audition", percentUntilReplayable: 0.5,
+            version: NEW_VERSION, songIds: ["song-full", "song-sparse"], isExploratory: true,
+        }]),
+        userSongGetAll: vi.fn(async () => ({ items: [], keys: [] as FeedKey[], endOfList: true })),
+        songGetList: vi.fn(async (songIds: string[]) =>
+            SongListResponseSchema.parse(list).songs.filter(x => songIds.includes(x.songId))),
+        songGetChanged: vi.fn(async () => changed
+            ? { items: ChangedSongPageSchema.parse(changed).songs, keys: ChangedSongKeysSchema.parse(changed).songs, endOfList: true }
+            : { items: [], keys: [] as FeedKey[], endOfList: true }),
+    };
+}
+
+function makeManager(db: GenericDb, api: ReturnType<typeof makeApi> | ReturnType<typeof makeHookApi>) {
     const manager = Object.create(SyncManager.prototype);
     Object.assign(manager, { db, api, userId: USER, logout: async () => {}, syncing: false, keepRetriedAt: new Map() });
     return manager as { overallSync(): Promise<number> };
@@ -306,5 +338,53 @@ describe("withTransaction", () => {
 
     it("returns what the work returns", async () => {
         expect(await withTransaction(db, async () => 42)).toBe(42);
+    });
+});
+
+describe("overallSync: the audition start point (ShuffullApp#126)", () => {
+    let db: GenericDb;
+
+    const startPoints = async () => Object.fromEntries((await db
+        .select({ songId: songTable.songId, hookStartPercent: songTable.hookStartPercent })
+        .from(songTable)).map(x => [x.songId, x.hookStartPercent]));
+
+    // A song this device already held from before the field existed.
+    const holdSongFull = () => db.insert(songTable).values({
+        songId: "song-full", name: "Everybody Wants You", fileExtension: ".mp3", fileHash: "0f343b0931126a20f133d67c2b018a3b",
+    });
+
+    beforeEach(async () => {
+        db = makeDb();
+        await seed(db);
+        storage.clear();
+        storage.set("SONG_SYNC_CURSOR", CURSOR);
+    });
+
+    afterEach(() => vi.restoreAllMocks());
+
+    it("a full sync stores each new song's start point, and null for one without", async () => {
+        const status = await makeManager(db, makeHookApi(serverRows("songs-list"))).overallSync();
+
+        expect(status).toBe(200);
+        expect(await startPoints()).toMatchObject({ "song-full": 37.5, "song-sparse": null });
+    });
+
+    it("a /songs/changed page brings a held song its start point", async () => {
+        await holdSongFull();
+
+        const status = await makeManager(db, makeHookApi(serverRows("songs-list"), serverRows("songs-changed"))).overallSync();
+
+        expect(status).toBe(200);
+        expect(await startPoints()).toMatchObject({ "song-full": 37.5, "song-sparse": null });
+    });
+
+    it("an API from before Shuffull#79 still syncs, with no start points", async () => {
+        await holdSongFull();
+        const api = makeHookApi(serverRows("songs-list", true), serverRows("songs-changed", true));
+
+        const status = await makeManager(db, api).overallSync();
+
+        expect(status).toBe(200);
+        expect(await startPoints()).toMatchObject({ "song-full": null, "song-sparse": null });
     });
 });

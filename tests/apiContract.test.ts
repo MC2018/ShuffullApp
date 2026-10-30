@@ -65,6 +65,7 @@ describe("API contract: songs (shuffull-workspace#5)", () => {
             heaviness: 6,
             exploratory: false,
             tagsStale: true,
+            hookStartPercent: 37.5,
         });
         expect(songs[1]).toMatchObject({
             songId: "song-sparse",
@@ -75,6 +76,7 @@ describe("API contract: songs (shuffull-workspace#5)", () => {
             heaviness: null,
             exploratory: true,
             tagsStale: false,
+            hookStartPercent: null,
         });
     });
 

@@ -11,7 +11,7 @@ import { withTransaction } from "@/app/services/db/transaction";
 import { Downloader } from "@/app/services/downloader/Downloader";
 import { STORAGE_KEYS } from "@/app/constants/storageKeys";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { collectNewSongIds, FEED_START, failedKeeps, failedListens, groupRequestsIntoBatches, holdBehindRefused, keepsDueForRetry, markRefused, OUTBOX_MAX_BATCH_SIZE, pageFeed, partitionRejectedRequests, playlistDeleteHold, playlistsToFetch, pendingSongMisses, SONG_LIST_MAX_IDS, songFeedStart, songReconcileDue, SongReconcileState, songsGoneFromServer, summarizeRetagFailures, SYNC_INTERVAL_MS, syncTicksToSkip, toRetagItems, withoutPendingDeletes } from "@/app/services/sync-manager/syncLogic";
+import { collectNewSongIds, FEED_START, failedKeeps, failedListens, groupRequestsIntoBatches, holdBehindRefused, keepsDueForRetry, markRefused, OUTBOX_MAX_BATCH_SIZE, pageFeed, partitionRejectedRequests, playlistDeleteHold, playlistsToFetch, pendingSongMisses, SONG_FIELDS_REVISION, SONG_LIST_MAX_IDS, songFeedStart, songReconcileDue, SongReconcileState, songsGoneFromServer, summarizeRetagFailures, SYNC_INTERVAL_MS, syncTicksToSkip, toRetagItems, withoutPendingDeletes } from "@/app/services/sync-manager/syncLogic";
 
 /** What one outbox batch came back with: the status sync() acts on, and the error text when it failed. */
 interface RunResult {
@@ -332,12 +332,15 @@ export class SyncManager {
     // The pull can't see a song the server deleted (see songsGoneFromServer), so now and then ask for every local song
     // by id and purge what the server no longer has. Derived, not a queue: a check that fails changes nothing, and the
     // next one finds the same songs. The 573 songs one phone held after their server rows were gone heal this way.
+    // The same answer also refreshes the song fields the feed can't (backfillSongFields); a build that starts storing
+    // a new one bumps SONG_FIELDS_REVISION, which brings the next full check forward.
     private async reconcileSongs() {
         const now = Date.now();
         const host = await AsyncStorage.getItem(STORAGE_KEYS.HOST_ADDRESS);
         const pending = pendingSongMisses(await AsyncStorage.getItem(STORAGE_KEYS.SONG_RECONCILE_STATE), host, this.userId);
         const lastRaw = await AsyncStorage.getItem(STORAGE_KEYS.SONG_RECONCILE_AT);
-        if (!songReconcileDue(lastRaw == null ? null : Number(lastRaw), now, pending.length)) {
+        const fieldsBehind = (await AsyncStorage.getItem(STORAGE_KEYS.SONG_FIELDS_REVISION)) !== SONG_FIELDS_REVISION;
+        if (!songReconcileDue(lastRaw == null ? null : Number(lastRaw), now, pending.length, fieldsBehind)) {
             return;
         }
         // Stamped before the fetch, so a check that fails waits out the interval instead of re-running every sync.
@@ -350,18 +353,25 @@ export class SyncManager {
             const checkedSongIds = pending.length ? pending.filter(x => local.has(x)) : localSongIds;
 
             // Every call must succeed before anything counts as missing: a throw here leaves the misses untouched.
-            const returnedSongIds: string[] = [];
+            const returnedSongs: Pick<ApiModels.Song, "songId" | "hookStartPercent">[] = [];
             for (const idChunk of chunk(checkedSongIds, SONG_LIST_MAX_IDS)) {
-                returnedSongIds.push(...(await this.api.songGetList(idChunk)).map(x => x.songId));
+                returnedSongs.push(...(await this.api.songGetList(idChunk))
+                    .map(x => ({ songId: x.songId, hookStartPercent: x.hookStartPercent })));
             }
+            const returnedSongIds = returnedSongs.map(x => x.songId);
 
             const { purge, misses, implausible } = songsGoneFromServer(checkedSongIds, returnedSongIds, pending);
             const { purged, filesInUse } = await withTransaction(this.db, async (tx) => {
                 const purged = await DbQueries.purgeSongs(tx, purge);
+                await DbQueries.backfillSongFields(tx, returnedSongs);
                 return { purged, filesInUse: await DbQueries.fileHashesInUse(tx, purged.map(x => x.fileHash)) };
             });
             const state: SongReconcileState = { host, userId: this.userId, misses };
             await AsyncStorage.setItem(STORAGE_KEYS.SONG_RECONCILE_STATE, JSON.stringify(state));
+            // Only a full check has seen every held song.
+            if (!pending.length) {
+                await AsyncStorage.setItem(STORAGE_KEYS.SONG_FIELDS_REVISION, SONG_FIELDS_REVISION);
+            }
 
             for (const song of purged.filter(x => !filesInUse.has(x.fileHash))) {
                 await Downloader.deleteLocalSongFiles(song);

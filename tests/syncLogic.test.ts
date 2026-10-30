@@ -338,6 +338,11 @@ describe("songReconcileDue", () => {
         expect(songReconcileDue(now - SONG_RECONFIRM_INTERVAL_MS + 1, now, 3)).toBe(false);
         expect(songReconcileDue(now - SONG_RECONFIRM_INTERVAL_MS, now, 3)).toBe(true);
     });
+
+    it("runs a full check within the hour when the stored song fields are behind this build", () => {
+        expect(songReconcileDue(now - SONG_RECONFIRM_INTERVAL_MS + 1, now, 0, true)).toBe(false);
+        expect(songReconcileDue(now - SONG_RECONFIRM_INTERVAL_MS, now, 0, true)).toBe(true);
+    });
 });
 
 describe("syncTicksToSkip", () => {

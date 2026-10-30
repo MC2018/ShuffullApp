@@ -51,7 +51,10 @@ const SongFields = z.object({
     exploratory: z.boolean().default(false),
     // Tags produced by a weaker model than the server's current strong one (e.g. a Standard-tier import).
     // Treated like exploratory for promote-on-like: liking enqueues a re-tag that upgrades the tags.
-    tagsStale: z.boolean().default(false)
+    tagsStale: z.boolean().default(false),
+    // Audition mode's start point, a percent of the song's length. Defaulted so an API from before Shuffull#79,
+    // which doesn't send it, still parses.
+    hookStartPercent: z.number().nullable().default(null)
 });
 
 // Heaviness was called `energy` until shuffull-workspace#50, and a site from before the rename sends only that.

@@ -57,6 +57,9 @@ export const songTable = sqliteTable("songs", {
     // Tags came from a weaker model than the server's current strong one (server-computed on sync). Liking
     // the song enqueues the same re-tag as an exploratory promote, upgrading its tags in place.
     tagsStale: integer("tags_stale", { mode: "boolean" }).notNull().default(false),
+    // Where audition mode starts the song, as a percent (0-100) of its length: the producer's guess at its best
+    // part. Null = unknown, and audition mode starts at 35% (ShuffullApp#126).
+    hookStartPercent: real("hook_start_percent"),
 }, (table) => {
     return {
         nameIndex: index("idx_songs_name").on(table.name),
