@@ -1,0 +1,19 @@
+{
+  "results": [
+    {
+      "listenId": "listen-full",
+      "outcome": "recorded",
+      "error": null
+    },
+    {
+      "listenId": "listen-sparse",
+      "outcome": "duplicate",
+      "error": null
+    },
+    {
+      "listenId": "listen-bad",
+      "outcome": "rejected",
+      "error": "endedAt is before startedAt."
+    }
+  ]
+}
