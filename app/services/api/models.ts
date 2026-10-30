@@ -195,9 +195,9 @@ export const RecordListensResponseSchema = z.object({
 });
 export type RecordListensResponse = z.infer<typeof RecordListensResponseSchema>;
 // GET /api/v1/listens/stats -> the caller's per-song stats over every listen they logged, and the "maybe drop this"
-// rule the flags were computed with (ShuffullApp#115). Parsed strictly: this replaces the whole local cache, so a body
-// that isn't the stats (a proxy page) must fail rather than read as "no stats". The flag is the server's; the app
-// only shows it and never re-derives it from the numbers.
+// rule the flags were computed with (ShuffullApp#115). Every field is required: this replaces the whole local cache, so
+// a body that isn't the stats (a proxy page) must fail rather than read as "no stats". Unknown fields are ignored, so
+// the server can add some. The flag is the server's; the app only shows it and never re-derives it from the numbers.
 export const ListenStatsResponseSchema = z.object({
     maybeDropRule: z.object({
         skippedUnderSeconds: z.number(),

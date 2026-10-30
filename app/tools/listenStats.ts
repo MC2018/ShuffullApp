@@ -60,9 +60,9 @@ export function describeAgo(then: Date, now: Date): string {
     return days == 1 ? "1 day ago" : `${days} days ago`;
 }
 
-/** The rule in words, e.g. "Skipped in under 30 s on 3 of the last 5 plays." */
+/** The rule in words, e.g. "Skipped in under 30 s on at least 3 of the last 5 plays." */
 export function describeMaybeDropRule(rule: MaybeDropRule): string {
-    return `Skipped in under ${rule.skippedUnderSeconds} s on ${rule.quickSkips} of the last ${rule.ofLastPlays} plays.`;
+    return `Skipped in under ${rule.skippedUnderSeconds} s on at least ${rule.quickSkips} of the last ${rule.ofLastPlays} plays.`;
 }
 
 /** Why one song is flagged, from the server's own count, e.g. "4 of your last 5 plays skipped in under 30 s". */

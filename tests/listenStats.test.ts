@@ -96,7 +96,7 @@ describe("listen stats wording", () => {
     });
 
     it("puts the server's rule and counts into words", () => {
-        expect(describeMaybeDropRule(RULE)).toBe("Skipped in under 30 s on 3 of the last 5 plays.");
+        expect(describeMaybeDropRule(RULE)).toBe("Skipped in under 30 s on at least 3 of the last 5 plays.");
         expect(describeQuickSkips({ plays: 12, recentQuickSkips: 4 }, RULE)).toBe("4 of your last 5 plays skipped in under 30 s");
         expect(describeQuickSkips({ plays: 3, recentQuickSkips: 3 }, RULE)).toBe("3 of your last 3 plays skipped in under 30 s");
     });

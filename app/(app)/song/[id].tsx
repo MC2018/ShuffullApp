@@ -6,7 +6,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Artist, ListenStat, Song, Tag, UpdateSongMetadataPayload } from "@/app/services/db/models";
 import { SongDetails } from "@/app/services/db/types";
 import { TagType } from "@/app/services/db/schema";
-import { RequestType } from "@/app/enums";
+import { LikeStatus, RequestType } from "@/app/enums";
 import { generateId } from "@/app/tools";
 import { computeTapBpm, nextTaps } from "@/app/tools/tapTempo";
 import { describeAgo, describeQuickSkips, listenStatFacts } from "@/app/tools/listenStats";
@@ -16,6 +16,7 @@ import { useDb } from "@/app/services/db/DbProvider";
 import { useCurrentUser } from "@/app/services/auth/CurrentUserProvider";
 import { Downloader } from "@/app/services/downloader/Downloader";
 import { MediaManager } from "@/app/services/media-manager";
+import { useLikeStatus } from "@/app/services/media-manager/mediaManager";
 import PlayerBar, { totalPlayerBarHeight } from "@/app/components/music-control/organisms/PlayerBar";
 import RatingControl from "@/app/components/likes/atoms/RatingControl";
 import SongDownloadControl from "@/app/components/downloading/atoms/SongDownloadControl";
@@ -395,7 +396,7 @@ export default function SongScreen() {
                             </View>
 
                             {statsSnapshot != null ? (
-                                <ListeningSection stat={listenStat} snapshot={statsSnapshot} />
+                                <ListeningSection songId={details.song.songId} stat={listenStat} snapshot={statsSnapshot} />
                             ) : null}
                         </>
                     )}
@@ -555,8 +556,10 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 // "Your listening": the server's stats for this song as of the last sync, and its "maybe drop this" flag. Shown only
 // once the stats have synced at least once, so a server without them (before Shuffull#61) leaves no empty section.
-function ListeningSection({ stat, snapshot }: { stat: ListenStat | null; snapshot: ListenStatsSnapshot }) {
+// Like the "Maybe drop this" list, it drops the flag once the song is disliked: the user has already acted on it.
+function ListeningSection({ songId, stat, snapshot }: { songId: string; stat: ListenStat | null; snapshot: ListenStatsSnapshot }) {
     const theme = useTheme();
+    const disliked = useLikeStatus((s) => s.statuses[songId]) === LikeStatus.Dislike;
     const now = new Date();
 
     return (
@@ -568,7 +571,7 @@ function ListeningSection({ stat, snapshot }: { stat: ListenStat | null; snapsho
                 </Text>
             ) : (
                 <View>
-                    {stat.maybeDrop ? (
+                    {stat.maybeDrop && !disliked ? (
                         <View
                             style={{
                                 flexDirection: "row",
