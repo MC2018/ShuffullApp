@@ -62,7 +62,7 @@ describe("a listen for a song still playing when the JS context restarts", () =>
         await vi.advanceTimersByTimeAsync(20_000);
         now += 7_000;
         vi.clearAllTimers(); // its checkpoint timer died with it
-        const [orphan] = await getOpenListens(db);
+        const [orphan] = (await getOpenListens(db)).sort((a, b) => b.checkpointedAt.getTime() - a.checkpointedAt.getTime());
         return orphan.listenId;
     }
 
@@ -119,6 +119,33 @@ describe("a listen for a song still playing when the JS context restarts", () =>
 
         const listens = await queuedListens(db);
         expect(listens.map(x => [x.payload.listenId, x.payload.endReason, x.payload.secondsListened])).toEqual([[orphanId, "finished", 55]]);
+    });
+
+    it("with other orphans too, the newest for the playing song carries on and the rest close as stopped", async () => {
+        // An older play of s1 and a play of s2, both left open by runs that died long ago.
+        const older = makeRecorder();
+        await older.begin({ songId: "s1", userId: USER, context: "playlist", playlistId: "p1", platform: "android", playing: true });
+        now += 5_000;
+        await older.playbackStateChanged(false);
+        const other = makeRecorder();
+        await other.begin({ songId: "s2", userId: USER, context: "playlist", playlistId: "p1", platform: "android", playing: true });
+        now += 3_000;
+        await other.playbackStateChanged(false);
+        const open = await getOpenListens(db);
+        const olderId = open.find(x => x.songId === "s1")?.listenId;
+        const otherId = open.find(x => x.songId === "s2")?.listenId;
+        now += 3_600_000;
+        const orphanId = await oldRunDiesMidSong();
+
+        const nextRun = makeRecorder();
+        expect(await restart(nextRun)).toBe("tookOver");
+
+        const closed = (await queuedListens(db)).map(x => [x.payload.listenId, x.payload.endReason, x.payload.secondsListened]);
+        expect(closed.sort()).toEqual([[olderId, "stopped", 5], [otherId, "stopped", 3]].sort());
+        expect((await getOpenListens(db)).map(x => x.listenId)).toEqual([orphanId]);
+        now += 15_000;
+        await nextRun.end("skipped");
+        expect((await queuedListens(db)).find(x => x.payload.listenId === orphanId)?.payload.secondsListened).toBe(40);
     });
 
     it("a different song loaded closes the old listen as stopped and opens a new one, as before", async () => {
@@ -232,7 +259,9 @@ describe("the media manager", () => {
 
     it("recovers the last run's listens at the end of setup(), once the player is ready, under the transport lock", () => {
         expect(setupBody).not.toContain("listenRecorder.recover(");
-        expect(setupBody).toMatch(/void playerReady\s*\.catch\([^\n]*\)\s*\.then\(\(\) => transportLock\.run\(recoverListensForRestart\)\);/);
+        expect(setupBody).toMatch(/\} finally \{[\s\S]*void playerReady\s*\.catch\([^\n]*\)\s*\.then\(\(\) => transportLock\.run\(recoverListensForRestart\)\);\s*\}$/);
+        // Scheduled whether or not the lines before it threw, so the gate on openListenForResume always opens.
+        expect(setupBody.indexOf("try {")).toBeLessThan(setupBody.indexOf("await loadPrefetchSetting()"));
         expect(setupBody.indexOf("setSongId(currentlyPlayingSong.songId)")).toBeLessThan(setupBody.indexOf("recoverListensForRestart"));
     });
 

@@ -251,22 +251,25 @@ export async function setup(activeDb: GenericDb) {
     db = activeDb;
     listenRecorder.attach(db);
     const playerReady = initTrackPlayer();
-    await loadPrefetchSetting();
+    try {
+        await loadPrefetchSetting();
 
-    const currentlyPlayingSong = await DbQueries.getCurrentlyPlayingSong(db);
+        const currentlyPlayingSong = await DbQueries.getCurrentlyPlayingSong(db);
 
-    if (currentlyPlayingSong != undefined) {
-        useActiveSong.getState().setSongId(currentlyPlayingSong.songId);
+        if (currentlyPlayingSong != undefined) {
+            useActiveSong.getState().setSongId(currentlyPlayingSong.songId);
+        }
+    } finally {
+        // A listen still open in the database was cut short by the last JS context dying. Android can keep the player
+        // playing across that, and then no transition to Playing comes to record the rest of the song
+        // (ShuffullApp#143). Once the player is reachable and this context hears its events (initTrackPlayer), the old
+        // listens are closed at their last checkpoint, except one that is still the song playing now, which carries
+        // on (ShuffullApp#147). The close waits for the player, since it needs to know what is playing. It runs even if
+        // the player or the lines above failed: until it has, a transition to Playing opens no listen.
+        void playerReady
+            .catch(e => console.warn("[player] could not set up the player", e))
+            .then(() => transportLock.run(recoverListensForRestart));
     }
-
-    // A listen still open in the database was cut short by the last JS context dying. Android can keep the player
-    // playing across that, and then no transition to Playing comes to record the rest of the song (ShuffullApp#143).
-    // Once the player is reachable and this context hears its events (initTrackPlayer), the old listens are closed at
-    // their last checkpoint, except one that is still the song playing now, which carries on (ShuffullApp#147). The
-    // close waits for the player, since it needs to know what is playing; it runs even if the player failed to start.
-    void playerReady
-        .catch(e => console.warn("[player] could not set up the player", e))
-        .then(() => transportLock.run(recoverListensForRestart));
 }
 
 // Notification 👍/👎 button icon indices. The withNotificationActionIcons config plugin overrides the fork's
