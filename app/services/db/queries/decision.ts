@@ -1,12 +1,12 @@
 import { GenericDb } from "../GenericDb";
-import { Song } from "../models";
+import { CreateUserSongRequest, Song, UpdateSongLastPlayedRequest, UserSong } from "../models";
 import { withTransaction } from "../transaction";
 import { LikeStatus, RequestType } from "@/app/enums";
 import { shouldPromoteOnLike } from "@/app/tools/promotion";
 import { generateId } from "@/app/tools/pure";
 import { addRequests, enqueueSongRetag } from "./request";
 import { getSong, markSongKept, markSongPromoted } from "./song";
-import { setUserSongLikeStatus } from "./userSong";
+import { addUserSong, getUserSong, setUserSongLikeStatus, updateUserSongLastPlayed } from "./userSong";
 
 // A user decision is its local state AND the outbox row that tells the server, written in one transaction. Written
 // apart, a crash or a failed insert between them left the song liked on the phone with nothing queued, so the server
@@ -52,5 +52,49 @@ export async function recordKeep(db: GenericDb, userId: string, songId: string):
         await enqueueSongRetag(tx, userId, songId, "weak");
         await markSongKept(tx, songId);
         return true;
+    });
+}
+
+/**
+ * Stamps a song as played at `playedAt` and queues the stamp, creating the UserSong row if there is none yet. Returns
+ * the row. This is what makes an audition song "heard" (deriveAuditionRowState), so it is the write a mix's purge
+ * ends up keying off. The normal player calls it as a song starts; audition mode only once its heard rule is met.
+ */
+export async function recordPlayed(db: GenericDb, userId: string, songId: string, playedAt: Date): Promise<UserSong> {
+    return await withTransaction(db, async tx => {
+        let userSong = await getUserSong(tx, userId, songId);
+
+        if (userSong == undefined) {
+            // TODO: remove CreateUserSongRequest
+            const newUserSongRequest: CreateUserSongRequest = {
+                userId: userId,
+                songId: songId,
+                requestId: generateId(),
+                timeRequested: playedAt,
+                requestType: RequestType.CreateUserSong
+            };
+
+            userSong = {
+                userId: newUserSongRequest.userId,
+                songId: newUserSongRequest.songId,
+                lastPlayed: newUserSongRequest.timeRequested,
+                version: newUserSongRequest.timeRequested,
+                likeStatus: LikeStatus.Neutral
+            };
+            await addUserSong(tx, userSong);
+            await addRequests(tx, [newUserSongRequest]);
+        }
+
+        const updateSongLastPlayedRequest: UpdateSongLastPlayedRequest = {
+            requestId: generateId(),
+            lastPlayed: playedAt,
+            songId: songId,
+            timeRequested: playedAt,
+            requestType: RequestType.UpdateSongLastPlayed,
+            userId: userId
+        };
+        await updateUserSongLastPlayed(tx, userId, songId, playedAt);
+        await addRequests(tx, [updateSongLastPlayedRequest]);
+        return userSong;
     });
 }

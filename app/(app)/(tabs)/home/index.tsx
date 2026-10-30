@@ -41,7 +41,7 @@ export default function HomeScreen() {
                     return;
                 }
                 setDetails(fetched);
-                setArt(await resolveArt(fetched.song));
+                setArt(await Downloader.resolveAlbumArt(fetched.song));
             } catch {
                 // ignore
             }
@@ -159,12 +159,4 @@ export default function HomeScreen() {
             <PlayerBar />
         </Screen>
     );
-}
-
-async function resolveArt(song: Song): Promise<ArtSource> {
-    const localUri = Downloader.generateLocalAlbumArtUri(song);
-    if (await Downloader.fileExists(localUri)) {
-        return { uri: localUri };
-    }
-    return { uri: await Downloader.generateServerAlbumArtUrl(song) };
 }

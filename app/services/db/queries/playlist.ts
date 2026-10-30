@@ -102,6 +102,18 @@ export async function getPlaylistSongStates(db: GenericDb, userId: string, playl
 }
 
 /**
+ * The songs audition mode deals out for a mix: the ones the playlist screen shows as unheard, in the order it lists
+ * them. Derived from synced data alone, so leaving and coming back resumes with exactly what is still unheard.
+ */
+export async function getAuditionDeckSongIds(db: GenericDb, userId: string, playlistId: string): Promise<string[]> {
+    const rows = await getPlaylistSongStates(db, userId, playlistId);
+    return rows
+        .filter(r => deriveAuditionRowState(r.exploratory, (r.likeStatus ?? LikeStatus.Neutral) as LikeStatus, r.lastPlayed) === "unheard")
+        .map(r => r.songId)
+        .sort(); // by song id, the order the playlist screen lists them in
+}
+
+/**
  * The evaluated/total count of an audition playlist, from the same derivation the screen and the library bubble
  * render, so the player's stop-when-done rule agrees with the number on screen. Undefined for a playlist that is
  * not an audition (or not on this device): ordinary playlists have no evaluation to finish.

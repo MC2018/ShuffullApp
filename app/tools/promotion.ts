@@ -22,7 +22,12 @@ export function shouldPromoteOnLike(exploratory: boolean, tagsStale: boolean, li
  *   song already disliked before it started playing is not re-evaluated here.
  * - `isPlaying` — skip() starts the next song, so acting while paused would spontaneously begin playing audio
  *   the user never asked to hear. Disliking a paused song just leaves it rated.
+ *
+ * And `deckOwnsAdvance`: in audition mode the deck moves on after a Dislike itself. Skipping here too would move
+ * twice, past a song the user never saw.
  */
-export function shouldSkipOnDislike(isActiveSong: boolean, likeStatus: LikeStatus, isPlaying: boolean): boolean {
-    return isActiveSong && likeStatus === LikeStatus.Dislike && isPlaying;
+export function shouldSkipOnDislike(
+    isActiveSong: boolean, likeStatus: LikeStatus, isPlaying: boolean, deckOwnsAdvance = false,
+): boolean {
+    return isActiveSong && likeStatus === LikeStatus.Dislike && isPlaying && !deckOwnsAdvance;
 }

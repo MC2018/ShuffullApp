@@ -41,6 +41,12 @@ describe("shouldSkipOnDislike", () => {
         expect(shouldSkipOnDislike(false, LikeStatus.Dislike, true)).toBe(false);
     });
 
+    // Audition mode advances after a Dislike on its own; the player's skip on top would advance twice.
+    it("leaves the advance to audition mode's deck", () => {
+        expect(shouldSkipOnDislike(true, LikeStatus.Dislike, true, true)).toBe(false);
+        expect(shouldSkipOnDislike(true, LikeStatus.Dislike, true, false)).toBe(true);
+    });
+
     // skip() starts the next song, so acting while paused would begin playing audio unprompted.
     it("does not skip while paused", () => {
         expect(shouldSkipOnDislike(true, LikeStatus.Dislike, false)).toBe(false);

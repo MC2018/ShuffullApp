@@ -67,7 +67,7 @@ export default function NowPlayingScreen() {
                     return;
                 }
                 setDetails(fetched);
-                setArt(await resolveArt(fetched.song));
+                setArt(await Downloader.resolveAlbumArt(fetched.song));
             } catch {
                 // Song may have just changed out from under us; ignore.
             }
@@ -301,12 +301,4 @@ export default function NowPlayingScreen() {
             )}
         </Screen>
     );
-}
-
-async function resolveArt(song: Song): Promise<ArtSource> {
-    const localUri = Downloader.generateLocalAlbumArtUri(song);
-    if (await Downloader.fileExists(localUri)) {
-        return { uri: localUri };
-    }
-    return { uri: await Downloader.generateServerAlbumArtUrl(song) };
 }
