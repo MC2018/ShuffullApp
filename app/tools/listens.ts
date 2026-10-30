@@ -32,6 +32,47 @@ export function clockAt(clock: ListenClock, playing: boolean, now: number): List
     return clock.playingSince == null ? clock : { seconds: clockSeconds(clock, now), playingSince: null };
 }
 
+/** The song playing when a fresh JS context starts, as the player reports it. */
+export interface PlayingTrack {
+    songId: string;
+    /** The player's position in the track, in seconds. */
+    positionSeconds: number;
+}
+
+/**
+ * How far past the time since the orphan's checkpoint the player's position must be before the play counts as the
+ * same one. Covers the player's clock and the device's drifting apart; it only ever makes a takeover rarer.
+ */
+export const TAKE_OVER_MARGIN_SECONDS = 1;
+
+/**
+ * Which listen a previous JS context left open is the play still going on now, if one is (ShuffullApp#147). The new
+ * context then carries on that listen instead of closing it and opening another partway through the song.
+ *
+ * It has to be the playing song, and the song must not have started over since the listen's last checkpoint (repeat,
+ * or the queue coming back round to it while no JS ran). A play that began after the checkpoint has been going for at
+ * most the time since then, so it is at a position no further than that. A position past it means the song has played
+ * straight through since the checkpoint, and this is the same play. Nearer the start it can't be told apart from a new
+ * play, so nothing is taken over and the caller closes the orphan and opens a new listen, as before.
+ *
+ * Of several for the song, the newest checkpoint is the play; the others are older plays and get closed.
+ */
+export function listenToTakeOver<T extends { songId: string; checkpointedAt: Date }>(
+    orphans: readonly T[],
+    playing: PlayingTrack,
+    nowMs: number,
+): T | undefined {
+    const newest = orphans
+        .filter(x => x.songId === playing.songId)
+        .reduce<T | undefined>((a, b) => (a == undefined || b.checkpointedAt.getTime() > a.checkpointedAt.getTime() ? b : a), undefined);
+    if (newest == undefined || !Number.isFinite(playing.positionSeconds)) {
+        return undefined;
+    }
+
+    const sinceCheckpointSeconds = (nowMs - newest.checkpointedAt.getTime()) / 1000;
+    return playing.positionSeconds > sinceCheckpointSeconds + TAKE_OVER_MARGIN_SECONDS ? newest : undefined;
+}
+
 /** What decides a listen's context, read when the song starts. */
 export interface ListenContextInput {
     /** The song is still an un-vetted audition song (`songs.exploratory`). */
