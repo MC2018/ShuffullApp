@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, existsSync, readdirSync, rmSync } from "node
 import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
 import path from "node:path";
-import { localMediaUri, MEDIA_ROUTE, parseLocalMediaUri } from "@/app/tools/desktopMedia";
+import { localMediaUri, MEDIA_ROUTE, parseLocalMediaUri, PREFETCH_ROUTE, prefetchMediaUri } from "@/app/tools/desktopMedia";
 
 // desktop/media.js is the Electron main process's CommonJS module; it has no Electron imports, so it runs here.
 const media = createRequire(import.meta.url)("../desktop/media.js");
@@ -102,7 +102,7 @@ describe("downloadMedia", () => {
             root, fetchImpl: fakeFetch(200, body), host: "https://example.test/api", kind: "music", fileName: goodName, verify: true,
             onProgress: (received: number) => progress.push(received),
         });
-        expect(result).toEqual({ ok: true });
+        expect(result).toEqual({ ok: true, bytes: body.length });
         expect(fakeFetch.lastUrl).toBe(`https://example.test/api/music/${goodName}`);
         expect(readFileSync(path.join(root, "music", goodName))).toEqual(Buffer.from(body));
         expect(progress.at(-1)).toBe(body.length);
@@ -158,5 +158,76 @@ describe("serveMedia", () => {
         expect((await media.serveMedia(root, `/__media/music/${name}`, "bytes=50-")).status).toBe(416);
         expect((await media.serveMedia(root, `/__media/music/${HASH}.mp3`, null)).status).toBe(404);
         expect((await media.serveMedia(root, "/__media/music/../secret", null)).status).toBe(404);
+    });
+});
+
+describe("prefetch store", () => {
+    const body = new TextEncoder().encode("pretend this is the next song");
+    const goodName = `${createHash("sha256").update(body).digest("hex").slice(0, 32)}.mp3`;
+    const serve = (bytes: Uint8Array<ArrayBuffer>) => async () => new Response(bytes);
+
+    it("shares the route constant with the renderer, and the renderer's URIs are never downloads", () => {
+        expect(media.PREFETCH_ROUTE).toBe(PREFETCH_ROUTE);
+        const uri = prefetchMediaUri("app://local", "music", `${HASH}.mp3`);
+        expect(uri).toBe(`app://local/__prefetch/music/${HASH}.mp3`);
+        expect(parseLocalMediaUri(uri)).toBeUndefined();
+        expect(media.parseMediaPath(new URL(uri).pathname)).toBeUndefined();
+        expect(media.parseMediaPath(new URL(uri).pathname, media.PREFETCH_ROUTE)).toEqual({ kind: "music", fileName: `${HASH}.mp3` });
+    });
+
+    it("hash-checks every song, reports its size, and serves it only under its own route", async () => {
+        const root = tempRoot();
+        const store = media.createPrefetchStore({ root, fetchImpl: serve(body) });
+
+        expect(await store.download("https://example.test", "music", `${HASH}.mp3`)).toEqual({ ok: false, error: `integrity check failed for music/${HASH}.mp3` });
+        expect(await store.exists("music", `${HASH}.mp3`)).toBe(false);
+
+        expect(await store.download("https://example.test", "music", goodName)).toEqual({ ok: true, bytes: body.length });
+        expect(await store.exists("music", goodName)).toBe(true);
+        const served = await media.serveMedia(root, `/__prefetch/music/${goodName}`, "bytes=0-6", media.PREFETCH_ROUTE);
+        expect(served.status).toBe(206);
+        expect(await served.text()).toBe("pretend");
+        // The Downloads handler doesn't answer for the prefetch route (main.js gives each route its own root).
+        expect((await media.serveMedia(root, `/__prefetch/music/${goodName}`, null)).status).toBe(404);
+    });
+
+    it("stores album art unverified, since its name is the song's hash", async () => {
+        const root = tempRoot();
+        const store = media.createPrefetchStore({ root, fetchImpl: serve(new TextEncoder().encode("jpeg")) });
+
+        expect((await store.download("https://example.test", "albumart", `${HASH}.jpg`)).ok).toBe(true);
+        await store.remove("albumart", `${HASH}.jpg`);
+        expect(await store.exists("albumart", `${HASH}.jpg`)).toBe(false);
+    });
+
+    it("cancels an in-flight fetch and leaves nothing behind", async () => {
+        const root = tempRoot();
+        let started!: () => void;
+        const fetching = new Promise<void>((resolve) => (started = resolve));
+        const fetchImpl = (_url: string, init?: { signal?: AbortSignal }) => new Promise<Response>((_resolve, reject) => {
+            started();
+            init?.signal?.addEventListener("abort", () => reject(new Error("aborted")));
+        });
+        const store = media.createPrefetchStore({ root, fetchImpl });
+
+        const download = store.download("https://example.test", "music", goodName);
+        await fetching;
+        store.cancel("music", goodName);
+
+        expect(await download).toEqual({ ok: false, error: "aborted" });
+        expect(await store.exists("music", goodName)).toBe(false);
+        expect(readdirSync(path.join(root, "temp"))).toEqual([]);
+    });
+
+    it("clear empties the whole cache", async () => {
+        const root = tempRoot();
+        const store = media.createPrefetchStore({ root, fetchImpl: serve(body) });
+        await store.download("https://example.test", "music", goodName);
+
+        await store.clear();
+
+        expect(existsSync(root)).toBe(false);
+        expect(await store.exists("music", goodName)).toBe(false);
+        await store.clear(); // idempotent
     });
 });

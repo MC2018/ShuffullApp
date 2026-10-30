@@ -18,10 +18,26 @@ export interface DesktopMediaStore {
     onProgress: (callback: (progress: { kind: MediaKind; fileName: string; received: number; total: number }) => void) => () => void;
 }
 
+/**
+ * The prefetch cache's store (ShuffullApp#137): the same kinds and file names as `DesktopMediaStore`, kept in a
+ * separate folder and served under `/__prefetch/`, so nothing in it is ever a download.
+ */
+export interface DesktopPrefetchStore {
+    /** Fetches `<host>/<kind>/<fileName>` (songs hash-checked by main). Reports failure, cancellation included. */
+    download: (host: string, kind: MediaKind, fileName: string) => Promise<{ ok: true; bytes: number } | { ok: false; error: string }>;
+    /** Aborts that fetch if it is in flight; its `download` then resolves `ok: false`. */
+    cancel: (kind: MediaKind, fileName: string) => Promise<void>;
+    exists: (kind: MediaKind, fileName: string) => Promise<boolean>;
+    remove: (kind: MediaKind, fileName: string) => Promise<void>;
+    clear: () => Promise<void>;
+}
+
 export interface DesktopShell {
     onRatingShortcut: (callback: (action: ShortcutAction) => void) => () => void;
     notify: (title: string, body: string) => void;
     media: DesktopMediaStore;
+    /** Absent in a desktop shell built before ShuffullApp#137; the prefetcher then reports itself unsupported. */
+    prefetch?: DesktopPrefetchStore;
 }
 
 declare global {

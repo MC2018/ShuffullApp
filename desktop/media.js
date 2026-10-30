@@ -22,6 +22,12 @@ const { pipeline } = require("node:stream/promises");
 
 const MEDIA_ROUTE = "/__media/";
 
+/**
+ * The prefetch cache's route (ShuffullApp#137). Same two kinds and file names as the store above, but a different
+ * root and a different route, so nothing that asks about Downloads (`exists`, `/__media/`) ever sees these files.
+ */
+const PREFETCH_ROUTE = "/__prefetch/";
+
 /** The two folders, matching the native layout (`music/`, `albumart/`) and the server's routes of the same name. */
 const MEDIA_KINDS = new Set(["music", "albumart"]);
 
@@ -61,12 +67,12 @@ function mediaFilePath(root, kind, fileName) {
     return path.join(root, kind, fileName);
 }
 
-/** `/__media/music/abc.mp3` -> { kind, fileName }, or undefined for any other path. */
-function parseMediaPath(pathname) {
-    if (typeof pathname !== "string" || !pathname.startsWith(MEDIA_ROUTE)) {
+/** `/__media/music/abc.mp3` -> { kind, fileName }, or undefined for any other path. `route` picks the store. */
+function parseMediaPath(pathname, route = MEDIA_ROUTE) {
+    if (typeof pathname !== "string" || !pathname.startsWith(route)) {
         return undefined;
     }
-    const parts = pathname.slice(MEDIA_ROUTE.length).split("/");
+    const parts = pathname.slice(route.length).split("/");
     if (parts.length !== 2 || !isMediaKind(parts[0]) || !isMediaFileName(parts[1])) {
         return undefined;
     }
@@ -115,9 +121,9 @@ function parseRange(header, size) {
     return { start, end };
 }
 
-/** Serves a stored file for the `app://` handler, honouring Range. */
-async function serveMedia(root, pathname, rangeHeader) {
-    const parsed = parseMediaPath(pathname);
+/** Serves a stored file for the `app://` handler, honouring Range. `route` is the one `root` is served under. */
+async function serveMedia(root, pathname, rangeHeader, route = MEDIA_ROUTE) {
+    const parsed = parseMediaPath(pathname, route);
     if (!parsed) {
         return new Response("Not found", { status: 404 });
     }
@@ -173,9 +179,11 @@ function isHttpUrl(value) {
  * half file where `exists` would report it as saved. Rename within one filesystem is atomic.
  *
  * `onProgress(received, total)` fires as bytes arrive; total is 0 when the server sends no Content-Length.
- * Resolves `{ ok: true }` or `{ ok: false, error }` - never throws, so one bad song can't take down the IPC call.
+ * `signal` aborts the fetch, which fails the download like any other error.
+ * Resolves `{ ok: true, bytes }` or `{ ok: false, error }` - never throws, so one bad song can't take down the IPC
+ * call.
  */
-async function downloadMedia({ root, fetchImpl, host, kind, fileName, verify, onProgress }) {
+async function downloadMedia({ root, fetchImpl, host, kind, fileName, verify, onProgress, signal }) {
     const finalPath = mediaFilePath(root, kind, fileName);
     if (!finalPath) {
         return { ok: false, error: `refused: ${kind}/${fileName}` };
@@ -190,7 +198,7 @@ async function downloadMedia({ root, fetchImpl, host, kind, fileName, verify, on
         await fsp.mkdir(path.dirname(finalPath), { recursive: true });
 
         const url = new URL(`${kind}/${fileName}`, host.endsWith("/") ? host : `${host}/`).toString();
-        const response = await fetchImpl(url);
+        const response = await fetchImpl(url, signal ? { signal } : undefined);
         if (!response.ok || response.body == null) {
             return { ok: false, error: `HTTP ${response.status} for ${kind}/${fileName}` };
         }
@@ -213,7 +221,7 @@ async function downloadMedia({ root, fetchImpl, host, kind, fileName, verify, on
         }
 
         await fsp.rename(tempPath, finalPath);
-        return { ok: true };
+        return { ok: true, bytes: received };
     } catch (e) {
         return { ok: false, error: String(e?.message ?? e) };
     } finally {
@@ -247,8 +255,51 @@ async function clearTemp(root) {
     await fsp.rm(path.join(root, "temp"), { recursive: true, force: true });
 }
 
+/**
+ * The prefetch cache's half of the store (ShuffullApp#137): songs fetched ahead of a skip so it starts at once.
+ *
+ * Kept apart from Downloads: its own root, served under `PREFETCH_ROUTE`, and never written to the downloaded-songs
+ * table (the renderer's prefetcher never touches the DB). The renderer keeps the index and the cap; this only holds
+ * files. Every song is hash-checked here exactly as a download is, and album art never is (its name is the song's
+ * hash). Unlike a download, a fetch can be cancelled: the lookahead moves on, or the song starts before it lands.
+ */
+function createPrefetchStore({ root, fetchImpl }) {
+    const inFlight = new Map();
+    const key = (kind, fileName) => `${kind}/${fileName}`;
+
+    return {
+        async download(host, kind, fileName) {
+            const id = key(kind, fileName);
+            inFlight.get(id)?.abort();
+            const controller = new AbortController();
+            inFlight.set(id, controller);
+            try {
+                return await downloadMedia({ root, fetchImpl, host, kind, fileName, verify: kind === "music", signal: controller.signal });
+            } finally {
+                if (inFlight.get(id) === controller) {
+                    inFlight.delete(id);
+                }
+            }
+        },
+        cancel(kind, fileName) {
+            inFlight.get(key(kind, fileName))?.abort();
+        },
+        exists: (kind, fileName) => mediaExists(root, kind, fileName),
+        remove: (kind, fileName) => deleteMedia(root, kind, fileName),
+        /** Empties the cache. The renderer calls it at start-up: its index is in memory, so older files are unvouched. */
+        async clear() {
+            for (const controller of inFlight.values()) {
+                controller.abort();
+            }
+            inFlight.clear();
+            await fsp.rm(root, { recursive: true, force: true });
+        },
+    };
+}
+
 module.exports = {
     MEDIA_ROUTE,
+    PREFETCH_ROUTE,
     isMediaKind,
     isMediaFileName,
     mediaFilePath,
@@ -261,4 +312,5 @@ module.exports = {
     mediaExists,
     deleteMedia,
     clearTemp,
+    createPrefetchStore,
 };

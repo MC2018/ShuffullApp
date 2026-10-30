@@ -2,8 +2,9 @@
  * Rules for the prefetch cache: upcoming songs fetched ahead of a skip so it starts at once (ShuffullApp#124).
  *
  * The cache is NOT Downloads. Nothing in it is recorded as downloaded or counted anywhere, it lives in the OS cache
- * directory, and it only ever holds the song playing now plus the lookahead. Extracted from the native prefetcher so
- * the eviction rules are testable without expo-file-system.
+ * directory (on desktop, its own folder beside the Downloads store), and it only ever holds the song playing now
+ * plus the lookahead. Extracted from the native prefetcher so the eviction rules are testable without
+ * expo-file-system; the desktop's `StorePrefetcher` uses them too.
  */
 
 /** Total size the cache may hold, playing song included. A few songs at the usual 5-10 MB. */
