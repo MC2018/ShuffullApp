@@ -54,7 +54,6 @@ export const HEAT_CELL_GAP = 2;
  * A grid of cells shaded by value: rows × columns, with a label at the start of each row. Shading is relative to the
  * grid's largest cell, so the busiest cell is full accent and an empty one is the plain surface.
  */
-
 export function HeatGrid({ rows, rowLabels, rowLabelWidth = HEAT_ROW_LABEL_WIDTH, cellGap = HEAT_CELL_GAP }: {
     rows: number[][];
     rowLabels: readonly string[];

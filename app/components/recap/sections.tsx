@@ -228,6 +228,10 @@ export function GenresSection({ recap }: RecapSectionProps) {
     );
 }
 
+// The gap that ends a listening session: Shuffull's GetRecapHandler.SessionGap (30 minutes). The API doesn't send it,
+// so change both together.
+const SESSION_GAP_WORDS = "half an hour";
+
 /** How many genres the month-by-month grid follows. The API sends up to ten; more rows than this get cramped. */
 const GENRE_SHIFT_ROWS = 5;
 // Wider labels than the hour grid, for genre names, and a wider gap so twelve month cells read as columns.
@@ -342,7 +346,7 @@ export function StreaksSection({ recap }: RecapSectionProps) {
                             {formatMinutes(session.minutes)}
                         </Text>
                         <Text variant="caption" color="textMuted">
-                            {plural(session.plays, "song")} on {formatDayMonth(session.start)}, with no break of half an hour or more
+                            {plural(session.plays, "song")} on {formatDayMonth(session.start)}, with no break of {SESSION_GAP_WORDS} or more
                         </Text>
                     </>
                 ) : (

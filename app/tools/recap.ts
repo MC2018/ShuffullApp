@@ -11,8 +11,8 @@ export const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday"
 
 /**
  * Whether it's recap season: 1 to 31 December, local time (user decision, 2026-10-23). Outside it the button is
- * gone; there's no year-round entry (also the user's call). Development builds can still open the screen from
- * Settings.
+ * gone. Whether the recap stays reachable after December is still open on ShuffullApp#116; for now there's no
+ * year-round entry. Development builds can still open the screen from Settings.
  */
 export function isRecapSeason(now: Date = new Date()): boolean {
     return now.getMonth() === 11;
