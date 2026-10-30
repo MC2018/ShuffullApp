@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { SongFilters, SongFilterType } from "@/app/types/SongFilters";
+import type { GenreJam } from "@/app/services/db/models";
 
 /**
  * When a song finishes, `skip()` picks the next one through the CURRENT song filters. So the filters a screen
@@ -10,6 +11,20 @@ import { SongFilters, SongFilterType } from "@/app/types/SongFilters";
  * These pin the scope each list screen builds.
  */
 describe("playback scopes", () => {
+    it("only a genre jam's scope says so, for the listen log, and filters saved before the flag read as not one", () => {
+        const jam = SongFilters.fromGenreJam({
+            genreJamId: "jam-1", name: "Jam", whitelists: { genreIds: ["g1"] }, blacklists: {}, heavinessMin: null, heavinessMax: null,
+        } as unknown as GenreJam, false);
+        expect(jam.genreJam).toBe(true);
+
+        jam.setSoleFilter(SongFilterType.Playlist, ["playlist-1"]);
+        expect(jam.genreJam).toBe(false);
+
+        // As getSongFilters reads them back: the stored JSON on the class prototype, with no field initialisers run.
+        const legacy = Object.setPrototypeOf(JSON.parse(JSON.stringify({ localOnly: false, unheardOnly: false })), SongFilters.prototype) as SongFilters;
+        expect(legacy.genreJam === true).toBe(false);
+    });
+
     it("a playlist scope filters to that playlist and nothing else", () => {
         const scope = new SongFilters();
         scope.setSoleFilter(SongFilterType.Playlist, ["playlist-1"]);

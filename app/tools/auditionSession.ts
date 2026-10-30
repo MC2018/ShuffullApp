@@ -1,4 +1,5 @@
 import { LikeStatus } from "@/app/enums";
+import type { ListenEndReason } from "@/app/services/db/models";
 
 // Audition mode (ShuffullApp#125): a flip-through deck over an audition mix's unheard songs. This module is the
 // whole of its logic - the heard rule, the two laps, the verdicts and what moves the deck - with the player and
@@ -24,11 +25,10 @@ export function heardThresholdSeconds(durationSeconds: number | undefined): numb
 }
 
 export interface AuditionPort {
-    /**
-     * Loads the song and starts it at `startFraction` of its length. Must NOT stamp it as played. `previous` is set
-     * when the deck steps back to it, so the song left behind isn't logged as a skip.
-     */
-    load(songId: string, startFraction: number, previous: boolean): Promise<void>;
+    /** Loads the song and starts it at `startFraction` of its length. Must NOT stamp it as played. */
+    load(songId: string, startFraction: number): Promise<void>;
+    /** Ends the current song's listen (ShuffullApp#57) for why the deck left it: before every move, and at the end. */
+    endListen(reason: ListenEndReason): Promise<void>;
     resume(): Promise<void>;
     pause(): Promise<void>;
     seekTo(seconds: number): Promise<void>;
@@ -213,10 +213,11 @@ export class AuditionSession {
                 return;
             }
             this.leaveCurrent();
+            await this.port.endListen("previous");
             if (this.index > 0) {
                 this.index--;
             }
-            await this.loadCurrent(true);
+            await this.loadCurrent();
         });
     }
 
@@ -403,6 +404,11 @@ export class AuditionSession {
         }
         this.leaveCurrent();
         const progress = this.songs.get(entry.songId)!;
+        // A Like moves on because the song was judged, not given up on, so its listen isn't a skip: the server counts
+        // quick skips toward "maybe drop this". A Dislike is the skip it looks like.
+        await this.port.endListen(reason === "ended" ? "finished"
+            : reason === "verdict" && progress.likeStatus !== LikeStatus.Dislike ? "stopped"
+                : "skipped");
 
         if (reason === "skip" && !progress.heard) {
             if (entry.lap === 1) {
@@ -447,14 +453,14 @@ export class AuditionSession {
         await this.port.pause();
     }
 
-    private async loadCurrent(previous = false) {
+    private async loadCurrent() {
         const entry = this.current();
         if (entry == undefined) {
             return;
         }
         this.emit();
         this.port.prefetch(this.entries.slice(this.index + 1, this.index + 1 + PREFETCH_AHEAD).map(e => e.songId));
-        await this.port.load(entry.songId, entry.lap === 1 ? this.startFraction : 0, previous);
+        await this.port.load(entry.songId, entry.lap === 1 ? this.startFraction : 0);
     }
 
     private summary(): AuditionSummary {

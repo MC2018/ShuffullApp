@@ -4,6 +4,7 @@ import { drizzle } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import path from "path";
 import type { GenericDb } from "@/app/services/db/GenericDb";
+import type { ListenEndReason } from "@/app/services/db/models";
 import { recordKeep, recordLikeStatus, recordPlayed } from "@/app/services/db/queries/decision";
 import { getAuditionDeckSongIds, getPlaylistSongStates } from "@/app/services/db/queries/playlist";
 import { getRequests } from "@/app/services/db/queries/request";
@@ -26,14 +27,10 @@ type Call =
 
 class FakePort implements AuditionPort {
     calls: Call[] = [];
-    /** The songs loaded by a step back, which the listen log records as "previous" for the song left. */
-    stepsBack: string[] = [];
-    async load(songId: string, startFraction: number, previous: boolean) {
-        this.calls.push({ kind: "load", songId, startFraction });
-        if (previous) {
-            this.stepsBack.push(songId);
-        }
-    }
+    /** Why each song's listen ended, in order. Kept out of `calls`, which the tests match whole. */
+    listenEnds: ListenEndReason[] = [];
+    async load(songId: string, startFraction: number) { this.calls.push({ kind: "load", songId, startFraction }); }
+    async endListen(reason: ListenEndReason) { this.listenEnds.push(reason); }
     async resume() { this.calls.push({ kind: "resume" }); }
     async pause() { this.calls.push({ kind: "pause" }); }
     async seekTo(seconds: number) { this.calls.push({ kind: "seekTo", seconds }); }
@@ -225,16 +222,21 @@ describe("laps", () => {
         expect(deck.session.snapshot()).toMatchObject({ songId: "b", lap: 2, notice: { kind: "lap2", count: 1 } });
     });
 
-    it("tells the player which loads are a step back, and only those", async () => {
-        const deck = setup(["a", "b", "c"]);
+    it("ends each song's listen for why the deck left it, the last one included", async () => {
+        const deck = setup(["a", "b", "c", "d"]);
         await deck.session.start();
-        await deck.session.next();
-        await deck.session.like();
-        await deck.session.previous(); // back to b
-        await deck.session.next();
+        await deck.play(25);
+        await deck.session.next();         // a: heard, then skipped (so no lap 2)
+        await deck.session.like();         // b: judged, not given up on
+        await deck.session.previous();     // c: back to b
+        await deck.session.dislike();      // b: skipped
+        await deck.session.onEnded("c");   // c: played out
+        await deck.session.love();         // d: stays
+        await deck.session.like();         // d: the last song, and the deck finishes
 
-        expect(deck.port.loads()).toEqual(["a", "b", "c", "b", "c"]);
-        expect(deck.port.stepsBack).toEqual(["b"]);
+        expect(deck.port.loads()).toEqual(["a", "b", "c", "b", "c", "d"]);
+        expect(deck.port.listenEnds).toEqual(["skipped", "stopped", "previous", "skipped", "finished", "stopped"]);
+        expect(deck.session.snapshot().finished).toBe(true);
     });
 
     it("finishes with a summary and pauses, without a lap 2 when nothing was skipped quickly", async () => {
@@ -395,6 +397,7 @@ describe("against the real database", () => {
         let stamp = Date.parse("2026-10-31T03:00:00Z");
         return {
             load: async () => undefined,
+            endListen: async () => undefined,
             resume: async () => undefined,
             pause: async () => undefined,
             seekTo: async () => undefined,

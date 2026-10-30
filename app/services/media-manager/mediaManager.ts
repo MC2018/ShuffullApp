@@ -377,8 +377,15 @@ async function setupEventListeners() {
         }
 
         if (auditionController) {
-            await listenRecorder.end("finished");
-            await auditionController.onEnded(useActiveSong.getState().songId);
+            const songId = useActiveSong.getState().songId;
+            // Under the lock, and only if its listen is still the open one: a deck step that got in first has
+            // already closed it and opened the next song's, which this must not close.
+            await transportLock.run(async () => {
+                if (songId != undefined && listenRecorder.openSongId === songId) {
+                    await listenRecorder.end("finished");
+                }
+            });
+            await auditionController.onEnded(songId);
             return;
         }
 
@@ -1015,6 +1022,8 @@ export function beginAuditionMode(playlistId: string, controller: AuditionContro
         const scope = new SongFilters();
         scope.setSoleFilter(SongFilterType.Playlist, [playlistId]);
         scope.unheardOnly = true;
+        // Like any new scope (setSongFilters): the song playing until now was skipped for it, not stopped.
+        await listenRecorder.end("skipped");
         await saveSongFilters(scope);
         await clear();
         auditionController = controller;
@@ -1056,9 +1065,8 @@ let auditionLoadEpoch = 0;
  * unheard, and only markAuditionHeard (called once the heard rule is met) records it as played.
  *
  * It does record a listen, with context Audition (ShuffullApp#57): the listen log is every play, heard or not.
- * `previous` says the deck is stepping back, so the song it leaves ends as "previous" rather than "skipped".
  */
-export function playAuditionSong(songId: string, startFraction: number, previous = false): Promise<void> {
+export function playAuditionSong(songId: string, startFraction: number): Promise<void> {
     return transportLock.run(async () => {
         // A deck step still queued when the screen closed: the player is no longer the deck's to drive.
         if (auditionController == undefined) {
@@ -1068,8 +1076,9 @@ export function playAuditionSong(songId: string, startFraction: number, previous
         const epoch = ++auditionLoadEpoch;
         const songWithArtist = await DbQueries.fetchSongDetails(db, songId);
         const sessionData = await DbQueries.getActiveLocalSessionData(db);
-        // As in startNewSong. A song that played out was already ended as finished by the Ended handler.
-        await listenRecorder.end(previous ? "previous" : "skipped");
+        // As in startNewSong. The deck has normally ended the last song's listen already, with its reason
+        // (endAuditionListen); this only closes one it didn't.
+        await listenRecorder.end("stopped");
         if (sessionData) {
             await beginListen(songWithArtist.song, sessionData.userId, false, "audition");
         }
@@ -1125,6 +1134,15 @@ async function seekToStartPointLate(epoch: number, startFraction: number) {
             return;
         }
     }
+}
+
+/** Ends the deck's current listen for why the deck is leaving the song (AuditionPort.endListen). */
+export function endAuditionListen(reason: ListenEndReason): Promise<void> {
+    return transportLock.run(async () => {
+        if (auditionController != undefined) {
+            await listenRecorder.end(reason);
+        }
+    });
 }
 
 /** Resumes the deck's paused song where it is. Never moves on to another: the deck decides that. */
@@ -1340,11 +1358,12 @@ async function beginListen(song: Song, userId: string, playing: boolean, context
  * Opens a listen when the current song starts playing with none open: resumed after the end of an audition stopped
  * it, or after the app restarted. Under the transport lock, so it sees the track change a skip made. It runs only on
  * a transition to Playing, so audio still playing when a fresh JS context starts goes unrecorded until the next one
- * (ShuffullApp#143).
+ * (ShuffullApp#143). Never in audition mode: the deck opens every listen itself (playAuditionSong), and between its
+ * closing a song's listen and loading the next, that song is still playing.
  */
 async function openListenForResume() {
     const songId = useActiveSong.getState().songId;
-    if (songId == undefined || listenRecorder.openSongId != undefined || db == undefined) {
+    if (songId == undefined || listenRecorder.openSongId != undefined || db == undefined || auditionController != undefined) {
         return;
     }
 
