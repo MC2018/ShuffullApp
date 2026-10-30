@@ -418,6 +418,19 @@ export async function updateSongs(db: GenericDb, songs: Song[]): Promise<void> {
     }
 }
 
+/**
+ * Writes onto songs already held only the fields a newer build started storing (SONG_FIELDS_REVISION), never the
+ * whole row: a held song can carry local state the server hasn't confirmed yet, such as a Keep still in the outbox,
+ * which a full rewrite would undo. Today that is hookStartPercent; a song without one is already null here.
+ */
+export async function backfillSongFields(db: GenericDb, songs: { songId: string; hookStartPercent: number | null }[]): Promise<void> {
+    for (const song of songs) {
+        if (song.hookStartPercent != null) {
+            await db.update(songTable).set({ hookStartPercent: song.hookStartPercent }).where(eq(songTable.songId, song.songId));
+        }
+    }
+}
+
 export async function getRandomSongId(db: GenericDb): Promise<string | undefined> {
     const songCount = (await db.select({
         count: sql<number>`COUNT(*)`.as("count"),

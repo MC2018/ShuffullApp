@@ -97,7 +97,38 @@ function makeApi(changedS1: object) {
     };
 }
 
-function makeManager(db: GenericDb, api: object) {
+// What the API sends, from the golden files its own serializer writes: song-full has hookStartPercent 37.5,
+// song-sparse null. `preHook` strips the field, as an API from before Shuffull#79 sends them.
+const serverRows = (name: "songs-list" | "songs-changed", preHook = false) => {
+    const raw = JSON.parse(readFileSync(path.resolve(__dirname, "contracts/shuffull-api", `${name}.json`), "utf8"));
+    if (preHook) {
+        for (const song of raw.songs) {
+            delete song.hookStartPercent;
+        }
+    }
+    return { ...raw, endOfList: true };
+};
+
+// The real parsers between the server's JSON and the sync, as ApiClient runs them.
+function makeHookApi(list: unknown, changed?: unknown) {
+    return {
+        userGet: vi.fn(async () => ({ userId: USER, username: "max", version: NEW_VERSION, isCurator: false })),
+        tagGetAll: vi.fn(async () => []),
+        playlistGetAll: vi.fn(async () => [{ playlistId: "p1", version: NEW_VERSION }]),
+        playlistGetList: vi.fn(async () => [{
+            playlistId: "p1", userId: USER, name: "Audition", percentUntilReplayable: 0.5,
+            version: NEW_VERSION, songIds: ["song-full", "song-sparse"], isExploratory: true,
+        }]),
+        userSongGetAll: vi.fn(async () => ({ items: [], keys: [] as FeedKey[], endOfList: true })),
+        songGetList: vi.fn(async (songIds: string[]) =>
+            SongListResponseSchema.parse(list).songs.filter(x => songIds.includes(x.songId))),
+        songGetChanged: vi.fn(async () => changed
+            ? { items: ChangedSongPageSchema.parse(changed).songs, keys: ChangedSongKeysSchema.parse(changed).songs, endOfList: true }
+            : { items: [], keys: [] as FeedKey[], endOfList: true }),
+    };
+}
+
+function makeManager(db: GenericDb, api: ReturnType<typeof makeApi> | ReturnType<typeof makeHookApi>) {
     const manager = Object.create(SyncManager.prototype);
     Object.assign(manager, { db, api, userId: USER, logout: async () => {}, syncing: false, keepRetriedAt: new Map() });
     return manager as { overallSync(): Promise<number> };
@@ -316,37 +347,6 @@ describe("withTransaction", () => {
 describe("overallSync: the audition start point (ShuffullApp#126)", () => {
     let db: GenericDb;
 
-    // What the API sends, from the golden files its own serializer writes: song-full has hookStartPercent 37.5,
-    // song-sparse null. `preHook` strips the field, as an API from before Shuffull#79 sends them.
-    const serverRows = (name: "songs-list" | "songs-changed", preHook = false) => {
-        const raw = JSON.parse(readFileSync(path.resolve(__dirname, "contracts/shuffull-api", `${name}.json`), "utf8"));
-        if (preHook) {
-            for (const song of raw.songs) {
-                delete song.hookStartPercent;
-            }
-        }
-        return { ...raw, endOfList: true };
-    };
-
-    // The real parsers between the server's JSON and the sync, as ApiClient runs them.
-    function makeHookApi(list: unknown, changed?: unknown) {
-        return {
-            userGet: vi.fn(async () => ({ userId: USER, username: "max", version: NEW_VERSION, isCurator: false })),
-            tagGetAll: vi.fn(async () => []),
-            playlistGetAll: vi.fn(async () => [{ playlistId: "p1", version: NEW_VERSION }]),
-            playlistGetList: vi.fn(async () => [{
-                playlistId: "p1", userId: USER, name: "Audition", percentUntilReplayable: 0.5,
-                version: NEW_VERSION, songIds: ["song-full", "song-sparse"], isExploratory: true,
-            }]),
-            userSongGetAll: vi.fn(async () => ({ items: [], keys: [] as FeedKey[], endOfList: true })),
-            songGetList: vi.fn(async (songIds: string[]) =>
-                SongListResponseSchema.parse(list).songs.filter(x => songIds.includes(x.songId))),
-            songGetChanged: vi.fn(async () => changed
-                ? { items: ChangedSongPageSchema.parse(changed).songs, keys: ChangedSongKeysSchema.parse(changed).songs, endOfList: true }
-                : { items: [], keys: [] as FeedKey[], endOfList: true }),
-        };
-    }
-
     const startPoints = async () => Object.fromEntries((await db
         .select({ songId: songTable.songId, hookStartPercent: songTable.hookStartPercent })
         .from(songTable)).map(x => [x.songId, x.hookStartPercent]));
@@ -417,5 +417,22 @@ describe("overallSync: the audition start point (ShuffullApp#126)", () => {
 
         expect(storage.has("SONG_FIELDS_REVISION")).toBe(false);
         expect(await startPoints()).toMatchObject({ "song-full": null });
+    });
+
+    it("the re-read writes only the start point, so a Keep the server hasn't recorded stays kept", async () => {
+        storage.delete("SONG_FIELDS_REVISION");
+        // Kept on this device (exploratory off), but the server still has it as an audition: its Keep is queued,
+        // or was refused. Rewriting the whole row would make it an audition again, purgeable with its mix.
+        await db.insert(songTable).values({
+            songId: "song-full", name: "Everybody Wants You", fileExtension: ".mp3", fileHash: "0f343b0931126a20f133d67c2b018a3b",
+            exploratory: false,
+        });
+        const list = serverRows("songs-list");
+        list.songs[0].exploratory = true;
+
+        expect(await makeManager(db, makeHookApi(list)).overallSync()).toBe(200);
+
+        const [held] = await db.select().from(songTable).where(eq(songTable.songId, "song-full"));
+        expect(held).toMatchObject({ exploratory: false, hookStartPercent: 37.5 });
     });
 });

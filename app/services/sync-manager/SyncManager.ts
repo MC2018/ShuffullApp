@@ -430,7 +430,7 @@ export class SyncManager {
             }
 
             // Songs synced by a build that dropped a field this one stores (see SONG_FIELDS_REVISION) are re-read
-            // once, all of them, and refreshed below like changed songs. Their server Version never moves for it.
+            // once, all of them, and only that field is written back below. Their server Version never moves for it.
             const refreshSongFields =
                 (await AsyncStorage.getItem(STORAGE_KEYS.SONG_FIELDS_REVISION)) !== SONG_FIELDS_REVISION;
             const refreshedSongs: ApiModels.Song[] = [];
@@ -463,9 +463,8 @@ export class SyncManager {
             }
 
             // Same overlapping-page caveat as the user songs above: songId is this table's primary key, so a
-            // row repeated across a page boundary would break the whole insert. Newest wins, so a re-read song the feed
-            // also sent takes the feed's row.
-            const changedLocalSongs = distinctByLast([...refreshedSongs, ...fetchedChangedSongs], x => x.songId);
+            // row repeated across a page boundary would break the whole insert. Newest wins.
+            const changedLocalSongs = distinctByLast(fetchedChangedSongs, x => x.songId);
 
             // Of those, find the songs whose audio (fileHash) actually changed: their local files are now
             // orphaned and any "downloaded" flag is stale. Read the OLD records BEFORE the write below
@@ -479,6 +478,9 @@ export class SyncManager {
             }
             const changedSongIds = changedLocalSongs.map(x => x.songId);
             const staleSongIds = staleSongs.map(x => x.songId);
+            // A re-read song the feed also sent is rewritten whole with the feed's row instead.
+            const changedSongIdSet = new Set(changedSongIds);
+            const backfilledSongs = refreshedSongs.filter(x => !changedSongIdSet.has(x.songId));
 
             // Refresh the changed songs through the same upsert path as new songs (updateSongs overwrites the
             // row; the join rebuild below re-links artists/tags). Their stale joins are cleared in the txn.
@@ -513,6 +515,8 @@ export class SyncManager {
                 // Changed songs already have artist/tag joins; clear them so a changed set doesn't leave
                 // stale links behind (the batch loop rebuilds them via insert-or-ignore). New songs have none.
                 await DbQueries.deleteSongArtistsAndTags(tx, changedSongIds);
+
+                await DbQueries.backfillSongFields(tx, backfilledSongs);
 
                 for (const newSongs of songBatches) {
                     await DbQueries.updateSongs(tx, newSongs);
