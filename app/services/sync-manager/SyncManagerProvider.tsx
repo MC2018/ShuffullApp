@@ -1,4 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
+import { AppState } from "react-native";
+import { addNetworkStateListener } from "expo-network";
 import { useDb } from "../db/DbProvider";
 import { useApi } from "../api/ApiProvider";
 import { logout } from "../auth/auth";
@@ -22,7 +24,22 @@ export default function SyncManagerProvider({ userId }: SyncManagerProviderProps
         const instance = new SyncManager(db, api, userId, logout);
         setSyncManager(instance);
 
+        // A sync backoff built up while offline or in the background shouldn't hold queued Keeps and likes once
+        // either ends (see SyncManager.syncNow).
+        const network = addNetworkStateListener(({ isInternetReachable }) => {
+            if (isInternetReachable === true) {
+                instance.syncNow();
+            }
+        });
+        const appState = AppState.addEventListener("change", state => {
+            if (state === "active") {
+                instance.syncNow();
+            }
+        });
+
         return () => {
+            network.remove();
+            appState.remove();
             instance.dispose();
             setSyncManager(null);
         };

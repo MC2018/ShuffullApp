@@ -5,7 +5,6 @@ import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import path from "path";
 import type { GenericDb } from "@/app/services/db/GenericDb";
 import { addRequests, enqueueSongRetag, getDeadLetterRequests, getRequests } from "@/app/services/db/queries/request";
-import { SYNC_INTERVAL_MS } from "@/app/services/sync-manager/syncLogic";
 import { deadLetterRequestTable, userTable } from "@/app/services/db/schema";
 import { RequestType } from "@/app/enums";
 import { ApiStatusFailureError } from "@/app/services/api/errors";
@@ -48,14 +47,15 @@ function makeApi() {
 // here, so overallSync is stubbed to succeed.
 function makeManager(db: GenericDb, api: ReturnType<typeof makeApi>, logout = vi.fn(async () => {})) {
     const manager = Object.create(SyncManager.prototype);
-    Object.assign(manager, { db, api, userId: USER, logout, syncing: false, keepRetriedAt: new Map(), failedSyncs: 0, nextSyncAt: 0 });
+    Object.assign(manager, { db, api, userId: USER, logout, syncing: false, keepRetriedAt: new Map(), failedSyncs: 0, ticksToSkip: 0 });
     manager.overallSync = vi.fn(async () => 200);
     return manager as {
         sync(): Promise<void>;
         keepRetriedAt: Map<string, number>;
         overallSync: () => Promise<number>;
         failedSyncs: number;
-        nextSyncAt: number;
+        ticksToSkip: number;
+        syncNow(): void;
     };
 }
 
@@ -287,8 +287,7 @@ describe("SyncManager: playlist deletes wait for every Keep (the 2026-08-22 purg
         expect(api.playlistDelete).not.toHaveBeenCalled();
         expect(manager.overallSync).not.toHaveBeenCalled();
 
-        manager.nextSyncAt = 0; // the next flush, once the backoff has passed
-        await manager.sync();
+        await manager.sync(); // the next tick: one failure sits out no ticks
         expect(api.playlistDelete).toHaveBeenCalledWith("mix");
     });
 
@@ -372,27 +371,39 @@ describe("SyncManager: outbox hardening (ShuffullApp#93)", () => {
         expect((await getRequests(db, "someone-else")).map(x => x.songId)).toEqual(["theirs"]);
     });
 
-    it("an unreachable server backs the next sync off, and a success resets it", async () => {
+    it("an unreachable server backs the syncs off, and a success resets it", async () => {
         await enqueueSongRetag(db, USER, "s1", "weak");
         api.songKeep.mockRejectedValue(rejected("/api/v1/songs/keep", 503, "down"));
         const manager = makeManager(db, api);
 
         await manager.sync();
-        await manager.sync(); // straight away: inside the backoff, so nothing is sent
-        expect(api.songKeep).toHaveBeenCalledOnce();
-        expect(manager.failedSyncs).toBe(1);
-
-        manager.nextSyncAt = 0;
-        await manager.sync();
+        await manager.sync(); // one failure: the very next tick tries again
+        expect(api.songKeep).toHaveBeenCalledTimes(2);
         expect(manager.failedSyncs).toBe(2);
-        expect(manager.nextSyncAt - Date.now()).toBeGreaterThan(SYNC_INTERVAL_MS);
+
+        await manager.sync(); // two failures: this tick is sat out
+        expect(api.songKeep).toHaveBeenCalledTimes(2);
 
         api.songKeep.mockReset();
         api.songKeep.mockResolvedValue({ results: [{ songId: "s1", outcome: "kept", error: null }] });
-        manager.nextSyncAt = 0;
         await manager.sync();
         expect(manager.failedSyncs).toBe(0);
+        expect(manager.ticksToSkip).toBe(0);
         expect(await getRequests(db, USER)).toHaveLength(0);
+    });
+
+    it("syncNow drops the backoff and syncs at once, for a connection that is back", async () => {
+        await enqueueSongRetag(db, USER, "s1", "weak");
+        const manager = makeManager(db, api);
+        manager.failedSyncs = 6;
+        manager.ticksToSkip = 29;
+
+        manager.syncNow();
+        await vi.waitFor(() => expect(manager.overallSync).toHaveBeenCalled());
+
+        expect(api.songKeep).toHaveBeenCalledWith(["s1"]);
+        expect(manager.failedSyncs).toBe(0);
+        expect(manager.ticksToSkip).toBe(0);
     });
 
     it("a failed pull counts as a failed sync", async () => {

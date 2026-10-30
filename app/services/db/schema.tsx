@@ -181,8 +181,9 @@ export interface UpdateSongMetadataPayload {
 }
 
 // A queued re-tag's engine tier: "weak" = the budget model (an audition Keep), "strong" = full quality
-// (likes, upgrades). Absent payload on a legacy row means strong. One row per song is maintained at
-// enqueue time with STRONGER-WINS (a Like after a Keep upgrades the pending row, never the reverse).
+// (likes, upgrades). Absent payload on a legacy row means strong. One row per song and user is maintained at
+// enqueue time with STRONGER-WINS (a Like after a Keep replaces the pending weak row with a strong one, never the
+// reverse).
 export type RetagModel = "weak" | "strong";
 export interface SongRetagPayload {
     model: RetagModel;

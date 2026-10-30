@@ -11,7 +11,7 @@ import { withTransaction } from "@/app/services/db/transaction";
 import { Downloader } from "@/app/services/downloader/Downloader";
 import { STORAGE_KEYS } from "@/app/constants/storageKeys";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { collectNewSongIds, FEED_START, failedKeeps, groupRequestsIntoBatches, keepsDueForRetry, OUTBOX_MAX_BATCH_SIZE, pageFeed, partitionRejectedRequests, playlistDeleteHold, playlistsToFetch, pendingSongMisses, SONG_LIST_MAX_IDS, songFeedStart, songReconcileDue, SongReconcileState, songsGoneFromServer, summarizeRetagFailures, SYNC_INTERVAL_MS, syncBackoffMs, toRetagItems, withoutPendingDeletes } from "@/app/services/sync-manager/syncLogic";
+import { collectNewSongIds, FEED_START, failedKeeps, groupRequestsIntoBatches, keepsDueForRetry, OUTBOX_MAX_BATCH_SIZE, pageFeed, partitionRejectedRequests, playlistDeleteHold, playlistsToFetch, pendingSongMisses, SONG_LIST_MAX_IDS, songFeedStart, songReconcileDue, SongReconcileState, songsGoneFromServer, summarizeRetagFailures, SYNC_INTERVAL_MS, syncTicksToSkip, toRetagItems, withoutPendingDeletes } from "@/app/services/sync-manager/syncLogic";
 
 /** What one outbox batch came back with: the status sync() acts on, and the error text when it failed. */
 interface RunResult {
@@ -28,9 +28,10 @@ export class SyncManager {
     logout: () => Promise<void>;
     // When each held Keep was last re-sent (see checkDeleteHold). In memory only: a restart just retries once.
     keepRetriedAt = new Map<string, number>();
-    // Syncs in a row that couldn't reach the server, and the earliest the next may start (see syncBackoffMs).
+    // Syncs in a row that couldn't reach the server, and how many interval ticks to sit out before the next (see
+    // syncTicksToSkip).
     failedSyncs = 0;
-    nextSyncAt = 0;
+    ticksToSkip = 0;
     
     constructor(db: GenericDb, api: ApiClient, userId: string, logout: () => Promise<void>) {
         this.db = db;
@@ -46,6 +47,15 @@ export class SyncManager {
         clearInterval(this.timerId);
     }
 
+    // Syncs at once and drops any backoff, for when its cause has just gone away: the connection is back, or the app
+    // is in front again. A phone offline for a few minutes would otherwise reach the 5-minute cap and sit out up to
+    // 5 more after reconnecting, with its Keeps and likes still queued.
+    syncNow() {
+        this.failedSyncs = 0;
+        this.ticksToSkip = 0;
+        void this.sync();
+    }
+
     async submitRequests(requests: DbModels.Request[]) {
         try {
             await DbQueries.addRequests(this.db, requests);
@@ -54,10 +64,14 @@ export class SyncManager {
         }
     }
 
-    // One sync, unless one is running or the last ones failed and the backoff hasn't passed. Never rejects: a throw is
-    // logged and counted as a failure, so the interval that calls this has nothing to drop.
+    // One sync, unless one is running or this tick is sat out after failures. Never rejects: a throw is logged and
+    // counted as a failure, so the interval that calls this has nothing to drop.
     private async sync() {
-        if (this.syncing || Date.now() < this.nextSyncAt) {
+        if (this.syncing) {
+            return;
+        }
+        if (this.ticksToSkip > 0) {
+            this.ticksToSkip--;
             return;
         }
 
@@ -70,10 +84,11 @@ export class SyncManager {
             console.error("[sync] Sync failed:", e);
             this.failedSyncs++;
         } finally {
-            const backoffMs = syncBackoffMs(this.failedSyncs);
-            this.nextSyncAt = Date.now() + backoffMs;
-            if (backoffMs > SYNC_INTERVAL_MS) {
-                console.log(`[sync] ${this.failedSyncs} failed syncs in a row; next try in ${backoffMs / 1000}s.`);
+            this.ticksToSkip = syncTicksToSkip(this.failedSyncs);
+            if (this.ticksToSkip > 0) {
+                console.log(
+                    `[sync] ${this.failedSyncs} failed syncs in a row; ` +
+                    `next try in ${(this.ticksToSkip + 1) * SYNC_INTERVAL_MS / 1000}s.`);
             }
             this.syncing = false;
         }

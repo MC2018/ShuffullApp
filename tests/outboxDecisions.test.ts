@@ -9,7 +9,7 @@ import { addRequests, enqueueSongRetag, getRequests } from "@/app/services/db/qu
 import { recordKeep, recordLikeStatus } from "@/app/services/db/queries/decision";
 import { songTable, userSongTable, userTable } from "@/app/services/db/schema";
 import { LikeStatus, RequestType } from "@/app/enums";
-import { SYNC_INTERVAL_MS, SYNC_MAX_BACKOFF_MS, syncBackoffMs } from "@/app/services/sync-manager/syncLogic";
+import { SYNC_MAX_BACKOFF_TICKS, syncTicksToSkip } from "@/app/services/sync-manager/syncLogic";
 
 const USER = "u1";
 
@@ -160,12 +160,10 @@ describe("recordLikeStatus / recordKeep: the decision and its outbox row commit 
     });
 });
 
-describe("syncBackoffMs", () => {
-    it("waits the normal interval after one failure, doubling after each further one, up to the cap", () => {
-        expect(syncBackoffMs(0)).toBe(0);
-        expect(syncBackoffMs(1)).toBe(SYNC_INTERVAL_MS);
-        expect(syncBackoffMs(2)).toBe(2 * SYNC_INTERVAL_MS);
-        expect(syncBackoffMs(3)).toBe(4 * SYNC_INTERVAL_MS);
-        expect(syncBackoffMs(100)).toBe(SYNC_MAX_BACKOFF_MS);
+describe("syncTicksToSkip", () => {
+    it("retries on the next tick after one failure, then doubles the gap up to the cap", () => {
+        // The gap between tries is (skipped + 1) ticks: 10 s, 10 s, 20 s, 40 s, 80 s, 160 s, then 300 s.
+        expect([0, 1, 2, 3, 4, 5, 6].map(syncTicksToSkip)).toEqual([0, 0, 1, 3, 7, 15, 29]);
+        expect(syncTicksToSkip(100)).toBe(SYNC_MAX_BACKOFF_TICKS - 1);
     });
 });

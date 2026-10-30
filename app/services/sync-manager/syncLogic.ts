@@ -531,19 +531,23 @@ export function withoutPendingDeletes<T extends { playlistId: string }>(
     return playlists.filter(x => !pending.has(x.playlistId));
 }
 
-/** How often SyncManager syncs while the server answers. */
+/** How often SyncManager's timer ticks: one sync per tick while the server answers. */
 export const SYNC_INTERVAL_MS = 10_000;
-/** The longest SyncManager waits between syncs while the server is unreachable or failing. */
-export const SYNC_MAX_BACKOFF_MS = 5 * 60_000;
+/** The longest gap between syncs while the server is unreachable or failing: 5 minutes, in ticks. */
+export const SYNC_MAX_BACKOFF_TICKS = 30;
 
 /**
- * How long to wait before the next sync after `failedSyncs` failures in a row: the normal interval, doubling with
- * each further failure up to SYNC_MAX_BACKOFF_MS. A request that timed out after the server had already done it was
- * replayed every 10 s for as long as the link stayed slow; now a struggling server, or link, gets room.
+ * How many ticks to sit out after `failedSyncs` failures in a row: none after one, then 1, 3, 7..., so the gap between
+ * tries doubles from 10 s up to SYNC_MAX_BACKOFF_TICKS. Counted in ticks, not milliseconds, because sync() only runs
+ * on a tick; a deadline in milliseconds would mostly land just after one and cost a whole extra interval.
+ *
+ * A request that timed out after the server had already done it was replayed every 10 s for as long as the link
+ * stayed slow; now a struggling server, or link, gets room. Going offline is a failure too, which is why
+ * SyncManager.syncNow clears all of this once the connection is back.
  */
-export function syncBackoffMs(failedSyncs: number): number {
-    if (!(failedSyncs > 0)) {
+export function syncTicksToSkip(failedSyncs: number): number {
+    if (!(failedSyncs > 1)) {
         return 0;
     }
-    return Math.min(SYNC_INTERVAL_MS * 2 ** (failedSyncs - 1), SYNC_MAX_BACKOFF_MS);
+    return Math.min(2 ** (failedSyncs - 1), SYNC_MAX_BACKOFF_TICKS) - 1;
 }

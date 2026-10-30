@@ -8,7 +8,7 @@ import { UpdateSongLastPlayedRequest, UpdateSongMetadataPayload } from "../db/mo
 // link could time out on every try, so the first sync never finished, and each retry replayed work the server had
 // already done.
 // - Single-item calls and logins get DEFAULT.
-// - Calls that carry or return a whole page or batch (SONG_LIST_MAX_IDS, OUTBOX_MAX_BATCH_SIZE) get BULK.
+// - Calls that carry or return a whole list, page or batch (SONG_LIST_MAX_IDS, OUTBOX_MAX_BATCH_SIZE) get BULK.
 // - Re-tags run the AI on each song before answering, so they get AI.
 export const DEFAULT_TIMEOUT_MS = 10_000;
 export const BULK_TIMEOUT_MS = 30_000;
@@ -87,7 +87,7 @@ export class ApiClient {
         const endpoint = "/api/v1/tags";
         console.log(`[API] Calling endpoint: ${endpoint}`);
         try {
-            const response = await this.client.get(endpoint);
+            const response = await this.client.get(endpoint, { timeout: BULK_TIMEOUT_MS });
 
             if (!isSuccessfulStatus(response.status)) {
                 console.log(`[API] Endpoint ${endpoint} failed with status: ${response.status}`);
@@ -106,7 +106,7 @@ export class ApiClient {
         const endpoint = "/api/v1/playlists";
         console.log(`[API] Calling endpoint: ${endpoint}`);
         try {
-            const response = await this.client.get(endpoint);
+            const response = await this.client.get(endpoint, { timeout: BULK_TIMEOUT_MS });
 
             if (!isSuccessfulStatus(response.status)) {
                 console.log(`[API] Endpoint ${endpoint} failed with status: ${response.status}`);
