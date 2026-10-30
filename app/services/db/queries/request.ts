@@ -18,7 +18,7 @@ export async function addRequests(db: GenericDb, requests: Request[]): Promise<v
     });
 }
 
-// Enqueues a re-tag for a song, maintaining ONE pending row per song with STRONGER-WINS: a Like queued
+// Enqueues a re-tag for a song, maintaining ONE pending row per song and user with STRONGER-WINS: a Like queued
 // after a Keep upgrades the pending row weak -> strong (one AI run at the right tier, and the
 // Keep-then-Like-before-sync race can't strand a liked song on weak tags); the reverse never downgrades.
 // Its own transaction, like addRequests, which also keeps the read and the write below together.
@@ -28,13 +28,20 @@ export async function enqueueSongRetag(db: GenericDb, userId: string, songId: st
 
 async function enqueueSongRetagIn(db: GenericDb, userId: string, songId: string, model: RetagModel): Promise<void> {
     const existing = await db.select().from(requestTable)
-        .where(and(eq(requestTable.requestType, RequestType.SongRetag), eq(requestTable.songId, songId)));
+        .where(and(
+            eq(requestTable.requestType, RequestType.SongRetag),
+            eq(requestTable.userId, userId),
+            eq(requestTable.songId, songId)));
 
     if (existing.length > 0) {
         const current = (existing[0].payload as SongRetagPayload | null)?.model ?? "strong";
         if (current === "weak" && model === "strong") {
+            // A new requestId along with the new payload. sync() deletes what it sent by requestId once the server
+            // answers, so a row upgraded in place while its weak version was in flight used to be deleted unsent,
+            // and the Like's strong re-tag was lost. The old id now matches nothing; the strong row goes on the next
+            // flush. Changing the key keeps the rowid, and so the row's place in the queue (getRequests).
             await db.update(requestTable)
-                .set({ payload: { model: "strong" } })
+                .set({ requestId: generateId(), payload: { model: "strong" } })
                 .where(eq(requestTable.requestId, existing[0].requestId));
         }
         return; // already queued at an equal-or-stronger tier
@@ -50,8 +57,14 @@ async function enqueueSongRetagIn(db: GenericDb, userId: string, songId: string,
     }]);
 }
 
-export async function getRequests(db: GenericDb): Promise<Request[]> {
-    return await db.select().from(requestTable);
+// One user's outbox, in the order the rows were queued: a like then an unlike must reach the server in that order, and
+// a user song must exist before its like or play. By rowid, not timeRequested, which is the device clock (it can step
+// back) and, for a play, the time the song started. Filtered by user because the outbox outlives a logout: another
+// account signed in on the same device must not send the first one's rows with its own token. They wait instead.
+export async function getRequests(db: GenericDb, userId: string): Promise<Request[]> {
+    return await db.select().from(requestTable)
+        .where(eq(requestTable.userId, userId))
+        .orderBy(sql`rowid`);
 }
 
 export async function deleteRequests(db: GenericDb, requestIds: string[]): Promise<void> {

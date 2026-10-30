@@ -189,7 +189,7 @@ describe("overallSync: the write phase is all-or-nothing", () => {
         await keep;
 
         expect(status).toBe(500);
-        expect((await getRequests(db)).map(x => x.songId)).toEqual(["s1"]);
+        expect((await getRequests(db, USER)).map(x => x.songId)).toEqual(["s1"]);
     });
 
     it("commits everything when nothing fails", async () => {

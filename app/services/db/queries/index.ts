@@ -1,5 +1,6 @@
 import * as misc from "./_misc";
 import * as artist from "./artist";
+import * as decision from "./decision";
 import * as downloadedSong from "./downloadedSong";
 import * as downloadQueue from "./downloadQueue";
 import * as genreJam from "./genreJam";
@@ -15,6 +16,7 @@ import * as userSong from "./userSong";
 const DbQueries = {
     ...misc,
     ...artist,
+    ...decision,
     ...downloadedSong,
     ...downloadQueue,
     ...genreJam,
