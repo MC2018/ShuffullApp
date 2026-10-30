@@ -61,7 +61,11 @@ export async function recoverListensAfterRestart(input: RestartListenInput): Pro
     try {
         const songId = await songToRecord(input);
         if (songId != undefined) {
-            playing = { songId, positionSeconds: await input.positionSeconds().catch(() => NaN) };
+            const positionSeconds = await input.positionSeconds().catch(e => {
+                console.warn("[listens] could not read the player's position; not carrying on the last run's listen", e);
+                return NaN;
+            });
+            playing = { songId, positionSeconds };
         }
     } catch (e) {
         console.warn("[listens] could not ask the player what is playing; closing the last run's listens", e);
