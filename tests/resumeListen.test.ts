@@ -296,6 +296,16 @@ describe("the media manager", () => {
         );
     });
 
+    it("lets a deck that opened during a lookahead refresh keep its own prefetch list", () => {
+        const refresh = source.slice(source.indexOf("async function refreshLookaheadOnce()"));
+        const body = refresh.slice(0, refresh.indexOf("\n}\n"));
+        const reads = body.indexOf("await DbQueries.getSong(db, songId)");
+        const recheck = body.indexOf("if (auditionController != undefined) {", reads);
+        expect(reads).toBeGreaterThan(-1);
+        expect(recheck).toBeGreaterThan(reads);
+        expect(body.indexOf("prefetcher.want(songs)")).toBeGreaterThan(recheck);
+    });
+
     it("decides with openListenIfPlaying", () => {
         const body = source.slice(source.indexOf("async function openListenForResume()"));
         expect(body.slice(0, body.indexOf("\n}\n"))).toContain("await openListenIfPlaying(resumeListenInput(activeDb));");

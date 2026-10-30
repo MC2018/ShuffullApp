@@ -335,10 +335,10 @@ async function refreshNotificationButtons(likeStatus: LikeStatus, canKeep = fals
 }
 
 /**
- * A new JS context starts with an empty prefetch cache and nothing lined up, and only a track change otherwise
- * schedules a refresh. So after a JS restart mid-song, the next skip would stream. This lines up only when the player
- * still has the restored song loaded: on a cold launch it has nothing, and play lines up through startNewSong, so
- * opening the app to browse fetches nothing.
+ * A new JS context starts with an empty prefetch cache and nothing lined up, and nothing schedules a refresh until the
+ * user changes something, most often the track. So after a JS restart mid-song, the next skip would stream. This lines
+ * up only when the player still has the restored song loaded: on a cold launch it has nothing, and play lines up
+ * through startNewSong, so opening the app to browse fetches nothing.
  */
 async function lineUpAfterRestart(playerReady: Promise<void>, songId: string) {
     try {
