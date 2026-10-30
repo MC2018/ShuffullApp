@@ -5,4 +5,5 @@ What the Shuffull API puts on the wire, copied verbatim from `MC2018/Shuffull` â
 regenerate in Shuffull, then run the hub's `scripts/sync-contract-fixtures.sh`.
 
 `tests/apiContract.test.ts` parses them through the app's zod schemas. The funnel-only files (pending tags,
-YouTube ratings, replacements) come along because the hub script copies the whole set to every consumer.
+YouTube ratings, replacements, the library listing and the tag write-back) come along because the hub script copies
+the whole set to every consumer.
