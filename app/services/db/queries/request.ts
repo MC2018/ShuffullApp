@@ -18,6 +18,12 @@ export async function addRequests(db: GenericDb, requests: Request[]): Promise<v
     });
 }
 
+// Queues one outbox row unless a row with its id is already queued. No transaction of its own: for a caller that must
+// queue it together with its own writes, inside the caller's transaction (closeListen).
+export async function addRequestIfAbsent(tx: GenericDb, request: Request): Promise<void> {
+    await tx.insert(requestTable).values(request).onConflictDoNothing();
+}
+
 // Enqueues a re-tag for a song, maintaining ONE pending row per song and user with STRONGER-WINS: a Like queued
 // after a Keep upgrades the pending row weak -> strong (one AI run at the right tier, and the
 // Keep-then-Like-before-sync race can't strand a liked song on weak tags); the reverse never downgrades.

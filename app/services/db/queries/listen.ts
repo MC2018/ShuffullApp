@@ -2,8 +2,9 @@ import { eq } from "drizzle-orm";
 import { RequestType } from "@/app/enums";
 import { GenericDb } from "../GenericDb";
 import { OpenListen, RecordListenPayload, RecordListenRequest } from "../models";
-import { listenTable, requestTable } from "../schema";
+import { listenTable } from "../schema";
 import { withTransaction } from "../transaction";
+import { addRequestIfAbsent } from "./request";
 
 // Writes or refreshes the open listen's checkpoint. Plain db, not a transaction of its own: a checkpoint caught in a
 // sync's rollback is just rewritten by the next one, and closing a listen doesn't need its row (closeListen).
@@ -37,6 +38,6 @@ export async function closeListen(db: GenericDb, listen: RecordListenPayload, no
 
     await withTransaction(db, async tx => {
         await tx.delete(listenTable).where(eq(listenTable.listenId, listen.listenId));
-        await tx.insert(requestTable).values(request).onConflictDoNothing();
+        await addRequestIfAbsent(tx, request);
     });
 }
