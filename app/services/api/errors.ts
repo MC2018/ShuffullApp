@@ -27,9 +27,10 @@ export class ApiStatusFailureError extends ApiError {
     }
 }
 
-// The API explains every rejection in the body — its Result mapping turns any handler or validation failure
-// into a 400 carrying { error }, so the status alone says nothing about the cause. Interpolating the raw
-// response object rendered "[object Object]", which is what made a looping 400 undiagnosable from the log.
+// The API explains every rejection in the body — its Result mapping answers a handler or validation failure
+// with { error } and a 400, 403, 404, 409 or 500, so the status gives only the kind of failure and only a 5xx
+// means "retry". The reason is in the body. Interpolating the raw response object rendered "[object Object]",
+// which is what made a looping 400 undiagnosable from the log.
 function describeBody(data: unknown): string | undefined {
     if (data == null) {
         return undefined;
