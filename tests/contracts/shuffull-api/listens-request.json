@@ -1,0 +1,30 @@
+{
+  "listens": [
+    {
+      "listenId": "listen-full",
+      "songId": "song-full",
+      "startedAt": "2026-10-01T12:34:56.123456Z",
+      "endedAt": "2026-10-01T12:38:30.123456Z",
+      "secondsListened": 201.5,
+      "songDurationSeconds": 214,
+      "endReason": "finished",
+      "context": "playlist",
+      "playlistId": "playlist-1",
+      "platform": "android",
+      "userId": "user-1"
+    },
+    {
+      "listenId": "listen-sparse",
+      "songId": "song-sparse",
+      "startedAt": "2026-10-02T08:00:00.000001Z",
+      "endedAt": "2026-10-02T08:00:12.000001Z",
+      "secondsListened": 12,
+      "songDurationSeconds": null,
+      "endReason": "skipped",
+      "context": "genreJam",
+      "playlistId": null,
+      "platform": null,
+      "userId": null
+    }
+  ]
+}
