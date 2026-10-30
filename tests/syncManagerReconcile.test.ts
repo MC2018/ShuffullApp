@@ -73,6 +73,7 @@ function makeApi(serverSongIds: string[], rows: Record<string, object> = {}) {
         server,
         songGetList: vi.fn(async (songIds: string[]) =>
             songIds.filter(x => server.has(x)).map(songId => ({ songId, hookStartPercent: null, ...rows[songId] }))),
+        listenStats: vi.fn(async () => ({ maybeDropRule: { skippedUnderSeconds: 30, quickSkips: 3, ofLastPlays: 5 }, songs: [] })),
     };
 }
 

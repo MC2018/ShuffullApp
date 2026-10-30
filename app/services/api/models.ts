@@ -194,6 +194,29 @@ export const RecordListensResponseSchema = z.object({
     })),
 });
 export type RecordListensResponse = z.infer<typeof RecordListensResponseSchema>;
+// GET /api/v1/listens/stats -> the caller's per-song stats over every listen they logged, and the "maybe drop this"
+// rule the flags were computed with (ShuffullApp#115). Every field is required: this replaces the whole local cache, so
+// a body that isn't the stats (a proxy page) must fail rather than read as "no stats". Unknown fields are ignored, so
+// the server can add some. The flag is the server's; the app only shows it and never re-derives it from the numbers.
+export const ListenStatsResponseSchema = z.object({
+    maybeDropRule: z.object({
+        skippedUnderSeconds: z.number(),
+        quickSkips: z.number().int(),
+        ofLastPlays: z.number().int(),
+    }),
+    songs: z.array(z.object({
+        songId: z.string(),
+        plays: z.number().int(),
+        skips: z.number().int(),
+        averageSecondsListened: z.number(),
+        completionPercent: z.number().nullable(),
+        lastPlayed: z.coerce.date(),
+        recentQuickSkips: z.number().int(),
+        maybeDrop: z.boolean(),
+    })),
+});
+export type ListenStatsResponse = z.infer<typeof ListenStatsResponseSchema>;
+export type MaybeDropRule = ListenStatsResponse["maybeDropRule"];
 /** One song to re-tag and its engine tier — the wire item of POST /songs/retag {items}. */
 export interface SongRetagWireItem {
     songId: string;

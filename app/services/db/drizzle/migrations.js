@@ -35,6 +35,7 @@ import m0030 from './0030_add_dead_letter_requests.sql';
 import m0031 from './0031_rename_energy_to_heaviness.sql';
 import m0032 from './0032_add_listens.sql';
 import m0033 from './0033_add_hook_start_percent.sql';
+import m0034 from './0034_add_listen_stats.sql';
 
   export default {
     journal,
@@ -72,7 +73,8 @@ m0029,
 m0030,
 m0031,
 m0032,
-m0033
+m0033,
+m0034
     }
   }
   

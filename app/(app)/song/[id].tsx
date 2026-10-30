@@ -3,17 +3,20 @@ import { ImageURISource, Pressable, ScrollView, useWindowDimensions, View } from
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Artist, Song, Tag, UpdateSongMetadataPayload } from "@/app/services/db/models";
+import { Artist, ListenStat, Song, Tag, UpdateSongMetadataPayload } from "@/app/services/db/models";
 import { SongDetails } from "@/app/services/db/types";
 import { TagType } from "@/app/services/db/schema";
-import { RequestType } from "@/app/enums";
+import { LikeStatus, RequestType } from "@/app/enums";
 import { generateId } from "@/app/tools";
 import { computeTapBpm, nextTaps } from "@/app/tools/tapTempo";
+import { describeAgo, describeQuickSkips, listenStatFacts } from "@/app/tools/listenStats";
+import { ListenStatsSnapshot } from "@/app/services/db/queries/listenStats";
 import DbQueries from "@/app/services/db/queries";
 import { useDb } from "@/app/services/db/DbProvider";
 import { useCurrentUser } from "@/app/services/auth/CurrentUserProvider";
 import { Downloader } from "@/app/services/downloader/Downloader";
 import { MediaManager } from "@/app/services/media-manager";
+import { useLikeStatus } from "@/app/services/media-manager/mediaManager";
 import PlayerBar, { totalPlayerBarHeight } from "@/app/components/music-control/organisms/PlayerBar";
 import RatingControl from "@/app/components/likes/atoms/RatingControl";
 import SongDownloadControl from "@/app/components/downloading/atoms/SongDownloadControl";
@@ -47,6 +50,9 @@ export default function SongScreen() {
     const [art, setArt] = useState<ArtSource>(defaultArt);
     const [showPlaylistSheet, setShowPlaylistSheet] = useState(false);
     const [isCurator, setIsCurator] = useState(false);
+    // This song's listen stats from the last sync (ShuffullApp#115). No snapshot = never synced, so the section hides.
+    const [listenStat, setListenStat] = useState<ListenStat | null>(null);
+    const [statsSnapshot, setStatsSnapshot] = useState<ListenStatsSnapshot | null>(null);
 
     // Edit mode (curator-only). Drafts are seeded from the loaded song when editing starts.
     const [editing, setEditing] = useState(false);
@@ -80,12 +86,16 @@ export default function SongScreen() {
                 const fetched = await DbQueries.fetchSongDetails(db, songId);
                 const songTags = await DbQueries.getTagsFromSong(db, songId);
                 const user = await DbQueries.getUser(db, userId);
+                const stat = await DbQueries.getSongListenStat(db, userId, songId);
+                const snapshot = await DbQueries.getListenStatsSnapshot(db, userId);
                 if (cancelled) {
                     return;
                 }
                 setDetails(fetched);
                 setTags(songTags);
                 setIsCurator(user?.isCurator ?? false);
+                setListenStat(stat);
+                setStatsSnapshot(snapshot);
                 setArt(await Downloader.resolveAlbumArt(fetched.song));
             } catch {
                 // Song not found locally — leave the empty state.
@@ -384,6 +394,10 @@ export default function SongScreen() {
                                     </View>
                                 ))}
                             </View>
+
+                            {statsSnapshot != null ? (
+                                <ListeningSection songId={details.song.songId} stat={listenStat} snapshot={statsSnapshot} />
+                            ) : null}
                         </>
                     )}
                 </ScrollView>
@@ -537,6 +551,61 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
             </Text>
             {children}
         </View>
+    );
+}
+
+// "Your listening": the server's stats for this song as of the last sync, and its "maybe drop this" flag. Shown only
+// once the stats have synced at least once, so a server without them (before Shuffull#61) leaves no empty section.
+// Like the "Maybe drop this" list, it drops the flag once the song is disliked: the user has already acted on it.
+function ListeningSection({ songId, stat, snapshot }: { songId: string; stat: ListenStat | null; snapshot: ListenStatsSnapshot }) {
+    const theme = useTheme();
+    const disliked = useLikeStatus((s) => s.statuses[songId]) === LikeStatus.Dislike;
+    const now = new Date();
+
+    return (
+        <>
+            <SectionHeader title="Your listening" />
+            {stat == null ? (
+                <Text variant="body" color="textFaint">
+                    No listens logged yet.
+                </Text>
+            ) : (
+                <View>
+                    {stat.maybeDrop && !disliked ? (
+                        <View
+                            style={{
+                                flexDirection: "row",
+                                alignItems: "center",
+                                gap: theme.space.sm,
+                                padding: theme.space.sm,
+                                marginBottom: theme.space.xs,
+                                borderRadius: theme.radius.md,
+                                backgroundColor: theme.color.accentWash,
+                            }}
+                        >
+                            <Ionicons name="play-skip-forward" size={16} color={theme.color.accent} />
+                            <View style={{ flex: 1 }}>
+                                <Text variant="bodyStrong">Maybe drop this</Text>
+                                <Text variant="caption" color="textMuted">
+                                    {describeQuickSkips(stat, snapshot.rule)}
+                                </Text>
+                            </View>
+                        </View>
+                    ) : null}
+                    {listenStatFacts(stat, now).map((f) => (
+                        <View key={f.label} style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: theme.space.xs }}>
+                            <Text variant="body" color="textMuted">
+                                {f.label}
+                            </Text>
+                            <Text variant="body">{f.value}</Text>
+                        </View>
+                    ))}
+                </View>
+            )}
+            <Text variant="caption" color="textFaint" style={{ marginTop: theme.space.xs }}>
+                Updated {describeAgo(snapshot.syncedAt, now)}
+            </Text>
+        </>
     );
 }
 

@@ -47,6 +47,7 @@ function makeApi() {
         listenRecord: vi.fn(async (listens: RecordListenPayload[]): Promise<RecordListensResponse> => ({
             results: listens.map(x => ({ listenId: x.listenId, outcome: "recorded", error: null })),
         })),
+        listenStats: vi.fn(async () => ({ maybeDropRule: { skippedUnderSeconds: 30, quickSkips: 3, ofLastPlays: 5 }, songs: [] })),
     };
 }
 

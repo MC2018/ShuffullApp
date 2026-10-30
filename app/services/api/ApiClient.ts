@@ -1,5 +1,5 @@
 import axios, { AxiosHeaders, AxiosInstance } from "axios";
-import { AuthenticateResponse, AuthenticateResponseSchema, ChangedSongKeysSchema, ChangedSongPageSchema, CreatePlaylistResponseSchema, FeedCursor, KeepResponse, KeepResponseSchema, Playlist, PlaylistListResponseSchema, RecordListensResponse, RecordListensResponseSchema, RetagResponse, RetagStaleResponse, SongListResponseSchema, SongRetagWireItem, Tag, TagListResponseSchema, UserResponseSchema, UserSongKeysSchema, UserSongPageSchema } from "./models";
+import { AuthenticateResponse, AuthenticateResponseSchema, ChangedSongKeysSchema, ChangedSongPageSchema, CreatePlaylistResponseSchema, FeedCursor, KeepResponse, KeepResponseSchema, ListenStatsResponse, ListenStatsResponseSchema, Playlist, PlaylistListResponseSchema, RecordListensResponse, RecordListensResponseSchema, RetagResponse, RetagStaleResponse, SongListResponseSchema, SongRetagWireItem, Tag, TagListResponseSchema, UserResponseSchema, UserSongKeysSchema, UserSongPageSchema } from "./models";
 import { ApiStatusFailureError } from "./errors";
 import { RecordListenPayload, UpdateSongLastPlayedRequest, UpdateSongMetadataPayload } from "../db/models";
 
@@ -403,6 +403,25 @@ export class ApiClient {
             }
             console.log(`[API] Endpoint ${endpoint} succeeded`);
             return RecordListensResponseSchema.parse(response.data);
+        } catch (error) {
+            console.log(`[API] Endpoint ${endpoint} failed with error:`, error);
+            throw error;
+        }
+    }
+
+    // Any user: their own per-song listen stats and the "maybe drop this" flags (one row per song they ever played).
+    // A server from before Shuffull#61 answers 404; SyncManager.refreshListenStats keeps the last synced stats then.
+    public async listenStats(): Promise<ListenStatsResponse> {
+        const endpoint = "/api/v1/listens/stats";
+        console.log(`[API] Calling endpoint: ${endpoint}`);
+        try {
+            const response = await this.client.get(endpoint, { timeout: BULK_TIMEOUT_MS });
+            if (!isSuccessfulStatus(response.status)) {
+                console.log(`[API] Endpoint ${endpoint} failed with status: ${response.status}`);
+                throw new ApiStatusFailureError(endpoint, response);
+            }
+            console.log(`[API] Endpoint ${endpoint} succeeded`);
+            return ListenStatsResponseSchema.parse(response.data);
         } catch (error) {
             console.log(`[API] Endpoint ${endpoint} failed with error:`, error);
             throw error;
