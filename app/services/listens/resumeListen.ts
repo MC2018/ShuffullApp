@@ -26,7 +26,8 @@ export interface ResumeListenInput {
  *
  * A listen a previous JS context left open has been closed by ListenRecorder.recover() at its last checkpoint, which
  * is never later than now. The listen this opens starts now, so the two never count the same seconds; what played
- * between that checkpoint and now (up to one checkpoint interval, plus the restart) is in neither.
+ * between that checkpoint and now (up to one checkpoint interval, plus the restart) is in neither. One play is then
+ * two listens, so a skip soon after the restart counts as a quick skip on the server; ShuffullApp#147 tracks that.
  */
 export async function openListenIfPlaying(input: ResumeListenInput): Promise<boolean> {
     const songId = input.activeSongId;

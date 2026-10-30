@@ -84,7 +84,8 @@ describe("a listen for a song still playing when the JS context restarts", () =>
         now += 40_000;
         await nextRun.end("finished");
         const listens = await queuedListens(db);
-        const second = listens.find(x => x.payload.listenId === open.listenId)!;
+        expect(listens.map(x => x.payload.listenId)).toEqual([recovered.payload.listenId, open.listenId]);
+        const second = listens[1];
         expect(second.payload).toMatchObject({ endReason: "finished", secondsListened: 40, startedAt: new Date(T0 + 32_000).toISOString() });
         expect(Date.parse(second.payload.startedAt)).toBeGreaterThanOrEqual(Date.parse(recovered.payload.endedAt));
         expect(listens.reduce((sum, x) => sum + x.payload.secondsListened, 0)).toBe(65);
