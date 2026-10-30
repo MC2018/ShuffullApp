@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import axios, { InternalAxiosRequestConfig } from "axios";
+import axios, { AxiosHeaders, InternalAxiosRequestConfig } from "axios";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
@@ -254,38 +254,60 @@ describe("API contract: request bodies the app sends (shuffull-workspace#92)", (
     /** The body as sent, without its null-valued keys: the API binds an optional field left out and one sent as null alike. */
     const body = (config: InternalAxiosRequestConfig) => withoutNulls(JSON.parse(config.data));
 
-    const cases: [string, string, string, (api: ApiClient) => Promise<unknown>, string?][] = [
-        ["users-authenticate-request", "post", "/api/v1/users/authenticate",
-            api => api.userAuthenticate("listener", "hash-abc"), "users-authenticate"],
-        ["users-authenticate-request", "post", "/api/v1/users", api => api.userCreate("listener", "hash-abc"), "users-authenticate"],
-        ["songs-list-request", "post", "/api/v1/songs/list", api => api.songGetList(["song-full", "song-sparse"]), "songs-list"],
-        ["playlists-list-request", "post", "/api/v1/playlists/list",
-            api => api.playlistGetList(["playlist-full", "playlist-audition"]), "playlists-list"],
-        ["user-songs-create", "put", "/api/v1/user-songs", api => api.userSongCreateMany(["song-full", "song-sparse"])],
-        ["user-songs-like", "post", "/api/v1/user-songs/song-full/like", api => api.userSongSetLikeStatus("song-full", LikeStatus.Like)],
-        ["songs-update", "put", "/api/v1/songs/song-full", api => api.songUpdate("song-full", {
+    /** One call: the request golden its body must match, and the response golden the call needs to parse, if any. */
+    interface Case {
+        request: string;
+        method: string;
+        url: string;
+        call: (api: ApiClient) => Promise<unknown>;
+        response?: string;
+    }
+
+    const cases: Case[] = [
+        { request: "users-authenticate-request", method: "post", url: "/api/v1/users/authenticate",
+            call: api => api.userAuthenticate("listener", "hash-abc"), response: "users-authenticate" },
+        { request: "users-authenticate-request", method: "post", url: "/api/v1/users",
+            call: api => api.userCreate("listener", "hash-abc"), response: "users-authenticate" },
+        { request: "songs-list-request", method: "post", url: "/api/v1/songs/list",
+            call: api => api.songGetList(["song-full", "song-sparse"]), response: "songs-list" },
+        { request: "playlists-list-request", method: "post", url: "/api/v1/playlists/list",
+            call: api => api.playlistGetList(["playlist-full", "playlist-audition"]), response: "playlists-list" },
+        { request: "user-songs-create", method: "put", url: "/api/v1/user-songs",
+            call: api => api.userSongCreateMany(["song-full", "song-sparse"]) },
+        { request: "user-songs-like", method: "post", url: "/api/v1/user-songs/song-full/like",
+            call: api => api.userSongSetLikeStatus("song-full", LikeStatus.Like) },
+        { request: "songs-update", method: "put", url: "/api/v1/songs/song-full", call: api => api.songUpdate("song-full", {
             name: "Everybody Wants You",
             bpm: 128,
             heaviness: 6,
             artists: ["Billy Squier"],
             tags: [{ name: "Rock", type: TagType.Genre }, { name: "1980s", type: TagType.TimePeriod }],
-        })],
-        ["songs-keep-request", "post", "/api/v1/songs/keep", api => api.songKeep(["song-full", "song-sparse"]), "songs-keep"],
-        ["songs-retag-request", "post", "/api/v1/songs/retag",
-            api => api.songRetag([{ songId: "song-full", model: "strong" }, { songId: "song-sparse", model: "weak" }]), "songs-retag"],
-        ["replacements-request", "post", "/api/v1/replacements", api => api.flagSongForReplacement("song-full")],
-        ["listens-request", "post", "/api/v1/listens",
-            api => api.listenRecord((golden("listens-request") as { listens: RecordListenPayload[] }).listens), "listens"],
+        }) },
+        { request: "songs-keep-request", method: "post", url: "/api/v1/songs/keep",
+            call: api => api.songKeep(["song-full", "song-sparse"]), response: "songs-keep" },
+        { request: "songs-retag-request", method: "post", url: "/api/v1/songs/retag",
+            call: api => api.songRetag([{ songId: "song-full", model: "strong" }, { songId: "song-sparse", model: "weak" }]),
+            response: "songs-retag" },
+        { request: "replacements-request", method: "post", url: "/api/v1/replacements",
+            call: api => api.flagSongForReplacement("song-full") },
+        { request: "listens-request", method: "post", url: "/api/v1/listens",
+            call: api => api.listenRecord((golden("listens-request") as { listens: RecordListenPayload[] }).listens),
+            response: "listens" },
     ];
 
-    it.each(cases)("%s: %s %s sends the body the API binds", async (name, method, url, call, response) => {
+    /** [FromBody] binds JSON only, and axios sets no content type for a body passed as a string, which most calls do. */
+    const sentAsJson = (config: InternalAxiosRequestConfig) =>
+        expect(AxiosHeaders.from(config.headers).getContentType()).toMatch(/^application\/json/);
+
+    it.each(cases)("$request: $method $url sends the body the API binds", async ({ request, method, url, call, response }) => {
         const { api, sent } = stubbedClient(response ? golden(response) : {});
 
         await call(api);
 
         expect(sent).toHaveLength(1);
         expect([sent[0].method, sent[0].url]).toEqual([method, url]);
-        expect(body(sent[0])).toStrictEqual(withoutNulls(golden(name)));
+        sentAsJson(sent[0]);
+        expect(body(sent[0])).toStrictEqual(withoutNulls(golden(request)));
     });
 
     it("user-songs-last-played: the outbox's rows carry the two fields the API binds", async () => {
@@ -304,6 +326,7 @@ describe("API contract: request bodies the app sends (shuffull-workspace#92)", (
         await api.userSongUpdateLastPlayed([row("song-full", "2026-10-01T12:34:56.123Z"), row("song-sparse", "2026-10-01T12:38:56.123Z")]);
 
         expect([sent[0].method, sent[0].url]).toEqual(["post", "/api/v1/user-songs/last-played"]);
+        sentAsJson(sent[0]);
         expect(JSON.parse(sent[0].data)).toMatchObject(golden("user-songs-last-played") as object[]);
     });
 });
