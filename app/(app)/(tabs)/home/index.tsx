@@ -78,7 +78,10 @@ export default function HomeScreen() {
             <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: totalPlayerBarHeight + theme.space.xl }}>
                 <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: theme.space.md, marginBottom: theme.space.sm }}>
                     <Text variant="screenTitle">Home</Text>
-                    <IconButton name="log-out-outline" size={22} color={theme.color.textMuted} onPress={logout} accessibilityLabel="Log out" />
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: theme.space.xs }}>
+                        <IconButton name="settings-outline" size={22} color={theme.color.textMuted} onPress={() => router.push("/settings")} accessibilityLabel="Settings" />
+                        <IconButton name="log-out-outline" size={22} color={theme.color.textMuted} onPress={logout} accessibilityLabel="Log out" />
+                    </View>
                 </View>
 
                 {details ? (

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { selectNextSong, shuffleWindowSize, type ShuffleCandidate } from "@/app/tools/shuffle";
+import { asIfJustPlayed, selectNextSong, shuffleWindowSize, type ShuffleCandidate } from "@/app/tools/shuffle";
 
 /**
  * The system's core promise is "don't play the same song twice in a row". Selection gets a pool ordered by
@@ -194,5 +194,27 @@ describe("never-played detection matches the pool query", () => {
         ];
 
         expect(shuffleWindowSize(candidates)).toBe(1);
+    });
+});
+
+describe("picking ahead (asIfJustPlayed)", () => {
+    it("moves the lined-up songs to the back, in play order", () => {
+        const result = asIfJustPlayed(pool(3, 2), ["new-1", "played-0"], 5_000);
+
+        expect(result.map(x => x.songId)).toEqual(["new-0", "new-2", "played-1", "new-1", "played-0"]);
+        expect(result.slice(-2).map(x => x.lastPlayed)).toEqual([5_000, 5_001]);
+    });
+
+    it("ignores lined-up songs that aren't in the pool", () => {
+        expect(asIfJustPlayed(pool(2, 0), ["elsewhere"]).map(x => x.songId)).toEqual(["new-0", "new-1"]);
+    });
+
+    it("never picks the songs lined up ahead of it, when the pool has room", () => {
+        const lined = ["new-0", "new-1"];
+        const candidates = asIfJustPlayed(pool(10, 40), lined);
+
+        for (let i = 0; i < 100; i++) {
+            expect(lined).not.toContain(selectNextSong(candidates, () => i / 100));
+        }
     });
 });

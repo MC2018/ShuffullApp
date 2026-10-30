@@ -12,7 +12,10 @@ import { Downloader } from "../downloader/Downloader";
 import { create } from "zustand";
 import path from "path-browserify";
 import { SongFilters } from "../../types/SongFilters";
-import { selectNextSong } from "../../tools/shuffle";
+import { asIfJustPlayed, selectNextSong } from "../../tools/shuffle";
+import { Lookahead } from "../../tools/lookahead";
+import { prefetcher } from "../prefetch/Prefetcher";
+import { loadPrefetchSetting, savePrefetchSetting, usePrefetchSetting } from "../prefetch/prefetchSetting";
 import { addNetworkStateListener } from "expo-network";
 import {
     classifyPlaybackError,
@@ -61,6 +64,18 @@ let networkRecoverySubscribed = false;
 // holds the lock while a stream buffers. The exported functions take the lock; code already holding it calls the
 // `...Locked` bodies, since it isn't re-entrant.
 const transportLock = createSerialLock({ name: "player" });
+// The next songs skip() will play, decided while the current one plays so the prefetcher can fetch them first
+// (ShuffullApp#124). Off (the setting, or a platform with no prefetcher), nothing is reserved and skip() shuffles at
+// the moment of the skip, exactly as it always has.
+const lookahead = new Lookahead({
+    current: () => useActiveSong.getState().songId,
+    queue: () => queue,
+    forwardHistory: async (limit) => (await DbQueries.getNextRecentlyPlayedSongs(db, limit)).map(x => x.songId),
+    pick: (played) => pickShuffleSongAhead(played),
+    isEligible: (songId) => isShuffleEligible(songId),
+});
+let lookaheadRefreshRunning = false;
+let lookaheadRefreshAgain = false;
 
 interface ActiveSongState {
     songId: string | undefined;
@@ -86,6 +101,9 @@ export async function getSongFilters(): Promise<SongFilters> {
 export async function setSongFilters(songFilters: SongFilters, clearAndPlay: boolean = false): Promise<void> {
     if (!clearAndPlay) {
         await saveSongFilters(songFilters);
+        // Songs picked from the old scope are not what the next skip would pick from the new one.
+        lookahead.reset();
+        scheduleLookaheadRefresh();
         return;
     }
 
@@ -180,6 +198,7 @@ export const useAuditionFinished = create<AuditionFinishedState>((set) => ({
 export async function setup(activeDb: GenericDb) {
     db = activeDb;
     initTrackPlayer();
+    await loadPrefetchSetting();
 
     const currentlyPlayingSong = await DbQueries.getCurrentlyPlayingSong(db);
 
@@ -685,7 +704,8 @@ async function skipLocked() {
         if (recentlyPlayedSong != undefined) {
             songId = recentlyPlayedSong.songId;
         } else {
-            songId = await getRandomSongId();
+            // The song lined up ahead, when there is one and it may still play; otherwise a fresh pick, as before.
+            songId = (isLookaheadEnabled() ? await lookahead.takePick() : undefined) ?? await getRandomSongId();
         }
     }
 
@@ -776,6 +796,8 @@ export async function addToQueue(songId: string) {
 
     if (song) {
         queue.push(songId);
+        // A queued song plays before any shuffle pick, so it takes a slot in the lookahead.
+        scheduleLookaheadRefresh();
     }
 }
 
@@ -799,6 +821,7 @@ export async function clear() {
     // Before anything else: a retry armed for the song being cleared would otherwise fire into an empty player.
     clearStall();
     clearQueue();
+    lookahead.reset();
     // A new scope is a fresh start: pressing Play on a mix that has just finished must play, not stop again.
     await setAuditionInProgress(undefined);
     await clearSong();
@@ -858,6 +881,11 @@ export async function applyLikeStatus(songId: string, likeStatus: LikeStatus) {
         await refreshNotificationButtons(likeStatus, (song?.exploratory ?? false) && !promoted);
     }
 
+    // A disliked song is out of the shuffle, so a pick lined up for it is no longer what skip() would play.
+    if (likeStatus === LikeStatus.Dislike && lookahead.forget(songId)) {
+        scheduleLookaheadRefresh();
+    }
+
     // Disliking what is playing moves off it immediately. Deliberately LAST: skip() starts the next song and
     // refreshes the notification for it, so anything above that still refers to the outgoing song must
     // already have been written.
@@ -912,18 +940,26 @@ async function startNewSong(songId: string, recentlyPlayedSong?: RecentlyPlayedS
         }
     }
 
+    // Before the cache is asked for the file: from here on the prefetcher keeps it, and drops the song before it.
+    prefetcher.markPlaying(songId);
+
     const localSongUri = Downloader.generateLocalSongUri(song);
+    const downloaded = await Downloader.fileExists(localSongUri);
+    const prefetched = downloaded ? undefined : await prefetcher.filesFor(song);
     // Remembered, not just branched on: only a STREAMED track can fail for a network reason, so this is what
     // stops a corrupt local file from being waited out as though the connection were at fault.
-    activeSourceIsLocal = await Downloader.fileExists(localSongUri);
+    activeSourceIsLocal = downloaded || prefetched != undefined;
 
-    if (activeSourceIsLocal) {
+    if (downloaded) {
         songUri = localSongUri;
+    } else if (prefetched != undefined) {
+        songUri = prefetched.audioUri;
     } else {
         songUri = await generateUrl(song, false);
     }
 
     activeStreamUrl = activeSourceIsLocal ? undefined : songUri;
+    console.info(`[player] starting ${songId} from ${downloaded ? "downloads" : prefetched ? "the prefetch cache" : "a stream"}`);
 
     // Album art for the lock-screen / media-notification. Without an `artwork` on the track, Media3 has
     // nothing to render, which is why the notification showed no icon. Prefer the already-downloaded local
@@ -932,6 +968,8 @@ async function startNewSong(songId: string, recentlyPlayedSong?: RecentlyPlayedS
     const localArtUri = Downloader.generateLocalAlbumArtUri(song);
     if (await Downloader.fileExists(localArtUri)) {
         artworkUri = localArtUri;
+    } else if (prefetched?.artUri != undefined) {
+        artworkUri = prefetched.artUri;
     } else {
         artworkUri = await Downloader.generateServerAlbumArtUrl(song);
     }
@@ -1020,6 +1058,9 @@ async function startNewSong(songId: string, recentlyPlayedSong?: RecentlyPlayedS
     // Reflect the new active song's saved like state on the notification buttons — and offer Keep only when
     // this one is actually an audition song.
     await refreshNotificationButtons((userSong.likeStatus as LikeStatus) ?? LikeStatus.Neutral, song.exploratory);
+
+    // Last: the history and lastPlayed writes above are what the next picks are made from.
+    scheduleLookaheadRefresh();
 }
 
 async function getRandomSongId(): Promise<string | undefined> {
@@ -1045,4 +1086,97 @@ async function getRandomSongId(): Promise<string | undefined> {
     }
 
     return songId;
+}
+
+function isLookaheadEnabled(): boolean {
+    return prefetcher.supported && usePrefetchSetting.getState().enabled;
+}
+
+/** Turns "Load upcoming songs ahead" on or off. Off throws away what is lined up and everything fetched for it. */
+export async function setPrefetchUpcoming(enabled: boolean): Promise<void> {
+    await savePrefetchSetting(enabled);
+    scheduleLookaheadRefresh();
+}
+
+/**
+ * Recomputes the lookahead and hands it to the prefetcher, off the transport lock: picking reads the song pool,
+ * which is too slow to hold a skip up for. Calls while one runs fold into one more run after it, and a run that
+ * a skip or a dislike overtook goes round again, so the last word always comes from the latest state.
+ */
+function scheduleLookaheadRefresh() {
+    if (lookaheadRefreshRunning) {
+        lookaheadRefreshAgain = true;
+        return;
+    }
+
+    lookaheadRefreshRunning = true;
+    void (async () => {
+        try {
+            do {
+                lookaheadRefreshAgain = false;
+                await refreshLookaheadOnce();
+            } while (lookaheadRefreshAgain);
+        } catch (e) {
+            console.warn("[lookahead] refresh failed", e);
+        } finally {
+            lookaheadRefreshRunning = false;
+        }
+    })();
+}
+
+async function refreshLookaheadOnce() {
+    if (!isLookaheadEnabled() || db == undefined) {
+        lookahead.reset();
+        prefetcher.want([]);
+        return;
+    }
+
+    const upcoming = await lookahead.refresh();
+
+    if (upcoming == undefined) {
+        lookaheadRefreshAgain = true;
+        return;
+    }
+
+    const songs: Song[] = [];
+    for (const songId of upcoming) {
+        const song = await DbQueries.getSong(db, songId);
+        if (song != undefined) {
+            songs.push(song);
+        }
+    }
+
+    console.info(`[lookahead] next: ${upcoming.length ? upcoming.join(", ") : "nothing"}`);
+    prefetcher.want(songs);
+}
+
+/** A shuffle pick made ahead of the skip, from the same pool and window rules getRandomSongId uses at the skip. */
+async function pickShuffleSongAhead(played: readonly string[]): Promise<string | undefined> {
+    const songFilters = await getSongFilters();
+
+    if (songFilters.hasAnyFilter()) {
+        return selectNextSong(asIfJustPlayed(await DbQueries.getFilteredSong(db, songFilters), played));
+    }
+
+    // The whole library has no window to keep the lined-up songs out of, so just don't line one up twice.
+    let songId: string | undefined;
+    for (let attempt = 0; attempt < 3; attempt++) {
+        songId = await DbQueries.getRandomSongId(db);
+        if (songId == undefined || !played.includes(songId)) {
+            break;
+        }
+    }
+
+    return songId;
+}
+
+/** Whether a song picked ahead may still be the shuffle's next song: still in the scope's pool, or the library. */
+async function isShuffleEligible(songId: string): Promise<boolean> {
+    const songFilters = await getSongFilters();
+
+    if (songFilters.hasAnyFilter()) {
+        return (await DbQueries.getFilteredSong(db, songFilters)).some(x => x.songId === songId);
+    }
+
+    return (await DbQueries.getSong(db, songId)) != undefined;
 }

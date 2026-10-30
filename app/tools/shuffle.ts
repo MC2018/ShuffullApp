@@ -90,3 +90,24 @@ export function selectNextSong(
     const index = Math.min(window - 1, Math.max(0, Math.floor(random() * window)));
     return candidates[index]?.songId;
 }
+
+/**
+ * The pool as it will look once `played` have played, in that order: moved to the back, newest last, as
+ * getFilteredSong orders songs that have just been stamped. Picking from this is how the lookahead picks a song
+ * AHEAD of the skip without lining up one it has already lined up (ShuffullApp#124).
+ */
+export function asIfJustPlayed(
+    candidates: readonly ShuffleCandidate[],
+    played: readonly string[],
+    now: number = Date.now(),
+): ShuffleCandidate[] {
+    const playedSet = new Set(played);
+    const byId = new Map(candidates.map(candidate => [candidate.songId, candidate]));
+    const stillAhead = candidates.filter(candidate => !playedSet.has(candidate.songId));
+    // Only songs in the pool move: one outside it (a queued song from another scope) has no place in it to take.
+    const movedBack = [...playedSet]
+        .filter(songId => byId.has(songId))
+        .map((songId, index) => ({ songId, lastPlayed: now + index }));
+
+    return [...stillAhead, ...movedBack];
+}

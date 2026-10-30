@@ -21,4 +21,6 @@ export const STORAGE_KEYS = {
     SONG_RECONCILE_AT: "SONG_RECONCILE_AT",
     // JSON SongReconcileState: the song ids that check missed, purged only if the next check misses them too.
     SONG_RECONCILE_STATE: "SONG_RECONCILE_STATE",
+    // "0" once the user has turned off "Load upcoming songs ahead". Anything else, unset included, means on.
+    PREFETCH_UPCOMING: "PREFETCH_UPCOMING",
 }
