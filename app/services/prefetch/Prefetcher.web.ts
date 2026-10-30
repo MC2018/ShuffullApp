@@ -2,7 +2,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { STORAGE_KEYS } from "../../constants/storageKeys";
 import { Song } from "../db/models";
 import { Downloader } from "../downloader/Downloader";
-import { desktopShell, DesktopPrefetchStore } from "../desktopShell";
+import { desktopShell, DesktopPrefetchStore, isOnline, pageOrigin } from "../desktopShell";
 import { prefetchMediaUri } from "../../tools/desktopMedia";
 import { PrefetchStore, StorePrefetcher } from "./StorePrefetcher";
 import { Prefetcher } from "./types";
@@ -13,9 +13,9 @@ import { Prefetcher } from "./types";
  * - **The Electron desktop app.** The shell's preload exposes `window.shuffull.prefetch`, a store the main process
  *   keeps on disk next to (never inside) the Downloads store (desktop/media.js). Main fetches each song, checks its
  *   hash the same way it checks a download, and serves it back under `/__prefetch/` on the page's own origin, so
- *   `<audio>` plays it like a downloaded song. `StorePrefetcher` does the bookkeeping, rule for rule as on native.
- * - **A plain browser, or a desktop shell built before #137.** No bridge: `supported` is false, the Settings row
- *   stays hidden, and the player picks at skip time and streams exactly as before.
+ *   `<audio>` plays it like a downloaded song. `StorePrefetcher` does the bookkeeping, the same code as on native.
+ * - **A plain browser, or a desktop shell built before #137.** No bridge: `supported` is false, Settings says
+ *   the option isn't available here, and the player picks at skip time and streams exactly as before.
  *
  * Why the shell's store and not OPFS or Cache Storage in the page: the shell already downloads, verifies and serves
  * songs with Range support (seeking) for Downloads, streaming to disk without holding a song in the page's memory.
@@ -23,15 +23,8 @@ import { Prefetcher } from "./types";
  * CORS middleware runs (Shuffull.Api Program.cs), so they have none.
  */
 
-function isOnline(): boolean {
-    return typeof navigator === "undefined" || navigator.onLine !== false;
-}
-
-function pageOrigin(): string {
-    return typeof window === "undefined" ? "" : window.location.origin;
-}
-
-function desktopPrefetchStore(bridge: DesktopPrefetchStore): PrefetchStore {
+/** Exported for its tests. */
+export function desktopPrefetchStore(bridge: DesktopPrefetchStore): PrefetchStore {
     const audioName = (song: Song) => Downloader.generateSongFileName(song);
     const artName = (song: Song) => Downloader.generateAlbumArtFileName(song);
 

@@ -1,5 +1,5 @@
 import React from "react";
-import { ScrollView, Switch, View } from "react-native";
+import { Platform, ScrollView, Switch, View } from "react-native";
 import { router } from "expo-router";
 import { IconButton, ListRow, Screen, Text } from "@/app/components/ui";
 import { useTheme } from "@/app/theme";
@@ -31,7 +31,7 @@ export default function SettingsScreen() {
                     <>
                         <ListRow
                             title="Load upcoming songs ahead"
-                            subtitle="Skips start instantly. Uses data, mobile included."
+                            subtitle={Platform.OS === "web" ? "Skips start instantly." : "Skips start instantly. Uses data, mobile included."}
                             onPress={loaded ? () => MediaManager.setPrefetchUpcoming(!enabled) : undefined}
                             right={
                                 <Switch

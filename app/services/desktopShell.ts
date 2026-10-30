@@ -46,6 +46,16 @@ declare global {
     }
 }
 
+/** The page's origin, which the shell serves stored files under. Empty during `expo export`'s prerender. */
+export function pageOrigin(): string {
+    return typeof window === "undefined" ? "" : window.location.origin;
+}
+
+/** The browser's own idea of being online. It can't tell Wi-Fi from Ethernet; on a desktop that doesn't matter. */
+export function isOnline(): boolean {
+    return typeof navigator === "undefined" || navigator.onLine !== false;
+}
+
 /** The bridge, or undefined anywhere but the desktop app (including `expo export`'s prerender, which has no window). */
 export function desktopShell(): DesktopShell | undefined {
     return typeof window === "undefined" ? undefined : window.shuffull;

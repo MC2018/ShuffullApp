@@ -11,8 +11,8 @@ export interface StoredSong {
 }
 
 /**
- * Where the prefetched files live. The desktop's is the Electron shell's prefetch folder (Prefetcher.web.ts); the
- * tests use an in-memory fake. Everything platform-specific is behind this, so the bookkeeping below is plain code.
+ * Where the prefetched files live: the OS cache directory on a phone (Prefetcher.ts), the Electron shell's prefetch
+ * folder on desktop (Prefetcher.web.ts), an in-memory fake in the tests. Everything platform-specific is behind this, so the bookkeeping below is plain code.
  */
 export interface PrefetchStore {
     /** Empties the store. Runs once, before anything is fetched. */
@@ -45,8 +45,8 @@ interface FetchJob {
 
 /**
  * The prefetch cache's bookkeeping over a `PrefetchStore`: which songs to fetch, in what order, which to drop, and
- * which file is safe to play (ShuffullApp#124, desktop ShuffullApp#137). It follows the native `Prefetcher.ts`
- * rule for rule:
+ * which file is safe to play (ShuffullApp#124; shared with the desktop since ShuffullApp#137, so both platforms
+ * run the one tested copy). It fetches the lookahead so a skip finds the next song already on hand:
  *
  * - One song at a time, in play order, skipping the playing song and anything already downloaded.
  * - Evicts with `choosePrefetchEvictions` under the ~100 MB cap. A lined-up song the cap pushes out isn't fetched
