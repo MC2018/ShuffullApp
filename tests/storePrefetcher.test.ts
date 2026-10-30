@@ -3,8 +3,8 @@ import { Song } from "@/app/services/db/models";
 import { PrefetchStore, StoredSong, StorePrefetcher } from "@/app/services/prefetch/StorePrefetcher";
 
 /**
- * The desktop prefetch cache's bookkeeping (ShuffullApp#137), over a fake store. What must hold, as on native
- * (ShuffullApp#124): fetch the lookahead in order and nothing else, never trust a file the index doesn't vouch
+ * The prefetch cache's bookkeeping, shared by the phone (ShuffullApp#124) and the desktop (ShuffullApp#137), over
+ * a fake store. What must hold: fetch the lookahead in order and nothing else, never trust a file the index doesn't vouch
  * for or a file that is gone, drop what has played, stay under the cap without fetching the same song forever, and
  * stop a fetch the lookahead no longer wants.
  */
@@ -21,7 +21,10 @@ function song(id: string, fileHash = `hash-${id}`): Song {
 
 type FetchResult = StoredSong | { error: string };
 
-/** An in-memory store. Fetches resolve at once unless `hold` is set, when each waits for `release`. */
+/**
+ * An in-memory store. Fetches resolve at once unless `hold` is set, when each waits for `release` or its abort.
+ * `deafToAbort` stands in for a store whose fetch completes before the abort reaches it.
+ */
 class FakeStore implements PrefetchStore {
     files = new Set<string>();
     downloaded = new Set<string>();
@@ -33,6 +36,7 @@ class FakeStore implements PrefetchStore {
     hold = false;
     bytes = 10 * MB;
     failing = new Set<string>();
+    deafToAbort = false;
     // Resolves a held fetch: with the given result, or as if it had completed.
     private pending = new Map<string, (result?: FetchResult) => void>();
 
@@ -49,8 +53,14 @@ class FakeStore implements PrefetchStore {
         return this.downloaded.has(s.songId);
     }
 
-    fetch(s: Song): Promise<FetchResult> {
+    fetch(s: Song, signal: AbortSignal): Promise<FetchResult> {
         this.fetched.push(s.songId);
+        signal.addEventListener("abort", () => {
+            this.cancelled.push(s.songId);
+            if (!this.deafToAbort) {
+                this.release(s.songId, { error: "aborted" });
+            }
+        });
         const finish = (): FetchResult => {
             if (this.failing.has(s.songId)) {
                 return { error: "integrity check failed" };
@@ -65,16 +75,10 @@ class FakeStore implements PrefetchStore {
     }
 
     /** Lets a held fetch finish, as if the cancel hadn't reached it in time. */
-    release(songId: string) {
-        this.pending.get(songId)?.();
+    release(songId: string, result?: FetchResult) {
+        const resolve = this.pending.get(songId);
         this.pending.delete(songId);
-    }
-
-    cancel(s: Song) {
-        this.cancelled.push(s.songId);
-        const resolve = this.pending.get(s.songId);
-        this.pending.delete(s.songId);
-        resolve?.({ error: "aborted" });
+        resolve?.(result);
     }
 
     async exists(s: Song) {
@@ -234,7 +238,7 @@ describe("StorePrefetcher", () => {
         await new Promise(resolve => setTimeout(resolve, 0));
 
         // The cancel arrives, but the store's fetch completes anyway.
-        store.cancel = (s: Song) => void store.cancelled.push(s.songId);
+        store.deafToAbort = true;
         prefetcher.want([]);
         store.release("a");
         await settle(prefetcher);

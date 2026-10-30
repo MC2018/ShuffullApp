@@ -33,30 +33,46 @@ export function desktopPrefetchStore(bridge: DesktopPrefetchStore): PrefetchStor
         // Any connection will do, as on native (decided 2026-10-27); the setting is the off switch.
         canFetch: async () => isOnline() && (await AsyncStorage.getItem(STORAGE_KEYS.HOST_ADDRESS)) != null,
         isDownloaded: song => Downloader.fileExists(Downloader.generateLocalSongUri(song)),
-        async fetch(song) {
+        async fetch(song, signal) {
             const hostAddress = await AsyncStorage.getItem(STORAGE_KEYS.HOST_ADDRESS);
 
             if (hostAddress == null) {
                 return { error: "no host" };
             }
 
-            const audio = await bridge.download(hostAddress, "music", audioName(song));
-
-            if (!audio.ok) {
-                return { error: audio.error };
-            }
-
-            // Best-effort, as for a download: the player falls back to the server URL for art it doesn't have.
-            const art = await bridge.download(hostAddress, "albumart", artName(song));
-            return {
-                bytes: audio.bytes,
-                audioUri: prefetchMediaUri(pageOrigin(), "music", audioName(song)),
-                artUri: art.ok ? prefetchMediaUri(pageOrigin(), "albumart", artName(song)) : undefined,
+            // The shell aborts a download by name. IPC keeps order, so a cancel sent after a download reaches it.
+            const onAbort = () => {
+                void bridge.cancel("music", audioName(song)).catch(() => undefined);
+                void bridge.cancel("albumart", artName(song)).catch(() => undefined);
             };
-        },
-        cancel(song) {
-            void bridge.cancel("music", audioName(song)).catch(() => undefined);
-            void bridge.cancel("albumart", artName(song)).catch(() => undefined);
+            signal.addEventListener("abort", onAbort);
+
+            try {
+                if (signal.aborted) {
+                    return { error: "cancelled" };
+                }
+
+                const audio = await bridge.download(hostAddress, "music", audioName(song));
+
+                if (!audio.ok) {
+                    return { error: audio.error };
+                }
+
+                if (signal.aborted) {
+                    await bridge.remove("music", audioName(song));
+                    return { error: "cancelled" };
+                }
+
+                // Best-effort, as for a download: the player falls back to the server URL for art it doesn't have.
+                const art = await bridge.download(hostAddress, "albumart", artName(song));
+                return {
+                    bytes: audio.bytes,
+                    audioUri: prefetchMediaUri(pageOrigin(), "music", audioName(song)),
+                    artUri: art.ok ? prefetchMediaUri(pageOrigin(), "albumart", artName(song)) : undefined,
+                };
+            } finally {
+                signal.removeEventListener("abort", onAbort);
+            }
         },
         exists: song => bridge.exists("music", audioName(song)),
         async remove(song) {

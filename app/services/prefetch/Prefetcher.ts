@@ -10,11 +10,6 @@ import { decideArtDownload } from "../../tools/downloadFailure";
 import { PrefetchStore, StorePrefetcher } from "./StorePrefetcher";
 import { Prefetcher } from "./types";
 
-interface FetchJob {
-    cancelled: boolean;
-    task: FileSystem.DownloadResumable | undefined;
-}
-
 /**
  * Native prefetch cache (ShuffullApp#124): the file-system half. `StorePrefetcher` decides what to fetch and drop;
  * this only moves files, so the phone and the desktop (ShuffullApp#137) share one tested set of rules.
@@ -26,7 +21,6 @@ interface FetchJob {
 function nativePrefetchStore(cacheDirectory: string): PrefetchStore {
     const folder = path.join(cacheDirectory, "prefetch");
     const tempFolder = path.join(folder, "temp");
-    const jobs = new Map<string, FetchJob>();
     const audioUri = (song: Song) => path.join(folder, Downloader.generateSongFileName(song));
     const artUri = (song: Song) => path.join(folder, Downloader.generateAlbumArtFileName(song));
 
@@ -42,25 +36,30 @@ function nativePrefetchStore(cacheDirectory: string): PrefetchStore {
             return hostAddress != null && network.isInternetReachable !== false;
         },
         isDownloaded: song => Downloader.fileExists(Downloader.generateLocalSongUri(song)),
-        async fetch(song) {
+        async fetch(song, signal) {
             const hostAddress = await AsyncStorage.getItem(STORAGE_KEYS.HOST_ADDRESS);
 
             if (hostAddress == null) {
                 return { error: "no host" };
             }
 
+            if (signal.aborted) {
+                return { error: "cancelled" };
+            }
+
             const fileName = Downloader.generateSongFileName(song);
             const artFileName = Downloader.generateAlbumArtFileName(song);
             const tempAudio = path.join(tempFolder, fileName);
             const tempArt = path.join(tempFolder, artFileName);
-            const job: FetchJob = { cancelled: false, task: undefined };
-            jobs.set(song.songId, job);
+            let task: FileSystem.DownloadResumable | undefined;
+            const onAbort = () => void task?.cancelAsync().catch(() => undefined);
+            signal.addEventListener("abort", onAbort);
 
             try {
-                job.task = FileSystem.createDownloadResumable(path.join(hostAddress, "music", fileName), tempAudio);
-                const audio = await job.task.downloadAsync();
+                task = FileSystem.createDownloadResumable(path.join(hostAddress, "music", fileName), tempAudio);
+                const audio = await task.downloadAsync();
 
-                if (job.cancelled) {
+                if (signal.aborted) {
                     return { error: "cancelled" };
                 }
 
@@ -73,10 +72,14 @@ function nativePrefetchStore(cacheDirectory: string): PrefetchStore {
                     return { error: "hash check failed" };
                 }
 
-                job.task = FileSystem.createDownloadResumable(path.join(hostAddress, "albumart", artFileName), tempArt);
-                const art = await job.task.downloadAsync().catch(() => undefined);
+                if (signal.aborted) {
+                    return { error: "cancelled" };
+                }
 
-                if (job.cancelled) {
+                task = FileSystem.createDownloadResumable(path.join(hostAddress, "albumart", artFileName), tempArt);
+                const art = await task.downloadAsync().catch(() => undefined);
+
+                if (signal.aborted) {
                     return { error: "cancelled" };
                 }
 
@@ -89,19 +92,9 @@ function nativePrefetchStore(cacheDirectory: string): PrefetchStore {
                 const info = await FileSystem.getInfoAsync(audioUri(song));
                 return { bytes: info.exists ? info.size : 0, audioUri: audioUri(song), artUri: hasArt ? artUri(song) : undefined };
             } finally {
-                if (jobs.get(song.songId) === job) {
-                    jobs.delete(song.songId);
-                }
+                signal.removeEventListener("abort", onAbort);
                 await FileSystem.deleteAsync(tempAudio, { idempotent: true }).catch(() => undefined);
                 await FileSystem.deleteAsync(tempArt, { idempotent: true }).catch(() => undefined);
-            }
-        },
-        cancel(song) {
-            const job = jobs.get(song.songId);
-
-            if (job != undefined) {
-                job.cancelled = true;
-                void job.task?.cancelAsync().catch(() => undefined);
             }
         },
         // The OS may clear its cache directory under storage pressure, so the index alone isn't proof.

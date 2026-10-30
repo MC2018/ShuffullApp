@@ -12,7 +12,8 @@ export interface StoredSong {
 
 /**
  * Where the prefetched files live: the OS cache directory on a phone (Prefetcher.ts), the Electron shell's prefetch
- * folder on desktop (Prefetcher.web.ts), an in-memory fake in the tests. Everything platform-specific is behind this, so the bookkeeping below is plain code.
+ * folder on desktop (Prefetcher.web.ts), an in-memory fake in the tests. Everything platform-specific is behind
+ * this, so the bookkeeping below is plain code.
  */
 export interface PrefetchStore {
     /** Empties the store. Runs once, before anything is fetched. */
@@ -22,12 +23,13 @@ export interface PrefetchStore {
     /** Already in Downloads: it plays from there, so a second copy would be waste. */
     isDownloaded(song: Song): Promise<boolean>;
     /**
-     * Fetches the song's audio, hash-checked against its file hash, then its art. On any failure, a bad hash or a
-     * cancel it says why, and leaves nothing behind. Art is best-effort and never fails the song.
+     * Fetches the song's audio, hash-checked against its file hash, then its art. On any failure, a bad hash or an
+     * abort it says why, and leaves nothing behind. Art is best-effort and never fails the song.
+     *
+     * `signal` aborts it at any point, including before the store has started a download of its own: a cancel
+     * looked up by song after the fact would miss a fetch still reading its host, and the whole song would download.
      */
-    fetch(song: Song): Promise<StoredSong | { error: string }>;
-    /** Aborts the song's fetch if it is in flight. */
-    cancel(song: Song): void;
+    fetch(song: Song, signal: AbortSignal): Promise<StoredSong | { error: string }>;
     /** The audio is still there. The store may lose files the index still lists. */
     exists(song: Song): Promise<boolean>;
     /** Deletes the song's audio and art. Idempotent. */
@@ -40,7 +42,7 @@ interface CachedSong extends PrefetchEntry, StoredSong {
 
 interface FetchJob {
     song: Song;
-    cancelled: boolean;
+    abort: AbortController;
 }
 
 /**
@@ -132,13 +134,12 @@ export class StorePrefetcher implements Prefetcher {
     }
 
     private cancel(job: FetchJob, reason: string) {
-        if (job.cancelled) {
+        if (job.abort.signal.aborted) {
             return;
         }
 
-        job.cancelled = true;
         console.info(`[prefetch] cancelled ${job.song.songId}: ${reason}`);
-        this.store.cancel(job.song);
+        job.abort.abort();
     }
 
     /** Runs the fetch loop if it isn't running; if it is, makes it go round once more with the latest list. */
@@ -210,15 +211,15 @@ export class StorePrefetcher implements Prefetcher {
             return;
         }
 
-        const job: FetchJob = { song, cancelled: false };
+        const job: FetchJob = { song, abort: new AbortController() };
         const startedAt = Date.now();
         this.inFlight = job;
 
         try {
             console.info(`[prefetch] fetching ${song.songId} (${song.name})`);
-            const stored = await this.store.fetch(song);
+            const stored = await this.store.fetch(song, job.abort.signal);
 
-            if (job.cancelled) {
+            if (job.abort.signal.aborted) {
                 // A fetch can finish in the moment between the cancel and the abort reaching it.
                 if (!("error" in stored)) {
                     await this.store.remove(song).catch(() => undefined);
@@ -234,7 +235,7 @@ export class StorePrefetcher implements Prefetcher {
             this.cached.set(song.songId, { ...stored, song, songId: song.songId, fetchedAt: Date.now(), played: false });
             console.info(`[prefetch] ready ${song.songId}: ${(stored.bytes / 1024 / 1024).toFixed(1)} MB in ${Date.now() - startedAt} ms`);
         } catch (e) {
-            if (!job.cancelled) {
+            if (!job.abort.signal.aborted) {
                 console.warn(`[prefetch] fetching ${song.songId} failed; it will stream`, e);
             }
         } finally {
