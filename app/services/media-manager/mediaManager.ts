@@ -258,6 +258,8 @@ export async function setup(activeDb: GenericDb) {
 
         if (currentlyPlayingSong != undefined) {
             useActiveSong.getState().setSongId(currentlyPlayingSong.songId);
+            void lineUpAfterRestart(playerReady, currentlyPlayingSong.songId)
+                .catch(e => console.warn("[lookahead] could not line up after a restart", e));
         }
     } finally {
         // A listen still open in the database was cut short by the last JS context dying. Android can keep the player
@@ -329,6 +331,24 @@ async function refreshNotificationButtons(likeStatus: LikeStatus, canKeep = fals
         await TrackPlayer.updateOptions(buildPlayerOptions(likeStatus, canKeep));
     } catch {
         // Non-critical: the notification buttons are best-effort.
+    }
+}
+
+/**
+ * A new JS context starts with an empty prefetch cache and nothing lined up, and nothing schedules a refresh until the
+ * user changes something, most often the track. So after a JS restart mid-song, the next skip would stream. This lines
+ * up only when the player still has the restored song loaded: on a cold launch it has nothing, and play lines up
+ * through startNewSong, so opening the app to browse fetches nothing.
+ */
+async function lineUpAfterRestart(playerReady: Promise<void>, songId: string) {
+    try {
+        await playerReady;
+    } catch {
+        return; // setup() logs the failure
+    }
+
+    if ((await TrackPlayer.getActiveTrack())?.id === songId) {
+        scheduleLookaheadRefresh();
     }
 }
 
@@ -1514,6 +1534,11 @@ async function refreshLookaheadOnce() {
         if (song != undefined) {
             songs.push(song);
         }
+    }
+
+    // A deck opened while the reads above ran has already lined up its own songs.
+    if (auditionController != undefined) {
+        return;
     }
 
     console.info(`[lookahead] next: ${upcoming.length ? upcoming.join(", ") : "nothing"}`);
