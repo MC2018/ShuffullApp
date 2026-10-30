@@ -283,6 +283,13 @@ describe("the media manager", () => {
         );
     });
 
+    it("lines the next songs up as soon as setup() restores the song, not only at the next track change", () => {
+        // Found on the emulator: after a JS reload mid-song nothing was lined up, so the next skip streamed.
+        const restored = setupBody.indexOf("setSongId(currentlyPlayingSong.songId)");
+        expect(restored).toBeGreaterThan(-1);
+        expect(setupBody.indexOf("scheduleLookaheadRefresh()", restored)).toBeGreaterThan(restored);
+    });
+
     it("decides with openListenIfPlaying", () => {
         const body = source.slice(source.indexOf("async function openListenForResume()"));
         expect(body.slice(0, body.indexOf("\n}\n"))).toContain("await openListenIfPlaying(resumeListenInput(activeDb));");

@@ -260,7 +260,8 @@ export async function setup(activeDb: GenericDb) {
             useActiveSong.getState().setSongId(currentlyPlayingSong.songId);
             // A new JS context starts with an empty prefetch cache and nothing lined up. Until something changes
             // track, which is what otherwise schedules a refresh, the next skip would stream: after a JS restart
-            // mid-song, the song still playing gets nothing lined up behind it.
+            // mid-song, the song still playing gets nothing lined up behind it. A cold launch lines up too, on
+            // purpose: its cache is just as empty, and these are the songs pressing play and skip would fetch anyway.
             scheduleLookaheadRefresh();
         }
     } finally {
