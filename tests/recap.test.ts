@@ -11,9 +11,13 @@ import {
     isRecapSeason,
     offsetTimeZone,
     recapButtonVisible,
+    RECAP_BUTTON_REFRESH_MS,
+    RECAP_RETRY_AFTER_FAILURE_MS,
     recapCacheKey,
     recapYear,
+    savedCopyNote,
     scaleToMax,
+    shouldAskForRecap,
     statsStartedLine,
 } from "@/app/tools/recap";
 
@@ -65,6 +69,32 @@ describe("the December recap window (ShuffullApp#116)", () => {
         expect(recapButtonVisible(december, 0)).toBe(false);
         expect(recapButtonVisible(december, null)).toBe(false);
         expect(recapButtonVisible(december, undefined)).toBe(false);
+    });
+});
+
+describe("when the home button asks the server", () => {
+    const now = Date.UTC(2026, 11, 5, 12);
+    const minutes = (n: number) => n * 60 * 1000;
+
+    it("asks when there's no saved copy and no earlier ask", () => {
+        expect(shouldAskForRecap(null, undefined, now)).toBe(true);
+        expect(shouldAskForRecap(undefined, undefined, now)).toBe(true);
+    });
+
+    it("doesn't ask while the saved copy is fresh, and asks once it's stale", () => {
+        expect(RECAP_BUTTON_REFRESH_MS).toBe(minutes(6 * 60));
+        expect(shouldAskForRecap(now - minutes(10), undefined, now)).toBe(false);
+        expect(shouldAskForRecap(now - RECAP_BUTTON_REFRESH_MS + 1, undefined, now)).toBe(false);
+        expect(shouldAskForRecap(now - RECAP_BUTTON_REFRESH_MS, undefined, now)).toBe(true);
+    });
+
+    it("waits half an hour after an ask that saved nothing", () => {
+        expect(RECAP_RETRY_AFTER_FAILURE_MS).toBe(minutes(30));
+        expect(shouldAskForRecap(null, now - minutes(29), now)).toBe(false);
+        expect(shouldAskForRecap(null, now - minutes(31), now)).toBe(true);
+        // A stale copy doesn't skip the wait either.
+        expect(shouldAskForRecap(now - minutes(7 * 60), now - minutes(29), now)).toBe(false);
+        expect(shouldAskForRecap(now - minutes(7 * 60), now - minutes(31), now)).toBe(true);
     });
 });
 
@@ -144,6 +174,13 @@ describe("loading the recap", () => {
         expect(await loadRecap(api, "user-1", 2026, "UTC")).toEqual({ status: "unavailable" });
     });
 
+    it("says Offline over a saved copy only when there was no answer", () => {
+        const fetchedAt = new Date(2026, 11, 3, 12).getTime();
+        expect(savedCopyNote(503, fetchedAt)).toBe("Offline: showing the copy saved on 3 December 2026.");
+        expect(savedCopyNote(500, fetchedAt)).toBe("Showing the copy saved on 3 December 2026: the server couldn't send a fresh one.");
+        expect(savedCopyNote(404, fetchedAt)).not.toMatch(/Offline/);
+    });
+
     it("tells offline apart from a server error", () => {
         expect(failureLoad(404)).toEqual({ status: "unavailable" });
         expect(failureLoad(503)).toEqual({ status: "offline" });
@@ -154,13 +191,13 @@ describe("loading the recap", () => {
         const recap = sampleRecap();
         const ok = apiReturning(() => Promise.resolve(recap));
         const first = await loadRecap(ok, "user-1", 2026, "America/New_York");
-        expect(first).toMatchObject({ status: "ready", saved: false });
+        expect(first).toMatchObject({ status: "ready", savedAfterStatus: null });
         expect(storage.has(recapCacheKey("user-1", 2026))).toBe(true);
         expect(ok.recapGet).toHaveBeenCalledWith(2026, "America/New_York");
 
         const down = apiReturning(() => Promise.reject(new ApiStatusFailureError("/api/v1/recap/2026", { status: 503 })));
         const second = await loadRecap(down, "user-1", 2026, "America/New_York");
-        expect(second).toMatchObject({ status: "ready", saved: true });
+        expect(second).toMatchObject({ status: "ready", savedAfterStatus: 503 });
         if (second.status === "ready") {
             expect(second.recap.plays).toBe(recap.plays);
             expect(second.recap.firstListen).toEqual(recap.firstListen);

@@ -13,13 +13,14 @@ export interface SavedRecap {
 
 /**
  * What loading a recap came to.
- * - `ready`: a recap to show. `saved` is set when it is the last fetched copy because the fetch just failed.
+ * - `ready`: a recap to show. `savedAfterStatus` is null for a fresh one. When the fetch just failed and this is the last
+ *   fetched copy instead, it is that failure's status (statusOfFailure: 503 for no answer at all).
  * - `unavailable`: the server has no recap endpoint yet (404: an API older than Shuffull#62). Said quietly.
  * - `offline`: no answer and no saved copy.
  * - `error`: the server answered with something else, and there's no saved copy.
  */
 export type RecapLoad =
-    | { status: "ready"; recap: Recap; fetchedAt: number; saved: boolean }
+    | { status: "ready"; recap: Recap; fetchedAt: number; savedAfterStatus: number | null }
     | { status: "unavailable" }
     | { status: "offline" }
     | { status: "error"; httpStatus: number };
@@ -60,13 +61,14 @@ export async function loadRecap(api: ApiClient, userId: string, year: number, ti
         const recap = await api.recapGet(year, timeZone);
         const fetchedAt = Date.now();
         await saveRecap(userId, year, { recap, fetchedAt });
-        return { status: "ready", recap, fetchedAt, saved: false };
+        return { status: "ready", recap, fetchedAt, savedAfterStatus: null };
     } catch (error) {
+        const httpStatus = statusOfFailure(error);
         const saved = await readSavedRecap(userId, year);
         if (saved) {
-            return { status: "ready", recap: saved.recap, fetchedAt: saved.fetchedAt, saved: true };
+            return { status: "ready", recap: saved.recap, fetchedAt: saved.fetchedAt, savedAfterStatus: httpStatus };
         }
-        return failureLoad(statusOfFailure(error));
+        return failureLoad(httpStatus);
     }
 }
 

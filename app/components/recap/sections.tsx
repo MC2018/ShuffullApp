@@ -18,7 +18,7 @@ import {
     songTitle,
     statsStartedLine,
 } from "@/app/tools/recap";
-import { BarChart, HeatGrid, ShareBar, Stat } from "./charts";
+import { BarChart, HEAT_CELL_GAP, HEAT_ROW_LABEL_WIDTH, HeatGrid, ShareBar, Stat } from "./charts";
 
 // The recap's sections (epic shuffull-workspace#35). Each one takes the whole recap and draws only its own content:
 // no card, no heading, no scrolling. The container (app/(app)/recap.tsx) supplies those from RECAP_SECTIONS, so the
@@ -140,7 +140,7 @@ export function HeatmapSection({ recap }: RecapSectionProps) {
     return (
         <View style={{ gap: theme.space.sm }}>
             <HeatGrid rows={recap.heatmap} rowLabels={DAY_NAMES.map(d => d.charAt(0))} />
-            <View style={{ flexDirection: "row", paddingLeft: 20 }}>
+            <View style={{ flexDirection: "row", paddingLeft: HEAT_ROW_LABEL_WIDTH + HEAT_CELL_GAP }}>
                 {[0, 6, 12, 18].map(hour => (
                     <Text key={hour} variant="caption" color="textFaint" style={{ flex: 1 }}>
                         {formatHour(hour)}
@@ -156,46 +156,57 @@ export function HeatmapSection({ recap }: RecapSectionProps) {
     );
 }
 
-export function TopSongsSection({ recap }: RecapSectionProps) {
+/** A ranked list with a by-time / by-plays toggle: top songs and top artists. */
+function ToggledRanking<T extends { minutes: number; plays: number }>({ byMinutes, byPlays: byPlaysList, empty, row }: {
+    byMinutes: T[];
+    byPlays: T[];
+    empty: string;
+    row: (item: T) => { key: string; title: string; subtitle?: string };
+}) {
     const [byPlays, setByPlays] = useState(false);
-    const songs = byPlays ? recap.topSongsByPlays : recap.topSongsByMinutes;
-    const lead = songs[0] ? (byPlays ? songs[0].plays : songs[0].minutes) : 0;
+    const items = byPlays ? byPlaysList : byMinutes;
+    const figureOf = (item: T) => (byPlays ? item.plays : item.minutes);
+    const lead = items[0] ? figureOf(items[0]) : 0;
     return (
         <View>
             <ByToggle byPlays={byPlays} onChange={setByPlays} />
-            {songs.length === 0 ? <Empty>No songs yet.</Empty> : null}
-            {songs.map((song, i) => (
-                <RankedRow
-                    key={song.songId}
-                    rank={i + 1}
-                    title={songTitle(song)}
-                    subtitle={songArtists(song)}
-                    figure={byPlays ? plural(song.plays, "play") : formatMinutes(song.minutes)}
-                    share={lead > 0 ? (byPlays ? song.plays : song.minutes) / lead : 0}
-                />
-            ))}
+            {items.length === 0 ? <Empty>{empty}</Empty> : null}
+            {items.map((item, i) => {
+                const { key, title, subtitle } = row(item);
+                return (
+                    <RankedRow
+                        key={key}
+                        rank={i + 1}
+                        title={title}
+                        subtitle={subtitle}
+                        figure={byPlays ? plural(item.plays, "play") : formatMinutes(item.minutes)}
+                        share={lead > 0 ? figureOf(item) / lead : 0}
+                    />
+                );
+            })}
         </View>
     );
 }
 
-export function TopArtistsSection({ recap }: RecapSectionProps) {
-    const [byPlays, setByPlays] = useState(false);
-    const artists = byPlays ? recap.topArtistsByPlays : recap.topArtistsByMinutes;
-    const lead = artists[0] ? (byPlays ? artists[0].plays : artists[0].minutes) : 0;
+export function TopSongsSection({ recap }: RecapSectionProps) {
     return (
-        <View>
-            <ByToggle byPlays={byPlays} onChange={setByPlays} />
-            {artists.length === 0 ? <Empty>No artists yet.</Empty> : null}
-            {artists.map((artist, i) => (
-                <RankedRow
-                    key={artist.artistId}
-                    rank={i + 1}
-                    title={artist.name}
-                    figure={byPlays ? plural(artist.plays, "play") : formatMinutes(artist.minutes)}
-                    share={lead > 0 ? (byPlays ? artist.plays : artist.minutes) / lead : 0}
-                />
-            ))}
-        </View>
+        <ToggledRanking
+            byMinutes={recap.topSongsByMinutes}
+            byPlays={recap.topSongsByPlays}
+            empty="No songs yet."
+            row={song => ({ key: song.songId, title: songTitle(song), subtitle: songArtists(song) })}
+        />
+    );
+}
+
+export function TopArtistsSection({ recap }: RecapSectionProps) {
+    return (
+        <ToggledRanking
+            byMinutes={recap.topArtistsByMinutes}
+            byPlays={recap.topArtistsByPlays}
+            empty="No artists yet."
+            row={artist => ({ key: artist.artistId, title: artist.name })}
+        />
     );
 }
 
@@ -219,6 +230,9 @@ export function GenresSection({ recap }: RecapSectionProps) {
 
 /** How many genres the month-by-month grid follows. The API sends up to ten; more rows than this get cramped. */
 const GENRE_SHIFT_ROWS = 5;
+// Wider labels than the hour grid, for genre names, and a wider gap so twelve month cells read as columns.
+const GENRE_LABEL_WIDTH = 84;
+const GENRE_CELL_GAP = 3;
 
 export function GenreShiftSection({ recap }: RecapSectionProps) {
     const theme = useTheme();
@@ -231,8 +245,8 @@ export function GenreShiftSection({ recap }: RecapSectionProps) {
         recap.genresByMonth.map(month => month.genres.find(g => g.tagId === genre.tagId)?.percent ?? 0));
     return (
         <View style={{ gap: theme.space.sm }}>
-            <HeatGrid rows={rows} rowLabels={genres.map(g => g.name)} rowLabelWidth={84} cellGap={3} />
-            <View style={{ flexDirection: "row", gap: 3, paddingLeft: 87 }}>
+            <HeatGrid rows={rows} rowLabels={genres.map(g => g.name)} rowLabelWidth={GENRE_LABEL_WIDTH} cellGap={GENRE_CELL_GAP} />
+            <View style={{ flexDirection: "row", gap: GENRE_CELL_GAP, paddingLeft: GENRE_LABEL_WIDTH + GENRE_CELL_GAP }}>
                 {MONTH_INITIALS.map((m, i) => (
                     <Text key={i} variant="caption" color="textFaint" style={{ flex: 1, textAlign: "center" }}>
                         {m}

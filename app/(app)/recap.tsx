@@ -9,26 +9,26 @@ import { loadRecap, RecapLoad } from "@/app/services/recap/recapLoader";
 import { sampleRecap } from "@/app/services/recap/sampleRecap";
 import { RECAP_SECTIONS } from "@/app/components/recap/sections";
 import { Recap } from "@/app/services/api/models";
-import { deviceTimeZone, formatDay, recapYear } from "@/app/tools/recap";
+import { deviceTimeZone, recapYear, savedCopyNote } from "@/app/tools/recap";
 
 // The December recap (ShuffullApp#116), as one scrolling page of cards like Home and Settings. The sections don't know
 // they're on a page: each is a component in RECAP_SECTIONS, so a story-style container could replace this one alone.
 //
-// Reached from Home's December button. Development builds also open it from Settings, with `?sample=1` for made-up
-// data, since the button hides outside December.
+// Reached from Home's December button, and always shows the current local year. Development builds also open it from
+// Settings, with `?sample=1` for made-up data, since the button hides outside December.
 export default function RecapScreen() {
     const theme = useTheme();
     const api = useApi();
     const userId = useCurrentUser();
-    const params = useLocalSearchParams<{ year?: string; sample?: string }>();
-    const year = Number(params.year) || recapYear();
+    const params = useLocalSearchParams<{ sample?: string }>();
+    const year = recapYear();
     const sample = __DEV__ && params.sample === "1";
     const [load, setLoad] = useState<RecapLoad | null>(null);
 
     const fetchRecap = useCallback(async () => {
         setLoad(null);
         setLoad(sample
-            ? { status: "ready", recap: sampleRecap(), fetchedAt: Date.now(), saved: false }
+            ? { status: "ready", recap: sampleRecap(), fetchedAt: Date.now(), savedAfterStatus: null }
             : await loadRecap(api, userId, year, deviceTimeZone()));
     }, [api, userId, year, sample]);
 
@@ -47,27 +47,34 @@ export default function RecapScreen() {
                     <Text variant="screenTitle">Your {year}</Text>
                 </View>
             </View>
-
-            {load == null ? (
-                <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-                    <ActivityIndicator color={theme.color.accent} />
-                </View>
-            ) : load.status === "ready" ? (
-                <RecapPage recap={load.recap} savedAt={load.saved ? load.fetchedAt : null} />
-            ) : (
-                <RecapUnavailable load={load} onRetry={fetchRecap} />
-            )}
+            <RecapBody load={load} onRetry={fetchRecap} />
         </Screen>
     );
 }
 
-function RecapPage({ recap, savedAt }: { recap: Recap; savedAt: number | null }) {
+function RecapBody({ load, onRetry }: { load: RecapLoad | null; onRetry: () => void }) {
+    const theme = useTheme();
+    if (load == null) {
+        return (
+            <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+                <ActivityIndicator color={theme.color.accent} />
+            </View>
+        );
+    }
+    if (load.status === "ready") {
+        const note = load.savedAfterStatus != null ? savedCopyNote(load.savedAfterStatus, load.fetchedAt) : null;
+        return <RecapPage recap={load.recap} note={note} />;
+    }
+    return <RecapUnavailable load={load} onRetry={onRetry} />;
+}
+
+function RecapPage({ recap, note }: { recap: Recap; note: string | null }) {
     const theme = useTheme();
     return (
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: theme.space.xxxl }}>
-            {savedAt != null ? (
+            {note != null ? (
                 <Text variant="caption" color="textFaint" style={{ marginBottom: theme.space.sm }}>
-                    Offline: showing the copy saved on {formatDay(new Date(savedAt))}.
+                    {note}
                 </Text>
             ) : null}
             {RECAP_SECTIONS.map(({ key, title, Component }) => (
@@ -82,18 +89,25 @@ function RecapPage({ recap, savedAt }: { recap: Recap; savedAt: number | null })
     );
 }
 
-function RecapUnavailable({ load, onRetry }: { load: Exclude<RecapLoad, { status: "ready" }>; onRetry: () => void }) {
+type FailedLoad = Exclude<RecapLoad, { status: "ready" }>;
+
+function unavailableMessage(load: FailedLoad): string {
+    switch (load.status) {
+        case "unavailable":
+            return "Your recap isn't ready on the server yet. Check back later.";
+        case "offline":
+            return "Your recap needs a connection the first time. Connect and try again.";
+        case "error":
+            return `Couldn't load your recap (error ${load.httpStatus}). Try again in a bit.`;
+    }
+}
+
+function RecapUnavailable({ load, onRetry }: { load: FailedLoad; onRetry: () => void }) {
     const theme = useTheme();
-    const message =
-        load.status === "unavailable"
-            ? "Your recap isn't ready on the server yet. Check back later."
-            : load.status === "offline"
-                ? "Your recap needs a connection the first time. Connect and try again."
-                : `Couldn't load your recap (error ${load.httpStatus}). Try again in a bit.`;
     return (
         <Card style={{ marginTop: theme.space.md, gap: theme.space.md }}>
             <Text variant="body" color="textMuted">
-                {message}
+                {unavailableMessage(load)}
             </Text>
             {load.status === "unavailable" ? null : <Button label="Try again" onPress={onRetry} />}
         </Card>

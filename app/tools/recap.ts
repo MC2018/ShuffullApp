@@ -1,6 +1,8 @@
 // The December recap (ShuffullApp#116): when its button shows, and the wording the recap screen needs. Pure, so the
 // tests can run it with a faked clock.
+import { HttpStatusCode } from "axios";
 import type { Recap, RecapSong } from "../services/api/models";
+import { STORAGE_KEYS } from "../constants/storageKeys";
 
 export const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September",
     "October", "November", "December"] as const;
@@ -79,6 +81,17 @@ export function statsStartedLine(recap: Pick<Recap, "firstListen" | "from" | "to
     return `Your stats started on ${formatDay(first)}, with your first recorded listen. Nothing before that was counted.`;
 }
 
+/**
+ * The line over a saved copy shown because the fetch failed. "Offline" only when there was no answer at all (503 from
+ * statusOfFailure): a server that answered with an error isn't the device being offline.
+ */
+export function savedCopyNote(savedAfterStatus: number, fetchedAt: number): string {
+    const day = formatDay(new Date(fetchedAt));
+    return savedAfterStatus === HttpStatusCode.ServiceUnavailable
+        ? `Offline: showing the copy saved on ${day}.`
+        : `Showing the copy saved on ${day}: the server couldn't send a fresh one.`;
+}
+
 /** Minutes as "45 min", "2 h 5 min" or "1,234 h". Rounded: the recap is a summary, not an invoice. */
 export function formatMinutes(minutes: number): string {
     const total = Math.round(minutes);
@@ -135,10 +148,23 @@ export function scaleToMax(values: number[]): number[] {
 }
 
 // The recap is kept per user and year, so it can still be shown offline.
-export const RECAP_CACHE_PREFIX = "RECAP:";
 export function recapCacheKey(userId: string, year: number): string {
-    return `${RECAP_CACHE_PREFIX}${userId}:${year}`;
+    return `${STORAGE_KEYS.RECAP_PREFIX}${userId}:${year}`;
 }
 
 /** How long a saved recap counts as fresh for the home button, so the home screen doesn't ask on every visit. */
 export const RECAP_BUTTON_REFRESH_MS = 6 * 60 * 60 * 1000;
+/** How long the home button waits after an ask that saved nothing (offline, or an API without the endpoint yet). */
+export const RECAP_RETRY_AFTER_FAILURE_MS = 30 * 60 * 1000;
+
+/**
+ * Whether the home button should ask the server for the recap now. Not while the saved copy is under
+ * RECAP_BUTTON_REFRESH_MS old, and not within RECAP_RETRY_AFTER_FAILURE_MS of this session's last ask, so a December
+ * of Home visits doesn't recompute a year of listens on every focus.
+ */
+export function shouldAskForRecap(savedFetchedAt: number | null | undefined, lastAskedAt: number | undefined, now: number): boolean {
+    if (savedFetchedAt != null && now - savedFetchedAt < RECAP_BUTTON_REFRESH_MS) {
+        return false;
+    }
+    return lastAskedAt == null || now - lastAskedAt >= RECAP_RETRY_AFTER_FAILURE_MS;
+}

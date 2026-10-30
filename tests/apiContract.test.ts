@@ -230,8 +230,9 @@ describe("API contract: the yearly recap (ShuffullApp#116)", () => {
             ["winter", "song-full"], ["spring", null], ["summer", null], ["autumn", "song-sparse"],
         ]);
         expect(recap.genresByMonth[0].genres[0]).toEqual({ tagId: "tag-rock", name: "Rock", minutes: 2.5, percent: 25 });
-        // The sample's first listen is in its year, so the screen says when stats started.
-        expect(statsStartedLine(recap)).toMatch(/^Your stats started on 1 October 2026/);
+        // The sample's first listen is in its year, so the screen says when stats started. 12:34 UTC is 1 or 2 October
+        // depending on the zone the tests run in.
+        expect(statsStartedLine(recap)).toMatch(/^Your stats started on [12] October 2026/);
     });
 
     it("an API from before firstListen (Shuffull#104) still parses, with no stats-started line", () => {

@@ -2,9 +2,18 @@ import React from "react";
 import { View } from "react-native";
 import { Text } from "@/app/components/ui";
 import { useTheme } from "@/app/theme";
+import type { Theme } from "@/app/theme/tokens";
 import { scaleToMax } from "@/app/tools/recap";
 
 // The recap's charts, drawn with plain Views: there's no chart library in the app, and these are bars and grids.
+
+/** The tallest bar in the accent, the other non-empty ones deeper, an empty one as a plain line. */
+function barColor(value: number, max: number, theme: Theme): string {
+    if (value <= 0) {
+        return theme.color.line;
+    }
+    return value === max ? theme.color.accent : theme.color.accentDeep;
+}
 
 /** Vertical bars, one per value, with a label under each. The tallest bar is drawn in the accent. */
 export function BarChart({ values, labels, height = 96 }: { values: number[]; labels: readonly string[]; height?: number }) {
@@ -20,7 +29,7 @@ export function BarChart({ values, labels, height = 96 }: { values: number[]; la
                             style={{
                                 height: values[i] > 0 ? `${Math.max(share * 100, 3)}%` : 2,
                                 borderRadius: 4,
-                                backgroundColor: values[i] > 0 && values[i] === max ? theme.color.accent : values[i] > 0 ? theme.color.accentDeep : theme.color.line,
+                                backgroundColor: barColor(values[i], max, theme),
                             }}
                         />
                     </View>
@@ -41,7 +50,11 @@ export function BarChart({ values, labels, height = 96 }: { values: number[]; la
  * A grid of cells shaded by value: rows × columns, with a label at the start of each row. Shading is relative to the
  * grid's largest cell, so the busiest cell is full accent and an empty one is the plain surface.
  */
-export function HeatGrid({ rows, rowLabels, rowLabelWidth = 18, cellGap = 2 }: {
+/** HeatGrid's default row label width and cell gap. A row of column labels under it is indented by their sum. */
+export const HEAT_ROW_LABEL_WIDTH = 18;
+export const HEAT_CELL_GAP = 2;
+
+export function HeatGrid({ rows, rowLabels, rowLabelWidth = HEAT_ROW_LABEL_WIDTH, cellGap = HEAT_CELL_GAP }: {
     rows: number[][];
     rowLabels: readonly string[];
     rowLabelWidth?: number;
