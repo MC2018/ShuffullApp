@@ -66,13 +66,13 @@ async function rowsFor(db: GenericDb, songId: string) {
 }
 
 // The server: holds `serverSongIds`, and answers /songs/list with whichever of the requested ids it has, each with
-// any fields `rows` gives it.
+// no start point unless `rows` gives it one (or other fields).
 function makeApi(serverSongIds: string[], rows: Record<string, object> = {}) {
     const server = new Set(serverSongIds);
     return {
         server,
         songGetList: vi.fn(async (songIds: string[]) =>
-            songIds.filter(x => server.has(x)).map(songId => ({ songId, ...rows[songId] }))),
+            songIds.filter(x => server.has(x)).map(songId => ({ songId, hookStartPercent: null, ...rows[songId] }))),
     };
 }
 
@@ -186,7 +186,7 @@ describe("SyncManager: songs deleted on the server are removed locally", () => {
         await updateSongs(db, ids.map(x => song(x)));
         const api = makeApi(ids.slice(0, 590));
         api.songGetList
-            .mockImplementationOnce(async (songIds: string[]) => songIds.map(songId => ({ songId })))
+            .mockImplementationOnce(async (songIds: string[]) => songIds.map(songId => ({ songId, hookStartPercent: null })))
             .mockRejectedValueOnce(new ApiStatusFailureError("/api/v1/songs/list", { status: 503, data: {} }));
 
         await makeManager(db, api).sync();

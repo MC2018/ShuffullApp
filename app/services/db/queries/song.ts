@@ -421,13 +421,12 @@ export async function updateSongs(db: GenericDb, songs: Song[]): Promise<void> {
 /**
  * Brings held songs' hookStartPercent in line with the server's rows, writing that column alone: a held song can carry
  * local state the server hasn't confirmed yet, such as a Keep still in the outbox, which a whole-row rewrite would
- * undo. Only songs whose value differs are written, so a daily check normally writes nothing. A row without the field
- * says nothing about it and is skipped.
+ * undo. Only songs whose value differs are written, so a daily check normally writes nothing. An API from before
+ * Shuffull#79 parses as null, so it clears the values until a check against a newer one puts them back.
  */
-export async function backfillSongFields(db: GenericDb, songs: { songId: string; hookStartPercent?: number | null }[]): Promise<void> {
-    const known = songs.filter(x => x.hookStartPercent !== undefined);
+export async function backfillSongFields(db: GenericDb, songs: { songId: string; hookStartPercent: number | null }[]): Promise<void> {
     const local = new Map<string, number | null>();
-    for (const idChunk of chunkIds(known.map(x => x.songId))) {
+    for (const idChunk of chunkIds(songs.map(x => x.songId))) {
         const rows = await db.select({ songId: songTable.songId, hookStartPercent: songTable.hookStartPercent })
             .from(songTable)
             .where(inArray(songTable.songId, idChunk));
@@ -435,7 +434,7 @@ export async function backfillSongFields(db: GenericDb, songs: { songId: string;
             local.set(row.songId, row.hookStartPercent);
         }
     }
-    for (const song of known) {
+    for (const song of songs) {
         if (local.has(song.songId) && local.get(song.songId) !== song.hookStartPercent) {
             await db.update(songTable).set({ hookStartPercent: song.hookStartPercent }).where(eq(songTable.songId, song.songId));
         }
