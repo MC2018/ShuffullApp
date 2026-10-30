@@ -1,4 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { Lookahead, LookaheadSource } from "@/app/tools/lookahead";
 
 /**
@@ -206,5 +208,18 @@ describe("lookahead", () => {
 
         expect(await refreshing).toBeUndefined();
         expect(lookahead.reservedPicks).toEqual(["b"]);
+    });
+});
+
+describe("a new JS context with a song loaded", () => {
+    // mediaManager imports native modules and can't load here, so its call site is checked as text.
+    const source = readFileSync(path.resolve(__dirname, "../app/services/media-manager/mediaManager.ts"), "utf8");
+    const setup = source.slice(source.indexOf("export async function setup("), source.indexOf("\n}\n", source.indexOf("export async function setup(")));
+
+    it("lines the next songs up at once, not only at the next track change", () => {
+        // Found on the emulator: after a JS reload mid-song nothing was lined up, so the next skip streamed.
+        const restored = setup.indexOf("setSongId(currentlyPlayingSong.songId)");
+        expect(restored).toBeGreaterThan(-1);
+        expect(setup.indexOf("scheduleLookaheadRefresh()", restored)).toBeGreaterThan(restored);
     });
 });

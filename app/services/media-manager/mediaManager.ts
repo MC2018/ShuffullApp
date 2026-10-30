@@ -258,6 +258,10 @@ export async function setup(activeDb: GenericDb) {
 
         if (currentlyPlayingSong != undefined) {
             useActiveSong.getState().setSongId(currentlyPlayingSong.songId);
+            // A new JS context starts with an empty prefetch cache and nothing lined up. Until something changes
+            // track, which is what otherwise schedules a refresh, the next skip would stream: after a JS restart
+            // mid-song, the song still playing gets nothing lined up behind it.
+            scheduleLookaheadRefresh();
         }
     } finally {
         // A listen still open in the database was cut short by the last JS context dying. Android can keep the player
