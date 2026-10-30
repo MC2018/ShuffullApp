@@ -240,7 +240,7 @@ export function GenreShiftSection({ recap }: RecapSectionProps) {
                 ))}
             </View>
             <Text variant="caption" color="textFaint">
-                Darker means a bigger share of that month&apos;s listening.
+                Brighter means a bigger share of that month&apos;s listening.
             </Text>
         </View>
     );
