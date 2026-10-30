@@ -228,6 +228,18 @@ describe("pageFeed", () => {
         expect(warn).toHaveBeenCalledOnce();
     });
 
+    it("doesn't warn when a stored start key is followed by newer rows", async () => {
+        const rows = [...tiedRows(3, TIE), { songId: "z", version: "2026-10-23T13:00:00Z" }];
+        const server = feedServer(rows, true);
+        const warn = warned();
+
+        // A stored key comes from the end of a finished feed, so the first page after it is past that Version.
+        const feed = await pageFeed({ afterDate: TIE, afterId: "s00002" }, server.fetchPage);
+
+        expect(feed.items.map(x => x.songId)).toEqual(["z"]);
+        expect(warn).not.toHaveBeenCalled();
+    });
+
     it("stops and says so when the server repeats a page", async () => {
         const page = tiedRows(500, TIE);
         const fetchPage = async () => ({ items: page, keys: page, endOfList: false });

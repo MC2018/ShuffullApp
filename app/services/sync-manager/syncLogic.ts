@@ -90,6 +90,7 @@ export function justBefore(version: string): string {
  * page boundary. Otherwise the cursor is just before the last Version, which both servers read the same way: the
  * tied rows already seen come back (callers dedupe them) and none are skipped. A whole page of one Version is the
  * one case where that makes no progress. There an old server skips the rest of the tie instead of looping forever.
+ * So the API must run Shuffull#64 (MC2018/Shuffull#86) before an app build with this ships (ShuffullApp#117).
  */
 export function nextFeedCursor(keys: FeedKey[], sent: FeedCursor): FeedCursor | null {
     const last = keys[keys.length - 1];
@@ -118,9 +119,11 @@ export async function pageFeed<T>(
 
     while (cursor) {
         const page: FeedPage<T> = await fetchPage(cursor);
-        if (cursor.afterId != undefined && page.keys.length && page.keys[0].version !== cursor.afterDate) {
-            // Either the tie ended exactly at the page boundary, or the server predates Shuffull#64: it ignored
-            // `afterId`, read the request as `Version > afterDate`, and skipped the rest of the tie. Can't tell which.
+        if (cursor !== start && cursor.afterId != undefined && page.keys.length && page.keys[0].version !== cursor.afterDate) {
+            // Only for a cursor built from a tied page: a stored start came from a finished feed, so its next rows are
+            // newer anyway. Here either the tie ended exactly at the page boundary, or the server predates
+            // Shuffull#64: it ignored `afterId`, read the request as `Version > afterDate`, and skipped the rest of the
+            // tie. Can't tell which.
             console.warn(`[sync] A feed page after ${cursor.afterDate}/${cursor.afterId} held no more rows at that Version. `
                 + "If the API predates keyset paging (Shuffull#64), the rest of that tie was skipped.");
         }
