@@ -46,5 +46,6 @@
   "originalReleaseYear": 1982,
   "exploratory": true,
   "tagRevision": 3,
-  "hookStartPercent": 37.5
+  "hookStartPercent": 37.5,
+  "songRequestId": "song-request-1"
 }
