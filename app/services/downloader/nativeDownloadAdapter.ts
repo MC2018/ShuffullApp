@@ -53,7 +53,8 @@ export function createNativeDownloadAdapter(): DownloadAdapter {
                     },
                 ).downloadAsync();
                 // Resolves on ANY HTTP status (a 404 writes the error body to disk), so the status has to be read.
-                if (result == undefined || result.status >= 400) {
+                // Only a 2xx body is the file; art isn't hash-checked, so anything else must never be moved in.
+                if (result == undefined || result.status < 200 || result.status >= 300) {
                     return result && { status: result.status };
                 }
                 // No point hashing an error page, hence after the status check.

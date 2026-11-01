@@ -92,7 +92,7 @@ class FakeAdapter implements DownloadAdapter {
         const scripted = this.responses.get(key);
         const result = scripted == undefined ? { status: 200, hashMatches: verify ? true : undefined } : scripted.length > 1 ? scripted.shift() : scripted[0];
         onProgress(0.5);
-        if (result != undefined && result.status < 400 && (!verify || result.hashMatches)) {
+        if (result != undefined && result.status >= 200 && result.status < 300 && (!verify || result.hashMatches)) {
             this.stored.add(key);
         }
         return result;
@@ -356,6 +356,25 @@ describe("DownloadQueueRunner", () => {
             onChange();
             await runner.kick();
 
+            expect(await downloadedIds(db)).toEqual(["a"]);
+        });
+        it("goes round again for work queued while it was already stopping", async () => {
+            // Queued after the loop's last look at the queue, while it publishes why it stopped: the kick lands on
+            // the run that is ending, which must not leave the song for the watchdog.
+            let queuedLate = false;
+            const network = adapter.network.bind(adapter);
+            adapter.network = async () => {
+                if (!queuedLate) {
+                    queuedLate = true;
+                    await queue(db, ["a"]);
+                    void runner.kick();
+                }
+                return network();
+            };
+
+            await run();
+
+            expect(queuedLate).toBe(true);
             expect(await downloadedIds(db)).toEqual(["a"]);
         });
     });

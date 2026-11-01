@@ -25,7 +25,7 @@ export interface DownloadAdapter {
     exists(kind: MediaKind, fileName: string): Promise<boolean>;
     /**
      * Fetches `<host>/<kind>/<fileName>` into the store. The file lands in place only when the fetch succeeded
-     * (status below 400 and, when `verify`, the hash matched), so a failure never leaves anything `exists` would see.
+     * (a 2xx and, when `verify`, the hash matched), so a failure never leaves anything `exists` would see.
      * May throw; the loop counts that as a failure to retry.
      */
     download(host: string, kind: MediaKind, fileName: string, verify: boolean, onProgress: (fraction: number) => void): Promise<DownloadResult>;
@@ -109,6 +109,9 @@ export class DownloadQueueRunner {
     private readonly sleep: (ms: number) => Promise<void>;
     // The drain loop while it runs (between songs included), so a kick cannot start a second loop.
     private drainRun: Promise<void> | undefined;
+    // A kick arrived while drainRun was set. The loop may already be past its last queue read (publishing why it
+    // stopped), so it goes round once more rather than leave that work to the watchdog.
+    private kickRequested = false;
     // True only while a song is in flight; drives the "downloading" phase and the pause-with-in-flight hold.
     downloading = false;
     // Starts true so nothing can start before the persisted value is read (start() flips it).
@@ -286,9 +289,17 @@ export class DownloadQueueRunner {
         if (this.adapter == undefined) {
             return Promise.resolve();
         }
-        this.drainRun ??= this.drain().finally(() => {
-            this.drainRun = undefined;
-        });
+        this.kickRequested = true;
+        this.drainRun ??= (async () => {
+            try {
+                while (this.kickRequested) {
+                    this.kickRequested = false;
+                    await this.drain();
+                }
+            } finally {
+                this.drainRun = undefined;
+            }
+        })();
         return this.drainRun;
     }
 
@@ -463,7 +474,9 @@ export class DownloadQueueRunner {
             }
 
             if (decision.action === "drop") {
-                // Not marked downloaded: the song stays in the library and can be queued again.
+                // Not marked downloaded: the song stays in the library and can be queued again. Art stored for it
+                // above is left in place on purpose: it is small, keyed by the same hash, reused if the song is
+                // queued again, and deleteLocalSongFiles removes it with the song.
                 console.warn(`[downloader] skipping ${song.songId} (${song.name}), removed from the download queue: ${decision.reason}`);
                 this.consecutiveDrops++;
                 await DbQueries.removeFromDownloadQueue(this.db, song.songId);
