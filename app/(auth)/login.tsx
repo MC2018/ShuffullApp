@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { STORAGE_KEYS } from "@/app/constants/storageKeys";
 import { useAuthStore } from "@/app/services/auth/authStore";
 import { login, register } from "@/app/services/auth/auth";
+import { describeAuthFailure } from "@/app/services/api/errors";
 import { Button, Screen, Text, TextField } from "@/app/components/ui";
 import AppVersion from "@/app/components/common/AppVersion";
 import { useTheme } from "@/app/theme";
@@ -43,7 +44,7 @@ export default function LoginScreen() {
             await AsyncStorage.setItem(STORAGE_KEYS.HOST_ADDRESS, hostAddress);
             await login(username, password, hostAddress);
         } catch (e) {
-            setError(`Login failed: ${e}`);
+            setError(`Login failed. ${describeAuthFailure(e, hostAddress)}`);
         }
     };
 
@@ -53,7 +54,7 @@ export default function LoginScreen() {
             await AsyncStorage.setItem(STORAGE_KEYS.HOST_ADDRESS, hostAddress);
             await register(username, password, hostAddress);
         } catch (e) {
-            setError(`Registration failed: ${e}`);
+            setError(`Registration failed. ${describeAuthFailure(e, hostAddress)}`);
         }
     };
 

@@ -12,7 +12,8 @@ import { Downloader } from "../downloader/Downloader";
 import { create } from "zustand";
 import path from "path-browserify";
 import { SongFilters, SongFilterType } from "../../types/SongFilters";
-import { asIfJustPlayed, selectNextSong, ShuffleCandidate } from "../../tools/shuffle";
+import { asIfJustPlayed, selectNextSong } from "../../tools/shuffle";
+import { isShuffleEligible as isEligibleForShuffle, shufflePool, ShuffleSource } from "../../tools/offlineShuffle";
 import { Lookahead } from "../../tools/lookahead";
 import { prefetcher } from "../prefetch/Prefetcher";
 import { loadPrefetchSetting, savePrefetchSetting, usePrefetchSetting } from "../prefetch/prefetchSetting";
@@ -31,6 +32,7 @@ import { ListenRecorder } from "../listens/listenRecorder";
 import { openListenIfPlaying, recoverListensAfterRestart, ResumeListenInput } from "../listens/resumeListen";
 import { listenContext, listenPlatform } from "../../tools/listens";
 import { desktopShell } from "../desktopShell";
+import { isServerUnreachable, useServerReachability } from "../connectivity/serverReachability";
 
 let queue: string[] = [];
 let db: GenericDb;
@@ -214,6 +216,14 @@ export const usePlaybackIssue = create<PlaybackIssueState>((set) => ({
     issue: undefined,
     setIssue: (issue) => set({ issue }),
 }));
+
+// Losing or regaining the server changes which songs the shuffle may pick (offlineShufflePool), so what's lined up is
+// checked again: a streamed pick that won't load offline gives way to a downloaded one.
+useServerReachability.subscribe(({ reachability }, previous) => {
+    if ((reachability === "unreachable") !== (previous.reachability === "unreachable")) {
+        scheduleLookaheadRefresh();
+    }
+});
 
 // Moving off a song that couldn't play isn't a skip: its listen ends as stopped (ListenRecorder.end).
 usePlaybackIssue.subscribe(({ issue }) => {
@@ -1545,14 +1555,18 @@ async function refreshLookaheadOnce() {
     prefetcher.want(songs);
 }
 
-/**
- * The songs the shuffle picks from: the scope's songs when any filter is set, ordered by last_played ASC, or
- * undefined for "the whole library". No scope set used to return nothing, which halted playback after a single
- * song whenever the filters happened to be empty, the dead end reached from any list screen.
- */
-async function getShufflePool(): Promise<ShuffleCandidate[] | undefined> {
-    const songFilters = await getSongFilters();
-    return songFilters.hasAnyFilter() ? await DbQueries.getFilteredSong(db, songFilters) : undefined;
+/** What the shuffle rules (tools/offlineShuffle) read: the current scope, the server's state, the DB and the cache. */
+async function shuffleSource(): Promise<ShuffleSource> {
+    return {
+        filters: await getSongFilters(),
+        serverUnreachable: isServerUnreachable(),
+        query: (filters) => DbQueries.getFilteredSong(db, filters),
+        songExists: async (songId) => (await DbQueries.getSong(db, songId)) != undefined,
+        isPrefetched: async (songId) => {
+            const song = await DbQueries.getSong(db, songId);
+            return song != undefined && await prefetcher.filesFor(song) != undefined;
+        },
+    };
 }
 
 /**
@@ -1560,7 +1574,7 @@ async function getShufflePool(): Promise<ShuffleCandidate[] | undefined> {
  * ahead of the skip with the songs lined up before this one, so both modes pick by one rule.
  */
 async function pickShuffleSong(played: readonly string[]): Promise<string | undefined> {
-    const pool = await getShufflePool();
+    const pool = await shufflePool(await shuffleSource());
 
     if (pool != undefined) {
         // The song that just finished is at the END of the pool, so the selection window off the front cannot
@@ -1580,13 +1594,7 @@ async function pickShuffleSong(played: readonly string[]): Promise<string | unde
     return songId;
 }
 
-/** Whether a song picked ahead may still be the shuffle's next song: still in the scope's pool, or the library. */
+/** Whether a song picked ahead may still be the shuffle's next song (tools/offlineShuffle). */
 async function isShuffleEligible(songId: string): Promise<boolean> {
-    const pool = await getShufflePool();
-
-    if (pool != undefined) {
-        return pool.some(x => x.songId === songId);
-    }
-
-    return (await DbQueries.getSong(db, songId)) != undefined;
+    return await isEligibleForShuffle(songId, await shuffleSource());
 }

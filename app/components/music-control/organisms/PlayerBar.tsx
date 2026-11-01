@@ -11,6 +11,7 @@ import { SongDetails } from "@/app/services/db/types";
 import { MediaManager } from "@/app/services/media-manager";
 import { AlbumArt, IconButton, Text } from "@/app/components/ui";
 import { useTheme } from "@/app/theme";
+import { useServerReachability } from "@/app/services/connectivity/serverReachability";
 
 const defaultArt: ImageURISource = require("@/assets/images/default-album-art.jpg");
 
@@ -43,6 +44,7 @@ export default function PlayerBar({ floating = false }: { floating?: boolean }) 
     const { songId } = useActiveSong();
     const { issue } = usePlaybackIssue();
     const { playlistId: finishedAuditionId } = useAuditionFinished();
+    const isOffline = useServerReachability((state) => state.reachability === "unreachable");
     const [songInfo, setSongInfo] = useState<SongDetails | null>(null);
     const [albumArt, setAlbumArt] = useState<ArtSource>(defaultArt);
 
@@ -76,12 +78,14 @@ export default function PlayerBar({ floating = false }: { floating?: boolean }) 
 
     // The artist line gives way to the player's issue, so a stalled or failed song is flagged on every screen and
     // not only on Now Playing. Likewise when playback stopped because an audition mix is fully evaluated:
-    // otherwise the silence reads as a fault.
+    // otherwise the silence reads as a fault. And while offline, so a shuffle of downloads only isn't a surprise.
     let caption = songInfo.artists.map((x) => x.name).join(", ");
     if (issue) {
         caption = PLAYBACK_ISSUE_LABEL[issue.kind];
     } else if (finishedAuditionId) {
         caption = "Audition complete";
+    } else if (isOffline) {
+        caption = `Offline · ${caption}`;
     }
 
     return (
@@ -116,7 +120,7 @@ export default function PlayerBar({ floating = false }: { floating?: boolean }) 
                     <Text variant="label" numberOfLines={1}>
                         {songInfo.song.name}
                     </Text>
-                    <Text variant="caption" color={issue || finishedAuditionId ? "accent" : "textMuted"} numberOfLines={1}>
+                    <Text variant="caption" color={issue || finishedAuditionId || isOffline ? "accent" : "textMuted"} numberOfLines={1}>
                         {caption}
                     </Text>
                 </View>

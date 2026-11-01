@@ -14,6 +14,7 @@ import { jamSummary, launchJam } from "@/app/services/genre-jam";
 import PlayerBar, { totalPlayerBarHeight } from "@/app/components/music-control/organisms/PlayerBar";
 import { AlbumArt, Card, IconButton, Screen, SectionHeader, Text } from "@/app/components/ui";
 import AppVersion from "@/app/components/common/AppVersion";
+import OfflineBanner from "@/app/components/connectivity/molecules/OfflineBanner";
 import { useTheme } from "@/app/theme";
 import { useRecapButton } from "@/app/services/recap/useRecapButton";
 
@@ -85,6 +86,8 @@ export default function HomeScreen() {
                         <IconButton name="log-out-outline" size={22} color={theme.color.textMuted} onPress={logout} accessibilityLabel="Log out" />
                     </View>
                 </View>
+
+                <OfflineBanner />
 
                 {details ? (
                     <Card style={{ flexDirection: "row", alignItems: "center", gap: theme.space.md }}>

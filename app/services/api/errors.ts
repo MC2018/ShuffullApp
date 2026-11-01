@@ -69,3 +69,34 @@ export function statusOfFailure(error: unknown): number {
 
     return HttpStatusCode.InternalServerError;
 }
+
+/**
+ * Whether a failure's status (from statusOfFailure) means the API couldn't be reached at all, rather than that it
+ * answered with an error. No answer is 503 (see above); 502 and 504 come from a proxy that got nothing from the API;
+ * Cloudflare's 520 to 530 mean the tunnel or the box behind it is down (530 is what the tunnel says while it's off).
+ * A 4xx or a plain 500 means the API is up, and what's wrong is the request or the API.
+ */
+export function isUnreachableStatus(status: number): boolean {
+    return status == HttpStatusCode.BadGateway
+        || status == HttpStatusCode.ServiceUnavailable
+        || status == HttpStatusCode.GatewayTimeout
+        || (520 <= status && status <= 530);
+}
+
+/** What the login screen says when signing in or registering fails. */
+export function describeAuthFailure(error: unknown, hostAddress: string): string {
+    const status = statusOfFailure(error);
+
+    if (isUnreachableStatus(status)) {
+        return `Can't reach the server at ${hostAddress}. Check the address and your connection.`;
+    }
+
+    // The API explains every rejection in { error } (see describeBody), a wrong password included.
+    if (error instanceof ApiStatusFailureError) {
+        const data: unknown = error.data;
+        const reason = typeof data === "object" && data !== null && "error" in data ? data.error : undefined;
+        return typeof reason === "string" && reason.length ? reason : `The server answered ${error.status}.`;
+    }
+
+    return error instanceof Error ? error.message : String(error);
+}
