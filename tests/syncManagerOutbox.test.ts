@@ -12,6 +12,7 @@ import type { KeepResponse, RecordListensResponse } from "@/app/services/api/mod
 import type { RecordListenPayload } from "@/app/services/db/models";
 import { closeListen } from "@/app/services/db/queries/listen";
 import { finishedListen } from "@/app/tools/listens";
+import { useServerReachability } from "@/app/services/connectivity/serverReachability";
 
 // SyncManager's own imports reach native modules (the downloader, async-storage, argon2 via the tools barrel).
 // None of them run during the push phase tested here, so they are stubbed and the real SyncManager is exercised.
@@ -452,6 +453,61 @@ describe("SyncManager: outbox hardening (ShuffullApp#93)", () => {
         expect(manager.failedSyncs).toBe(1);
         expect(error).toHaveBeenCalled();
         error.mockRestore();
+    });
+});
+
+describe("SyncManager: tells an unreachable server from a logged-out user (ShuffullApp#24)", () => {
+    let db: GenericDb;
+    let api: ReturnType<typeof makeApi>;
+    beforeEach(() => {
+        db = makeDb();
+        api = makeApi();
+        useServerReachability.getState().setReachability("unknown");
+    });
+
+    const reachability = () => useServerReachability.getState().reachability;
+
+    it("a sync that gets no answer marks the server unreachable, and the next good one marks it reachable", async () => {
+        const manager = makeManager(db, api);
+        manager.overallSync = vi.fn(async () => 503);
+
+        await manager.sync();
+        expect(reachability()).toBe("unreachable");
+
+        manager.overallSync = vi.fn(async () => 200);
+        manager.syncNow();
+        await vi.waitFor(() => expect(reachability()).toBe("reachable"));
+    });
+
+    it("a Cloudflare tunnel error in the outbox is unreachable too", async () => {
+        await enqueueSongRetag(db, USER, "s1", "weak");
+        api.songKeep.mockRejectedValueOnce(rejected("/api/v1/songs/keep", 530, "tunnel down"));
+
+        await makeManager(db, api).sync();
+
+        expect(reachability()).toBe("unreachable");
+    });
+
+    it("an API that answers with an error is still reachable", async () => {
+        const manager = makeManager(db, api);
+        manager.overallSync = vi.fn(async () => 500);
+
+        await manager.sync();
+
+        expect(reachability()).toBe("reachable");
+        expect(manager.failedSyncs).toBe(1);
+    });
+
+    it("a 401 on the pull logs out instead of backing off as if the server were down", async () => {
+        const logout = vi.fn(async () => {});
+        const manager = makeManager(db, api, logout);
+        manager.overallSync = vi.fn(async () => 401);
+
+        await manager.sync();
+
+        expect(logout).toHaveBeenCalledOnce();
+        expect(manager.failedSyncs).toBe(0);
+        expect(reachability()).toBe("reachable");
     });
 });
 

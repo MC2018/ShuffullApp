@@ -31,6 +31,7 @@ import { ListenRecorder } from "../listens/listenRecorder";
 import { openListenIfPlaying, recoverListensAfterRestart, ResumeListenInput } from "../listens/resumeListen";
 import { listenContext, listenPlatform } from "../../tools/listens";
 import { desktopShell } from "../desktopShell";
+import { isServerUnreachable, useServerReachability } from "../connectivity/serverReachability";
 
 let queue: string[] = [];
 let db: GenericDb;
@@ -214,6 +215,14 @@ export const usePlaybackIssue = create<PlaybackIssueState>((set) => ({
     issue: undefined,
     setIssue: (issue) => set({ issue }),
 }));
+
+// Losing or regaining the server changes which songs the shuffle may pick (getOfflinePool), so what's lined up is
+// checked again: a streamed pick that won't load offline gives way to a downloaded one.
+useServerReachability.subscribe(({ reachability }, previous) => {
+    if ((reachability === "unreachable") !== (previous.reachability === "unreachable")) {
+        scheduleLookaheadRefresh();
+    }
+});
 
 // Moving off a song that couldn't play isn't a skip: its listen ends as stopped (ListenRecorder.end).
 usePlaybackIssue.subscribe(({ issue }) => {
@@ -1546,13 +1555,32 @@ async function refreshLookaheadOnce() {
 }
 
 /**
- * The songs the shuffle picks from: the scope's songs when any filter is set, ordered by last_played ASC, or
- * undefined for "the whole library". No scope set used to return nothing, which halted playback after a single
- * song whenever the filters happened to be empty, the dead end reached from any list screen.
+ * The songs the shuffle picks from: the downloaded ones in scope while the server can't be reached (getOfflinePool),
+ * else the scope's songs when any filter is set, ordered by last_played ASC, or undefined for "the whole library". No
+ * scope set used to return nothing, which halted playback after a single song whenever the filters happened to be
+ * empty, the dead end reached from any list screen.
  */
 async function getShufflePool(): Promise<ShuffleCandidate[] | undefined> {
     const songFilters = await getSongFilters();
+    return await getOfflinePool(songFilters) ?? await getScopePool(songFilters);
+}
+
+async function getScopePool(songFilters: SongFilters): Promise<ShuffleCandidate[] | undefined> {
     return songFilters.hasAnyFilter() ? await DbQueries.getFilteredSong(db, songFilters) : undefined;
+}
+
+/**
+ * While the server can't be reached a streamed song can't load, and each pick of one stalls playback on "Waiting for
+ * connection" (ShuffullApp#24). So the shuffle narrows to the scope's downloaded songs. Undefined when the server is
+ * reachable, and when the scope has nothing downloaded: playing on then waits for the connection, as it always did.
+ */
+async function getOfflinePool(songFilters: SongFilters): Promise<ShuffleCandidate[] | undefined> {
+    if (!isServerUnreachable() || songFilters.localOnly) {
+        return undefined;
+    }
+
+    const pool = await DbQueries.getFilteredSong(db, songFilters.withLocalOnly());
+    return pool.length ? pool : undefined;
 }
 
 /**
@@ -1582,7 +1610,21 @@ async function pickShuffleSong(played: readonly string[]): Promise<string | unde
 
 /** Whether a song picked ahead may still be the shuffle's next song: still in the scope's pool, or the library. */
 async function isShuffleEligible(songId: string): Promise<boolean> {
-    const pool = await getShufflePool();
+    const songFilters = await getSongFilters();
+    const offlinePool = await getOfflinePool(songFilters);
+
+    if (offlinePool != undefined) {
+        if (offlinePool.some(x => x.songId === songId)) {
+            return true;
+        }
+        // A song lined up before the connection went, and already fetched, plays from the prefetch cache: keep it.
+        const song = await DbQueries.getSong(db, songId);
+        if (song == undefined || await prefetcher.filesFor(song) == undefined) {
+            return false;
+        }
+    }
+
+    const pool = await getScopePool(songFilters);
 
     if (pool != undefined) {
         return pool.some(x => x.songId === songId);

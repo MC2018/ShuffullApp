@@ -98,6 +98,13 @@ export class SongFilters {
         return copy;
     }
 
+    // The same scope, narrowed to downloaded songs: what the shuffle plays while the server can't be reached.
+    public withLocalOnly(): SongFilters {
+        const copy: SongFilters = Object.assign(Object.create(SongFilters.prototype), this);
+        copy.localOnly = true;
+        return copy;
+    }
+
     hasAnyFilter(): boolean {
         return this.localOnly || this.hasAnyWhitelistFilter() || this.hasAnyBlacklistFilter() || this.heavinessMin != null || this.heavinessMax != null;
     }

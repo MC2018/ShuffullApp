@@ -5,7 +5,8 @@ import * as ApiModels from "@/app/services/api/models";
 import { chunk, deterministicId, distinctBy, distinctByLast, generateId } from "@/app/tools";
 import axios, { HttpStatusCode } from "axios";
 import { RequestType } from "@/app/enums";
-import { ApiStatusFailureError, statusOfFailure } from "@/app/services/api/errors";
+import { ApiStatusFailureError, isUnreachableStatus, statusOfFailure } from "@/app/services/api/errors";
+import { useServerReachability } from "@/app/services/connectivity/serverReachability";
 import { GenericDb } from "@/app/services/db/GenericDb";
 import { withTransaction } from "@/app/services/db/transaction";
 import { Downloader } from "@/app/services/downloader/Downloader";
@@ -81,8 +82,11 @@ export class SyncManager {
         this.syncing = true;
 
         try {
-            const reached = await this.pushAndPull();
+            const statusCode = await this.pushAndPull();
+            // A 401 has already logged out; it isn't the server failing, so it doesn't back off.
+            const reached = statusCode == HttpStatusCode.Ok || statusCode == HttpStatusCode.Unauthorized;
             this.failedSyncs = reached ? 0 : this.failedSyncs + 1;
+            useServerReachability.getState().setReachability(isUnreachableStatus(statusCode) ? "unreachable" : "reachable");
         } catch (e) {
             console.error("[sync] Sync failed:", e);
             this.failedSyncs++;
@@ -97,10 +101,11 @@ export class SyncManager {
         }
     }
 
-    // Pushes the outbox in order, then pulls. False when the server couldn't be reached or failed (no answer, a 5xx,
-    // a failed pull), which backs the next sync off. A 4xx on one batch isn't that: the rest still goes, except rows
-    // about the same song or playlist, which wait so they can't overtake it.
-    private async pushAndPull(): Promise<boolean> {
+    // Pushes the outbox in order, then pulls. Returns 200, or the status that stopped it: a 401 (logged out), or
+    // anything else when the server couldn't be reached or failed (no answer, a 5xx, a failed pull), which backs the
+    // next sync off. A 4xx on one batch isn't that: the rest still goes, except rows about the same song or playlist,
+    // which wait so they can't overtake it.
+    private async pushAndPull(): Promise<number> {
         const requestBatches = groupRequestsIntoBatches(await DbQueries.getRequests(this.db, this.userId));
 
         const refused = new Set<string>(); // songs and playlists with a row refused this sync, kept for retry
@@ -118,10 +123,10 @@ export class SyncManager {
                 const { hold, statusCode } = await this.checkDeleteHold(requestBatch[0] as DbModels.DeletePlaylistRequest);
                 if (statusCode == HttpStatusCode.Unauthorized) {
                     await this.logout();
-                    return true;
+                    return statusCode;
                 } else if (statusCode) {
                     console.log(`Cannot access server. Status code: ${statusCode}`);
-                    return false;
+                    return statusCode;
                 } else if (hold) {
                     console.warn(`[sync] Holding playlist delete ${requestBatch[0].playlistId}: ${hold}.`);
                     continue;
@@ -132,7 +137,7 @@ export class SyncManager {
 
             if (statusCode == HttpStatusCode.Unauthorized) {
                 await this.logout();
-                return true;
+                return statusCode;
             } else if (200 <= statusCode && statusCode <= 299) {
                 // By id: a row replaced while this batch was in flight (enqueueSongRetag) has a new id and stays.
                 await DbQueries.deleteRequests(this.db, requestBatch.map(x => x.requestId));
@@ -156,7 +161,7 @@ export class SyncManager {
             } else if (500 <= statusCode) {
                 // Stops here, so nothing queued after this batch overtakes it.
                 console.log(`Cannot access server. Status code: ${statusCode}`);
-                return false;
+                return statusCode;
             }
         }
 
@@ -168,12 +173,17 @@ export class SyncManager {
             userId: this.userId
         };
         const { statusCode } = await this.runRequests([overallSyncRequest]);
-        if (statusCode != HttpStatusCode.Ok) {
-            return false;
+        if (statusCode == HttpStatusCode.Unauthorized) {
+            // With nothing queued, the pull is the only call that sees an expired or revoked token. Read as a failed
+            // sync, it backed off forever as if the server were down, and the user never got the login screen.
+            await this.logout();
+            return statusCode;
+        } else if (statusCode != HttpStatusCode.Ok) {
+            return statusCode;
         }
         await this.reconcileSongs();
         await this.refreshListenStats(listensSent);
-        return true;
+        return HttpStatusCode.Ok;
     }
 
     private async runRequests(requests: DbModels.Request[]): Promise<RunResult> {
