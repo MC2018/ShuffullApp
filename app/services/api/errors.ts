@@ -93,7 +93,8 @@ export function describeAuthFailure(error: unknown, hostAddress: string): string
 
     // The API explains every rejection in { error } (see describeBody), a wrong password included.
     if (error instanceof ApiStatusFailureError) {
-        const reason = (error.data as { error?: unknown } | undefined)?.error;
+        const data: unknown = error.data;
+        const reason = typeof data === "object" && data !== null && "error" in data ? data.error : undefined;
         return typeof reason === "string" && reason.length ? reason : `The server answered ${error.status}.`;
     }
 

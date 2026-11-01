@@ -12,7 +12,8 @@ import { Downloader } from "../downloader/Downloader";
 import { create } from "zustand";
 import path from "path-browserify";
 import { SongFilters, SongFilterType } from "../../types/SongFilters";
-import { asIfJustPlayed, selectNextSong, ShuffleCandidate } from "../../tools/shuffle";
+import { asIfJustPlayed, selectNextSong } from "../../tools/shuffle";
+import { isShuffleEligible as isEligibleForShuffle, shufflePool, ShuffleSource } from "../../tools/offlineShuffle";
 import { Lookahead } from "../../tools/lookahead";
 import { prefetcher } from "../prefetch/Prefetcher";
 import { loadPrefetchSetting, savePrefetchSetting, usePrefetchSetting } from "../prefetch/prefetchSetting";
@@ -216,7 +217,7 @@ export const usePlaybackIssue = create<PlaybackIssueState>((set) => ({
     setIssue: (issue) => set({ issue }),
 }));
 
-// Losing or regaining the server changes which songs the shuffle may pick (getOfflinePool), so what's lined up is
+// Losing or regaining the server changes which songs the shuffle may pick (offlineShufflePool), so what's lined up is
 // checked again: a streamed pick that won't load offline gives way to a downloaded one.
 useServerReachability.subscribe(({ reachability }, previous) => {
     if ((reachability === "unreachable") !== (previous.reachability === "unreachable")) {
@@ -1554,33 +1555,18 @@ async function refreshLookaheadOnce() {
     prefetcher.want(songs);
 }
 
-/**
- * The songs the shuffle picks from: the downloaded ones in scope while the server can't be reached (getOfflinePool),
- * else the scope's songs when any filter is set, ordered by last_played ASC, or undefined for "the whole library". No
- * scope set used to return nothing, which halted playback after a single song whenever the filters happened to be
- * empty, the dead end reached from any list screen.
- */
-async function getShufflePool(): Promise<ShuffleCandidate[] | undefined> {
-    const songFilters = await getSongFilters();
-    return await getOfflinePool(songFilters) ?? await getScopePool(songFilters);
-}
-
-async function getScopePool(songFilters: SongFilters): Promise<ShuffleCandidate[] | undefined> {
-    return songFilters.hasAnyFilter() ? await DbQueries.getFilteredSong(db, songFilters) : undefined;
-}
-
-/**
- * While the server can't be reached a streamed song can't load, and each pick of one stalls playback on "Waiting for
- * connection" (ShuffullApp#24). So the shuffle narrows to the scope's downloaded songs. Undefined when the server is
- * reachable, and when the scope has nothing downloaded: playing on then waits for the connection, as it always did.
- */
-async function getOfflinePool(songFilters: SongFilters): Promise<ShuffleCandidate[] | undefined> {
-    if (!isServerUnreachable() || songFilters.localOnly) {
-        return undefined;
-    }
-
-    const pool = await DbQueries.getFilteredSong(db, songFilters.withLocalOnly());
-    return pool.length ? pool : undefined;
+/** What the shuffle rules (tools/offlineShuffle) read: the current scope, the server's state, the DB and the cache. */
+async function shuffleSource(): Promise<ShuffleSource> {
+    return {
+        filters: await getSongFilters(),
+        serverUnreachable: isServerUnreachable(),
+        query: (filters) => DbQueries.getFilteredSong(db, filters),
+        songExists: async (songId) => (await DbQueries.getSong(db, songId)) != undefined,
+        isPrefetched: async (songId) => {
+            const song = await DbQueries.getSong(db, songId);
+            return song != undefined && await prefetcher.filesFor(song) != undefined;
+        },
+    };
 }
 
 /**
@@ -1588,7 +1574,7 @@ async function getOfflinePool(songFilters: SongFilters): Promise<ShuffleCandidat
  * ahead of the skip with the songs lined up before this one, so both modes pick by one rule.
  */
 async function pickShuffleSong(played: readonly string[]): Promise<string | undefined> {
-    const pool = await getShufflePool();
+    const pool = await shufflePool(await shuffleSource());
 
     if (pool != undefined) {
         // The song that just finished is at the END of the pool, so the selection window off the front cannot
@@ -1608,27 +1594,7 @@ async function pickShuffleSong(played: readonly string[]): Promise<string | unde
     return songId;
 }
 
-/** Whether a song picked ahead may still be the shuffle's next song: still in the scope's pool, or the library. */
+/** Whether a song picked ahead may still be the shuffle's next song (tools/offlineShuffle). */
 async function isShuffleEligible(songId: string): Promise<boolean> {
-    const songFilters = await getSongFilters();
-    const offlinePool = await getOfflinePool(songFilters);
-
-    if (offlinePool != undefined) {
-        if (offlinePool.some(x => x.songId === songId)) {
-            return true;
-        }
-        // A song lined up before the connection went, and already fetched, plays from the prefetch cache: keep it.
-        const song = await DbQueries.getSong(db, songId);
-        if (song == undefined || await prefetcher.filesFor(song) == undefined) {
-            return false;
-        }
-    }
-
-    const pool = await getScopePool(songFilters);
-
-    if (pool != undefined) {
-        return pool.some(x => x.songId === songId);
-    }
-
-    return (await DbQueries.getSong(db, songId)) != undefined;
+    return await isEligibleForShuffle(songId, await shuffleSource());
 }

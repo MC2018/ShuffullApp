@@ -44,7 +44,7 @@ export default function PlayerBar({ floating = false }: { floating?: boolean }) 
     const { songId } = useActiveSong();
     const { issue } = usePlaybackIssue();
     const { playlistId: finishedAuditionId } = useAuditionFinished();
-    const offline = useServerReachability((state) => state.reachability === "unreachable");
+    const isOffline = useServerReachability((state) => state.reachability === "unreachable");
     const [songInfo, setSongInfo] = useState<SongDetails | null>(null);
     const [albumArt, setAlbumArt] = useState<ArtSource>(defaultArt);
 
@@ -84,7 +84,7 @@ export default function PlayerBar({ floating = false }: { floating?: boolean }) 
         caption = PLAYBACK_ISSUE_LABEL[issue.kind];
     } else if (finishedAuditionId) {
         caption = "Audition complete";
-    } else if (offline) {
+    } else if (isOffline) {
         caption = `Offline · ${caption}`;
     }
 
@@ -120,7 +120,7 @@ export default function PlayerBar({ floating = false }: { floating?: boolean }) 
                     <Text variant="label" numberOfLines={1}>
                         {songInfo.song.name}
                     </Text>
-                    <Text variant="caption" color={issue || finishedAuditionId || offline ? "accent" : "textMuted"} numberOfLines={1}>
+                    <Text variant="caption" color={issue || finishedAuditionId || isOffline ? "accent" : "textMuted"} numberOfLines={1}>
                         {caption}
                     </Text>
                 </View>

@@ -20,7 +20,7 @@ export default function OfflineBanner() {
             <View style={{ flex: 1, minWidth: 0 }}>
                 <Text variant="bodyStrong">{"Can't reach the server"}</Text>
                 <Text variant="caption" color="textMuted">
-                    {"Playing downloaded songs. Likes and Keeps are saved and sent once it's back."}
+                    {"Only downloaded songs can play. Likes and Keeps are saved and sent once it's back."}
                 </Text>
             </View>
             {checkNow ? <Button label="Try again" variant="ghost" onPress={checkNow} /> : null}

@@ -14,7 +14,7 @@ import { jamSummary, launchJam } from "@/app/services/genre-jam";
 import PlayerBar, { totalPlayerBarHeight } from "@/app/components/music-control/organisms/PlayerBar";
 import { AlbumArt, Card, IconButton, Screen, SectionHeader, Text } from "@/app/components/ui";
 import AppVersion from "@/app/components/common/AppVersion";
-import OfflineBanner from "@/app/components/connectivity/OfflineBanner";
+import OfflineBanner from "@/app/components/connectivity/molecules/OfflineBanner";
 import { useTheme } from "@/app/theme";
 import { useRecapButton } from "@/app/services/recap/useRecapButton";
 

@@ -498,15 +498,17 @@ describe("SyncManager: tells an unreachable server from a logged-out user (Shuff
         expect(manager.failedSyncs).toBe(1);
     });
 
-    it("a 401 on the pull logs out instead of backing off as if the server were down", async () => {
+    it("a 401 on the pull backs off without logging out, since the API also answers 401 when its database is down", async () => {
+        // JwtMiddleware treats a failed user lookup as no user, so a Postgres restart answers every pull with 401.
+        // Logging out on that would stop playback, the opposite of what an offline-tolerant app should do.
         const logout = vi.fn(async () => {});
         const manager = makeManager(db, api, logout);
         manager.overallSync = vi.fn(async () => 401);
 
         await manager.sync();
 
-        expect(logout).toHaveBeenCalledOnce();
-        expect(manager.failedSyncs).toBe(0);
+        expect(logout).not.toHaveBeenCalled();
+        expect(manager.failedSyncs).toBe(1);
         expect(reachability()).toBe("reachable");
     });
 });
