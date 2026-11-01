@@ -9,7 +9,7 @@ import { derivePhase, retryDelayMs } from "../../tools/downloadStatus";
 import { localMediaUri, parseLocalMediaUri } from "../../tools/desktopMedia";
 import { desktopShell, DesktopMediaStore, isOnline, pageOrigin } from "../desktopShell";
 import { sleep } from "../../tools/utils";
-import { reconcileDownloadsWithDisk } from "./reconcileDownloads";
+import { createDiskReconciler, listStoredSongFiles } from "./reconcileDownloads";
 
 /**
  * Web build of the Downloader. Metro picks this over `Downloader.ts` for the web platform, which covers two very
@@ -53,6 +53,11 @@ export class Downloader {
         return Downloader.instance;
     }
 
+    /** reconcileWithDisk on the running Downloader, for a sync that just brought new songs. Nothing if none started. */
+    public static async reconcileShared(): Promise<void> {
+        await Downloader.instance?.reconcileWithDisk();
+    }
+
     private draining = false;
     downloading = false;
     // Starts true so nothing can start before the persisted value is read; the constructor flips it.
@@ -61,12 +66,16 @@ export class Downloader {
     private readonly media: DesktopMediaStore | undefined;
     private songInFlight: { songId: string; fileName: string; name: string } | undefined;
     private consecutiveFailures = 0;
-    // The disk reconcile in progress, so overlapping callers share one pass.
-    private reconciling: Promise<void> | undefined;
+    // Matches downloaded_songs to the store (see reconcileWithDisk). A no-op in a plain browser.
+    private readonly reconcile: () => Promise<void>;
 
     private constructor(db: GenericDb) {
         this.db = db;
         this.media = mediaBridge();
+        const media = this.media;
+        this.reconcile = media == undefined
+            ? async () => {}
+            : createDiskReconciler(db, fileNames => listStoredSongFiles(media, fileNames), Downloader.generateSongFileName);
 
         if (this.media == undefined) {
             // Plain browser: say honestly that there is nothing to manage here.
@@ -109,38 +118,7 @@ export class Downloader {
      * reconcileDownloads.ts). Only rows change, never files. Never throws. A no-op in a plain browser.
      */
     public reconcileWithDisk(): Promise<void> {
-        const media = this.media;
-        if (media == undefined) {
-            return Promise.resolve();
-        }
-        this.reconciling ??= (async () => {
-            try {
-                await reconcileDownloadsWithDisk(this.db, () => this.listStoredSongs(media), Downloader.generateSongFileName);
-            } catch (e) {
-                console.warn("[downloader] couldn't match downloads to disk", e);
-            } finally {
-                this.reconciling = undefined;
-            }
-        })();
-        return this.reconciling;
-    }
-
-    /**
-     * The song files in the store. One call where the shell can list; a shell built before `list` existed is asked
-     * about each local song instead.
-     */
-    private async listStoredSongs(media: DesktopMediaStore): Promise<string[]> {
-        if (media.list) {
-            return await media.list("music");
-        }
-        const fileNames = (await DbQueries.getSongFileStates(this.db)).map(x => Downloader.generateSongFileName(x));
-        const stored: string[] = [];
-        for (const fileName of fileNames) {
-            if (await media.exists("music", fileName)) {
-                stored.push(fileName);
-            }
-        }
-        return stored;
+        return this.reconcile();
     }
 
     /** Stops starting NEW downloads. A song already in flight is allowed to finish. */

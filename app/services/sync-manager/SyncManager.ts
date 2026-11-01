@@ -619,6 +619,11 @@ export class SyncManager {
             for (const staleSong of staleSongs) {
                 await Downloader.deleteLocalSongFiles(staleSong);
             }
+            // A new song's file can already be on disk: the local DB was rebuilt next to a full music folder, or another
+            // song shares its audio. Record it now, not on the next launch (ShuffullApp#56). Never throws.
+            if (newSongIds.length) {
+                await Downloader.reconcileShared();
+            }
             if (nextSongKey != undefined) {
                 // The key first: until the cursor matches it, songFeedStart ignores it and pages from the date alone.
                 await AsyncStorage.setItem(STORAGE_KEYS.SONG_SYNC_KEY, JSON.stringify(nextSongKey));

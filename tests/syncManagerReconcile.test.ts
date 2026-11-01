@@ -18,7 +18,7 @@ const { storage, deleteLocalSongFiles } = vi.hoisted(() => ({
 }));
 
 vi.mock("@/app/tools", () => import("@/app/tools/pure"));
-vi.mock("@/app/services/downloader/Downloader", () => ({ Downloader: { deleteLocalSongFiles } }));
+vi.mock("@/app/services/downloader/Downloader", () => ({ Downloader: { deleteLocalSongFiles, reconcileShared: async () => {} } }));
 vi.mock("@react-native-async-storage/async-storage", () => ({
     default: {
         getItem: async (key: string) => storage.get(key) ?? null,

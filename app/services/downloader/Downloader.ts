@@ -14,7 +14,7 @@ import { derivePhase, describeDownloadNotification, isDownloadNetwork, retryDela
 import { decideArtDownload, decideSongDownload } from "../../tools/downloadFailure";
 import { foregroundService } from "../background/foregroundService";
 import { ensureNotificationPermission } from "../background/notificationPermission";
-import { reconcileDownloadsWithDisk } from "./reconcileDownloads";
+import { createDiskReconciler } from "./reconcileDownloads";
 
 if (FileSystem.documentDirectory == null) {
     throw new Error("documentDirectory is null");
@@ -54,6 +54,11 @@ type Attempt = "downloaded" | "skipped" | "blocked" | "failed";
 export class Downloader {
     private static instance: Downloader | undefined;
 
+    /** reconcileWithDisk on the running Downloader, for a sync that just brought new songs. Nothing if none started. */
+    public static async reconcileShared(): Promise<void> {
+        await Downloader.instance?.reconcileWithDisk();
+    }
+
     public static shared(db: GenericDb): Downloader {
         if (Downloader.instance == undefined) {
             Downloader.instance = new Downloader(db);
@@ -78,11 +83,12 @@ export class Downloader {
     private hashMismatches = new Map<string, number>();
     // Rows dropped since the last song that actually downloaded; bounds a failure that hits every song alike.
     private consecutiveDrops = 0;
-    // The disk reconcile in progress, so overlapping callers share one pass.
-    private reconciling: Promise<void> | undefined;
+    // Matches downloaded_songs to the music folder (see reconcileWithDisk).
+    private readonly reconcile: () => Promise<void>;
 
     private constructor(db: GenericDb) {
         this.db = db;
+        this.reconcile = createDiskReconciler(db, () => FileSystem.readDirectoryAsync(musicFolder), Downloader.generateSongFileName);
 
         setInterval(() => {
             this.kick();
@@ -126,20 +132,11 @@ export class Downloader {
 
     /**
      * Records every song whose file is in the music folder and forgets every row whose file is gone
-     * (see reconcileDownloads.ts). Runs at start-up and when the Downloads screen opens. Only rows change, never files.
-     * Never throws: a folder that can't be read just leaves the rows as they are.
+     * (see reconcileDownloads.ts). Runs at start-up, after a sync brings new songs, and when the Downloads screen
+     * opens. Only rows change, never files. Never throws: a folder that can't be read leaves the rows as they are.
      */
     public reconcileWithDisk(): Promise<void> {
-        this.reconciling ??= (async () => {
-            try {
-                await reconcileDownloadsWithDisk(this.db, () => FileSystem.readDirectoryAsync(musicFolder), Downloader.generateSongFileName);
-            } catch (e) {
-                console.warn("[downloader] couldn't match downloads to disk", e);
-            } finally {
-                this.reconciling = undefined;
-            }
-        })();
-        return this.reconciling;
+        return this.reconcile();
     }
 
     /** Stops starting NEW downloads. A song already in flight is allowed to finish (they are single files). */

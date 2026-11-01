@@ -2,11 +2,11 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import type { GenericDb } from "@/app/services/db/GenericDb";
-import { addDownloadedSong, addDownloadedSongs, getSongFileStates } from "@/app/services/db/queries/downloadedSong";
+import { addDownloadedSong, addDownloadedSongs, getSongDownloadRows } from "@/app/services/db/queries/downloadedSong";
 import { countDownloadedSongs } from "@/app/services/db/queries/downloadQueue";
 import { updateSongs } from "@/app/services/db/queries/song";
 import { downloadedSongTable } from "@/app/services/db/schema";
-import { reconcileDownloadsWithDisk } from "@/app/services/downloader/reconcileDownloads";
+import { createDiskReconciler, listStoredSongFiles, reconcileDownloadsWithDisk } from "@/app/services/downloader/reconcileDownloads";
 import { reconcileDownloads } from "@/app/tools/downloadReconcile";
 import type { Song } from "@/app/services/db/models";
 
@@ -126,6 +126,54 @@ describe("reconcileDownloadsWithDisk", () => {
     });
 });
 
+describe("createDiskReconciler", () => {
+    let db: GenericDb;
+
+    beforeEach(async () => {
+        db = makeDb();
+        await updateSongs(db, [song("1")]);
+    });
+
+    it("shares one pass between overlapping callers, and runs again once it's done", async () => {
+        const listFiles = vi.fn(async () => ["hash1.mp3"]);
+        const reconcile = createDiskReconciler(db, listFiles, fileName);
+
+        await Promise.all([reconcile(), reconcile(), reconcile()]);
+        expect(listFiles).toHaveBeenCalledTimes(1);
+        expect(await downloadedIds(db)).toEqual(["1"]);
+
+        await reconcile();
+        expect(listFiles).toHaveBeenCalledTimes(2);
+    });
+
+    it("never throws: a folder it can't read leaves the rows alone", async () => {
+        await addDownloadedSong(db, "1");
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+        await createDiskReconciler(db, async () => { throw new Error("EACCES"); }, fileName)();
+
+        expect(warn).toHaveBeenCalled();
+        expect(await downloadedIds(db)).toEqual(["1"]);
+        warn.mockRestore();
+    });
+});
+
+describe("listStoredSongFiles (desktop)", () => {
+    it("lists the store in one call where the shell can", async () => {
+        const media = { list: vi.fn(async () => ["a.mp3", "b.mp3"]), exists: vi.fn(async () => true) };
+
+        expect(await listStoredSongFiles(media, ["a.mp3", "c.mp3"])).toEqual(["a.mp3", "b.mp3"]);
+        expect(media.exists).not.toHaveBeenCalled();
+    });
+
+    it("asks about each local song on a shell built before list existed", async () => {
+        const media = { exists: vi.fn(async (_kind: string, name: string) => name !== "c.mp3") };
+
+        expect(await listStoredSongFiles(media, ["a.mp3", "c.mp3"])).toEqual(["a.mp3"]);
+        expect(media.exists).toHaveBeenCalledWith("music", "c.mp3");
+    });
+});
+
 describe("downloaded-song queries", () => {
     let db: GenericDb;
 
@@ -143,18 +191,27 @@ describe("downloaded-song queries", () => {
         expect(await countDownloadedSongs(db)).toBe(2);
     });
 
+    it("records a song once when two paths add it at the same moment", async () => {
+        // The download loop and the disk reconcile can both record the same song. A select-then-insert let both
+        // see no row and both insert one.
+        await Promise.all([addDownloadedSong(db, "1"), addDownloadedSongs(db, ["1", "2"]), addDownloadedSong(db, "2")]);
+
+        expect(await countDownloadedSongs(db)).toBe(2);
+        expect(await downloadedIds(db)).toEqual(["1", "2"]);
+    });
+
     it("addDownloadedSongs handles more ids than one statement takes", async () => {
         const many = Array.from({ length: 1200 }, (_, i) => `s${i}`);
         await addDownloadedSongs(db, many);
         expect(await countDownloadedSongs(db)).toBe(1200);
     });
 
-    it("getSongFileStates gives one row per song, with its file parts and download flag", async () => {
+    it("getSongDownloadRows gives one row per song, with its file parts and download flag", async () => {
         await addDownloadedSong(db, "2");
         // A duplicate row (older builds could write one) must not duplicate the song.
         await db.insert(downloadedSongTable).values({ downloadedSongId: "dup", songId: "2" });
 
-        const states = (await getSongFileStates(db)).sort((a, b) => a.songId.localeCompare(b.songId));
+        const states = (await getSongDownloadRows(db)).sort((a, b) => a.songId.localeCompare(b.songId));
         expect(states).toEqual([
             { songId: "1", fileHash: "hash1", fileExtension: ".mp3", downloaded: false },
             { songId: "2", fileHash: "hash2", fileExtension: ".mp3", downloaded: true },

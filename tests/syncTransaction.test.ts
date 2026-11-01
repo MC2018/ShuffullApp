@@ -14,8 +14,9 @@ import { withTransaction } from "@/app/services/db/transaction";
 import { ChangedSongKeysSchema, ChangedSongPageSchema, SongListResponseSchema, type FeedKey } from "@/app/services/api/models";
 
 const storage = new Map<string, string>();
+const { reconcileShared } = vi.hoisted(() => ({ reconcileShared: vi.fn(async () => {}) }));
 vi.mock("@/app/tools", () => import("@/app/tools/pure"));
-vi.mock("@/app/services/downloader/Downloader", () => ({ Downloader: { deleteLocalSongFiles: async () => {} } }));
+vi.mock("@/app/services/downloader/Downloader", () => ({ Downloader: { deleteLocalSongFiles: async () => {}, reconcileShared } }));
 vi.mock("@react-native-async-storage/async-storage", () => ({
     default: {
         getItem: async (key: string) => storage.get(key) ?? null,
@@ -236,6 +237,16 @@ describe("overallSync: the write phase is all-or-nothing", () => {
         expect(after.playlistSongs.map(x => x.songId)).toEqual(["s1", "s2"]);
         expect(storage.get("SONG_SYNC_CURSOR")).toBe(NEW_VERSION.toISOString());
         expect(JSON.parse(storage.get("SONG_SYNC_KEY")!)).toEqual({ version: NEW_VERSION.toISOString(), songId: "s1" });
+    });
+
+    it("matches downloads to disk after committing new songs, and not when the write failed (ShuffullApp#56)", async () => {
+        reconcileShared.mockClear();
+        await makeManager(db, makeApi({ ...apiSong("s1", "Changed", "hash-s1-v2"), name: null })).overallSync();
+        expect(reconcileShared).not.toHaveBeenCalled();
+
+        // s2 is new to the device: its file may already be in the music folder.
+        expect(await makeManager(db, makeApi(apiSong("s1", "Changed", "hash-s1-v2"))).overallSync()).toBe(200);
+        expect(reconcileShared).toHaveBeenCalledTimes(1);
     });
 });
 
