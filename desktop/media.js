@@ -242,6 +242,26 @@ async function mediaExists(root, kind, fileName) {
     }
 }
 
+/**
+ * The file names stored under `kind`, for the renderer's Downloads reconcile (ShuffullApp#56). Only names `exists`
+ * would accept, so a stray file can't pose as a download. A folder that was never created is empty; any other read
+ * error rejects, so the renderer changes nothing rather than forgetting every download.
+ */
+async function listMedia(root, kind) {
+    if (!isMediaKind(kind)) {
+        return [];
+    }
+    try {
+        const entries = await fsp.readdir(path.join(root, kind), { withFileTypes: true });
+        return entries.filter((entry) => entry.isFile() && isMediaFileName(entry.name)).map((entry) => entry.name);
+    } catch (e) {
+        if (e?.code === "ENOENT") {
+            return [];
+        }
+        throw e;
+    }
+}
+
 /** Idempotent: a missing file is a no-op, matching the native `deleteAsync(..., { idempotent: true })`. */
 async function deleteMedia(root, kind, fileName) {
     const filePath = mediaFilePath(root, kind, fileName);
@@ -310,6 +330,7 @@ module.exports = {
     serveMedia,
     downloadMedia,
     mediaExists,
+    listMedia,
     deleteMedia,
     clearTemp,
     createPrefetchStore,

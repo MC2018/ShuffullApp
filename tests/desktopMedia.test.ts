@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, it } from "vitest";
 import { createRequire } from "node:module";
-import { mkdtempSync, readFileSync, existsSync, readdirSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, existsSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
 import path from "node:path";
@@ -229,5 +229,29 @@ describe("prefetch store", () => {
         expect(existsSync(root)).toBe(false);
         expect(await store.exists("music", goodName)).toBe(false);
         await store.clear(); // idempotent
+    });
+});
+
+describe("listing the store (ShuffullApp#56)", () => {
+    it("lists only stored files under a name exists would accept", async () => {
+        const root = tempRoot();
+        mkdirSync(path.join(root, "music", `${HASH}.dir`), { recursive: true });
+        mkdirSync(path.join(root, "albumart"));
+        writeFileSync(path.join(root, "music", `${HASH}.mp3`), "a");
+        writeFileSync(path.join(root, "music", "notes.txt"), "b");
+        writeFileSync(path.join(root, "albumart", `${HASH}.jpg`), "c");
+
+        expect(await media.listMedia(root, "music")).toEqual([`${HASH}.mp3`]);
+        expect(await media.listMedia(root, "albumart")).toEqual([`${HASH}.jpg`]);
+        expect(await media.listMedia(root, "temp")).toEqual([]);
+    });
+
+    it("treats a folder that was never created as empty, and rejects any other read error", async () => {
+        const root = tempRoot();
+        expect(await media.listMedia(root, "music")).toEqual([]);
+
+        // A file where the folder should be: not "nothing stored", so the renderer must not forget its downloads.
+        writeFileSync(path.join(root, "music"), "");
+        await expect(media.listMedia(root, "music")).rejects.toThrow();
     });
 });

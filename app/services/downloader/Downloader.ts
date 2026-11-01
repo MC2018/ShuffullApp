@@ -14,6 +14,7 @@ import { derivePhase, describeDownloadNotification, isDownloadNetwork, retryDela
 import { decideArtDownload, decideSongDownload } from "../../tools/downloadFailure";
 import { foregroundService } from "../background/foregroundService";
 import { ensureNotificationPermission } from "../background/notificationPermission";
+import { reconcileDownloadsWithDisk } from "./reconcileDownloads";
 
 if (FileSystem.documentDirectory == null) {
     throw new Error("documentDirectory is null");
@@ -77,6 +78,8 @@ export class Downloader {
     private hashMismatches = new Map<string, number>();
     // Rows dropped since the last song that actually downloaded; bounds a failure that hits every song alike.
     private consecutiveDrops = 0;
+    // The disk reconcile in progress, so overlapping callers share one pass.
+    private reconciling: Promise<void> | undefined;
 
     private constructor(db: GenericDb) {
         this.db = db;
@@ -112,12 +115,31 @@ export class Downloader {
             }
         });
 
-        // Ensure directories exist
+        // Ensure directories exist, then make the Downloads list match what they hold.
         (async () => {
             await FileSystem.makeDirectoryAsync(tempFolder, { intermediates: true });
             await FileSystem.makeDirectoryAsync(musicFolder, { intermediates: true });
             await FileSystem.makeDirectoryAsync(albumArtFolder, { intermediates: true });
+            await this.reconcileWithDisk();
         })();
+    }
+
+    /**
+     * Records every song whose file is in the music folder and forgets every row whose file is gone
+     * (see reconcileDownloads.ts). Runs at start-up and when the Downloads screen opens. Only rows change, never files.
+     * Never throws: a folder that can't be read just leaves the rows as they are.
+     */
+    public reconcileWithDisk(): Promise<void> {
+        this.reconciling ??= (async () => {
+            try {
+                await reconcileDownloadsWithDisk(this.db, () => FileSystem.readDirectoryAsync(musicFolder), Downloader.generateSongFileName);
+            } catch (e) {
+                console.warn("[downloader] couldn't match downloads to disk", e);
+            } finally {
+                this.reconciling = undefined;
+            }
+        })();
+        return this.reconciling;
     }
 
     /** Stops starting NEW downloads. A song already in flight is allowed to finish (they are single files). */
@@ -261,6 +283,8 @@ export class Downloader {
             }
         }
 
+        // Not queued, but recorded: a file already on disk is a download, even if no row says so yet.
+        await DbQueries.addDownloadedSongs(this.db, existingSongs);
         songs = songs.filter(x => !existingSongs.includes(x.songId));
         await DbQueries.addToDownloadQueue(this.db, songs.map(x => x.songId), priority);
         if (songs.length > 0) {

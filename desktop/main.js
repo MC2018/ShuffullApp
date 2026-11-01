@@ -124,6 +124,7 @@ function registerMediaIpc() {
         });
     });
     ipcMain.handle("shuffull:media:exists", (_event, { kind, fileName } = {}) => media.mediaExists(MEDIA_ROOT, kind, fileName));
+    ipcMain.handle("shuffull:media:list", (_event, { kind } = {}) => media.listMedia(MEDIA_ROOT, kind));
     ipcMain.handle("shuffull:media:delete", (_event, { kind, fileName } = {}) => media.deleteMedia(MEDIA_ROOT, kind, fileName));
 }
 

@@ -14,6 +14,8 @@ export interface DesktopMediaStore {
     /** Fetches `<host>/<kind>/<fileName>` into the store (songs hash-checked by main). Reports failure; doesn't reject. */
     download: (host: string, kind: MediaKind, fileName: string) => Promise<{ ok: boolean; error?: string }>;
     exists: (kind: MediaKind, fileName: string) => Promise<boolean>;
+    /** The file names stored under `kind`. Absent in a desktop shell built before ShuffullApp#56. */
+    list?: (kind: MediaKind) => Promise<string[]>;
     remove: (kind: MediaKind, fileName: string) => Promise<void>;
     onProgress: (callback: (progress: { kind: MediaKind; fileName: string; received: number; total: number }) => void) => () => void;
 }
