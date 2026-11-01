@@ -9,6 +9,7 @@ import { derivePhase, retryDelayMs } from "../../tools/downloadStatus";
 import { localMediaUri, parseLocalMediaUri } from "../../tools/desktopMedia";
 import { desktopShell, DesktopMediaStore, isOnline, pageOrigin } from "../desktopShell";
 import { sleep } from "../../tools/utils";
+import { createDiskReconciler, listStoredSongFiles } from "./reconcileDownloads";
 
 /**
  * Web build of the Downloader. Metro picks this over `Downloader.ts` for the web platform, which covers two very
@@ -52,6 +53,11 @@ export class Downloader {
         return Downloader.instance;
     }
 
+    /** reconcileWithDisk on the running Downloader, for a sync that just brought new songs. Nothing if none started. */
+    public static async reconcileShared(): Promise<void> {
+        await Downloader.instance?.reconcileWithDisk();
+    }
+
     private draining = false;
     downloading = false;
     // Starts true so nothing can start before the persisted value is read; the constructor flips it.
@@ -60,10 +66,16 @@ export class Downloader {
     private readonly media: DesktopMediaStore | undefined;
     private songInFlight: { songId: string; fileName: string; name: string } | undefined;
     private consecutiveFailures = 0;
+    // Matches downloaded_songs to the store (see reconcileWithDisk). A no-op in a plain browser.
+    private readonly reconcile: () => Promise<void>;
 
     private constructor(db: GenericDb) {
         this.db = db;
         this.media = mediaBridge();
+        const media = this.media;
+        this.reconcile = media == undefined
+            ? async () => {}
+            : createDiskReconciler(db, fileNames => listStoredSongFiles(media, fileNames), Downloader.generateSongFileName);
 
         if (this.media == undefined) {
             // Plain browser: say honestly that there is nothing to manage here.
@@ -91,12 +103,22 @@ export class Downloader {
             this.kick();
         })();
 
+        void this.reconcileWithDisk();
+
         // Show "offline" the moment the connection drops, and pick the queue back up the moment it returns.
         window.addEventListener("online", () => {
             void this.publishStatus();
             this.kick();
         });
         window.addEventListener("offline", () => void this.publishStatus());
+    }
+
+    /**
+     * Records every song whose file is in the store and forgets every row whose file is gone, as on native (see
+     * reconcileDownloads.ts). Only rows change, never files. Never throws. A no-op in a plain browser.
+     */
+    public reconcileWithDisk(): Promise<void> {
+        return this.reconcile();
     }
 
     /** Stops starting NEW downloads. A song already in flight is allowed to finish. */
@@ -151,20 +173,22 @@ export class Downloader {
         }
         const songs = await DbQueries.getSongsByPlaylist(this.db, playlistId);
         const toQueue: string[] = [];
-        let alreadyDownloaded = 0;
+        const alreadyDownloaded: string[] = [];
 
         for (const song of songs) {
             if (await this.media.exists("music", Downloader.generateSongFileName(song))) {
-                alreadyDownloaded++;
+                alreadyDownloaded.push(song.songId);
             } else {
                 toQueue.push(song.songId);
             }
         }
 
+        // Not queued, but recorded: a file already in the store is a download, even if no row says so yet.
+        await DbQueries.addDownloadedSongs(this.db, alreadyDownloaded);
         await DbQueries.addToDownloadQueue(this.db, toQueue, priority);
         await this.publishStatus();
         this.kick();
-        return { queued: toQueue.length, alreadyDownloaded };
+        return { queued: toQueue.length, alreadyDownloaded: alreadyDownloaded.length };
     }
 
     /** Starts the drain loop if it isn't already running. Safe to call from anywhere, any number of times. */
@@ -260,7 +284,10 @@ export class Downloader {
 
             const songFileName = Downloader.generateSongFileName(song);
 
+            // Already stored (main only moves a file in once its hash checks out): record it rather than just
+            // dropping the row, or it is on disk but never listed or offered offline.
             if (await media.exists("music", songFileName)) {
+                await DbQueries.addDownloadedSong(this.db, song.songId);
                 await DbQueries.removeFromDownloadQueue(this.db, song.songId);
                 return "skipped";
             }

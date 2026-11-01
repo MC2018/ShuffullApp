@@ -37,12 +37,14 @@ export default function LocalDownloadsScreen() {
         setQueued(await DbQueries.getDownloadQueueDetails(db, QUEUE_PREVIEW_LIMIT));
     }, [db]);
 
-    // Both lists on focus (a download may have landed while we were elsewhere)...
+    // Both lists on focus (a download may have landed while we were elsewhere). The saved list shows at once, then
+    // again once its rows have been matched to the files actually on disk (ShuffullApp#56)...
     useFocusEffect(
         useCallback(() => {
             loadDownloaded();
             loadQueue();
-        }, [loadDownloaded, loadQueue]),
+            downloader?.reconcileWithDisk().then(loadDownloaded);
+        }, [downloader, loadDownloaded, loadQueue]),
     );
     // ...the saved list again whenever a song finishes, and the queue whenever its size or head changes.
     useEffect(() => {
