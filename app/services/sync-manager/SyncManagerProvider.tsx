@@ -4,6 +4,7 @@ import { addNetworkStateListener } from "expo-network";
 import { useDb } from "../db/DbProvider";
 import { useApi } from "../api/ApiProvider";
 import { logout } from "../auth/auth";
+import { logoutUnlessReplaced } from "../auth/passwordChange";
 import { useServerReachability } from "../connectivity/serverReachability";
 import { SyncManager } from "./SyncManager";
 
@@ -22,7 +23,8 @@ export default function SyncManagerProvider({ userId }: SyncManagerProviderProps
     const [syncManager, setSyncManager] = useState<SyncManager | null>(null);
 
     useEffect(() => {
-        const instance = new SyncManager(db, api, userId, logout);
+        // A 401 on a token a password change has just replaced isn't this session ending (see logoutUnlessReplaced).
+        const instance = new SyncManager(db, api, userId, () => logoutUnlessReplaced(api, logout));
         setSyncManager(instance);
         const reachability = useServerReachability.getState();
         reachability.setCheckNow(() => instance.syncNow());

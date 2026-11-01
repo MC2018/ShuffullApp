@@ -83,6 +83,27 @@ export class ApiClient {
         }
     }
 
+    // Each hash is the same client argon2 of "username;password" that login sends. The server signs out every other
+    // token the user holds and answers with a fresh session for this device. A wrong current password is a 400.
+    public async userChangePassword(currentUserHash: string, newUserHash: string): Promise<AuthenticateResponse> {
+        const endpoint = "/api/v1/users/me/password";
+        console.log(`[API] Calling endpoint: ${endpoint}`);
+        try {
+            const response = await this.client.post(endpoint, { currentUserHash, newUserHash });
+
+            if (!isSuccessfulStatus(response.status)) {
+                console.log(`[API] Endpoint ${endpoint} failed with status: ${response.status}`);
+                throw new ApiStatusFailureError(endpoint, response);
+            }
+
+            console.log(`[API] Endpoint ${endpoint} succeeded`);
+            return AuthenticateResponseSchema.parse(response.data);
+        } catch (error) {
+            console.log(`[API] Endpoint ${endpoint} failed with error:`, error);
+            throw error;
+        }
+    }
+
     public async tagGetAll(): Promise<Tag[]> {
         const endpoint = "/api/v1/tags";
         console.log(`[API] Calling endpoint: ${endpoint}`);
@@ -573,8 +594,8 @@ function isSuccessfulStatus(status: number) {
 }
 
 // A request that fails without an answer (offline, timeout) rejects with an AxiosError that carries its request
-// config: the Authorization header, and for login and sign-up the password hash in the body. Callers log these
-// errors whole, so both are stripped before the error leaves the client.
+// config: the Authorization header, and for login, sign-up and a password change the password hashes in the body.
+// Callers log these errors whole, so both are stripped before the error leaves the client.
 function redactCredentials(error: unknown) {
     if (axios.isAxiosError(error)) {
         if (error.config) {
