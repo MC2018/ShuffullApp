@@ -60,6 +60,30 @@ describe("ApiClient: credentials stay out of URLs and logs", () => {
         });
     }
 
+    it("userChangePassword sends both hashes in the JSON body and never logs them when the request fails", async () => {
+        let sent: { url?: string, data?: unknown } = {};
+        axios.defaults.adapter = async (config) => {
+            sent = { url: config.url, data: config.data };
+            return { data: okSession, status: 200, statusText: "OK", headers: {}, config };
+        };
+
+        await new ApiClient("http://api", "session-token").userChangePassword("secret-current", "secret-new");
+
+        expect(sent.url).toBe("/api/v1/users/me/password");
+        expect(JSON.parse(String(sent.data))).toEqual({ currentUserHash: "secret-current", newUserHash: "secret-new" });
+
+        const logged = captureLogs();
+        failWithoutAnswer();
+
+        const error = await new ApiClient("http://api", "session-token").userChangePassword("secret-current", "secret-new").catch(e => e);
+
+        expect(error).toBeInstanceOf(AxiosError);
+        for (const secret of ["secret-current", "secret-new", "session-token"]) {
+            expect(logged.join("\n")).not.toContain(secret);
+            expect(JSON.stringify(error)).not.toContain(secret);
+        }
+    });
+
     it("a failed call never logs or rethrows the session token", async () => {
         const logged = captureLogs();
         failWithoutAnswer();
