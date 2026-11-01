@@ -8,7 +8,8 @@ import { create } from "zustand";
  * - "unreachable": the last sync got no answer or a gateway error (isUnreachableStatus), or the phone reports no
  *   internet. The shuffle then plays only downloaded songs (mediaManager getOfflinePool), and the UI says so.
  *
- * Not the same as being logged out: a 401 is an answer, and it logs out (SyncManager).
+ * Not the same as being logged out: a 401 is an answer, and it logs out (SyncManager). A 503 is not: the API sends it
+ * when its database is down (Shuffull#108), so it counts as unreachable here.
  */
 export type ServerReachability = "unknown" | "reachable" | "unreachable";
 

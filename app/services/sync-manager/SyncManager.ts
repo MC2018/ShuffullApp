@@ -83,7 +83,7 @@ export class SyncManager {
 
         try {
             const { statusCode, loggedOut } = await this.pushAndPull();
-            // A push that logged out isn't the server failing, so it doesn't back off.
+            // A sync that logged out isn't the server failing, so it doesn't back off.
             this.failedSyncs = statusCode == HttpStatusCode.Ok || loggedOut ? 0 : this.failedSyncs + 1;
             useServerReachability.getState().setReachability(isUnreachableStatus(statusCode) ? "unreachable" : "reachable");
         } catch (e) {
@@ -100,10 +100,10 @@ export class SyncManager {
         }
     }
 
-    // Pushes the outbox in order, then pulls. Returns 200, or the status that stopped it: a 401 on a push (logged out),
-    // or anything else when the server couldn't be reached or failed (no answer, a 5xx, a failed pull), which backs the
-    // next sync off. A 4xx on one batch isn't that: the rest still goes, except rows about the same song or playlist,
-    // which wait so they can't overtake it.
+    // Pushes the outbox in order, then pulls. Returns 200, or the status that stopped it: a 401 on a push or the pull
+    // (logged out), or anything else when the server couldn't be reached or failed (no answer, a 5xx, a failed pull),
+    // which backs the next sync off. A 4xx on one batch isn't that: the rest still goes, except rows about the same song
+    // or playlist, which wait so they can't overtake it.
     private async pushAndPull(): Promise<{ statusCode: number; loggedOut?: boolean }> {
         const requestBatches = groupRequestsIntoBatches(await DbQueries.getRequests(this.db, this.userId));
 
@@ -172,7 +172,12 @@ export class SyncManager {
             userId: this.userId
         };
         const { statusCode } = await this.runRequests([overallSyncRequest]);
-        if (statusCode != HttpStatusCode.Ok) {
+        if (statusCode == HttpStatusCode.Unauthorized) {
+            // The session is gone (revoked, expired, or the user deleted). The API answers 503, not 401, when it can't
+            // check the session because its database is down (Shuffull#108), so this doesn't log out on an outage.
+            await this.logout();
+            return { statusCode, loggedOut: true };
+        } else if (statusCode != HttpStatusCode.Ok) {
             return { statusCode };
         }
         await this.reconcileSongs();
