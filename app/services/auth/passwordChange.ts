@@ -1,6 +1,6 @@
 import { HttpStatusCode } from "axios";
 import { ApiClient } from "../api/ApiClient";
-import { ApiStatusFailureError, describeAuthFailure } from "../api/errors";
+import { ApiStatusFailureError, describeAuthFailure, isUnreachableStatus, statusOfFailure } from "../api/errors";
 import { AuthenticateResponse } from "../api/models";
 import { useAuthStore } from "./authStore";
 
@@ -58,6 +58,13 @@ export function describePasswordChangeFailure(error: unknown, hostAddress: strin
         return "This server can't change passwords yet.";
     }
 
+    // Without an answer (a timeout, a dropped connection) the server may still have made the change, and then this
+    // device's token no longer works either.
+    if (isUnreachableStatus(statusOfFailure(error))) {
+        return `Couldn't reach the server at ${hostAddress} to confirm the change. If you get signed out, sign in with `
+            + "your new password.";
+    }
+
     // A wrong current password is a 400 whose { error } says so ("Current password is incorrect.").
     return describeAuthFailure(error, hostAddress);
 }
@@ -68,7 +75,7 @@ export function describePasswordChangeFailure(error: unknown, hostAddress: strin
 let credentialChange: Promise<unknown> | null = null;
 
 /** Runs `change` (the request and storing its new session) as the one credential change in flight. */
-export async function whileChangingCredentials<T>(change: () => Promise<T>): Promise<T> {
+async function whileChangingCredentials<T>(change: () => Promise<T>): Promise<T> {
     const run = change();
     credentialChange = run;
     try {

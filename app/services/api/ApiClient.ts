@@ -594,8 +594,8 @@ function isSuccessfulStatus(status: number) {
 }
 
 // A request that fails without an answer (offline, timeout) rejects with an AxiosError that carries its request
-// config: the Authorization header, and for login, sign-up and a password change the password hashes in the body. Callers log these
-// errors whole, so both are stripped before the error leaves the client.
+// config: the Authorization header, and for login, sign-up and a password change the password hashes in the body.
+// Callers log these errors whole, so both are stripped before the error leaves the client.
 function redactCredentials(error: unknown) {
     if (axios.isAxiosError(error)) {
         if (error.config) {

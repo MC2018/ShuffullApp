@@ -102,9 +102,11 @@ describe("describePasswordChangeFailure", () => {
         expect(describePasswordChangeFailure(error, "http://api")).toBe("User not found.");
     });
 
-    it("says the server can't be reached when there is no answer", () => {
+    it("says the change may have gone through when there is no answer", () => {
         const error = new AxiosError("Network Error", AxiosError.ERR_NETWORK);
-        expect(describePasswordChangeFailure(error, "http://api")).toContain("Can't reach the server at http://api");
+        const message = describePasswordChangeFailure(error, "http://api");
+        expect(message).toContain("Couldn't reach the server at http://api to confirm the change");
+        expect(message).toContain("sign in with your new password");
     });
 });
 
