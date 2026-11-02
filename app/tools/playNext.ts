@@ -157,7 +157,7 @@ export function intentsWithoutRequestRow(intents: readonly PlayNextIntent[], row
 /** What a row of its own says under an intent's title: whether its song is queued, or what it still waits for. */
 export function describeIntentWaiting(intent: PlayNextIntent, queuedSongIds: readonly string[]): string {
     if (intent.songId != null && queuedSongIds.includes(intent.songId)) {
-        return "Plays after the current song.";
+        return "Queued to play next.";
     }
     return intent.songId != null ? "Plays once it reaches this device." : "Plays once its request is done and it reaches this device.";
 }

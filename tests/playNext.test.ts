@@ -248,7 +248,7 @@ describe("which intents get a row of their own (ShuffullApp#175)", () => {
     });
 
     it("says whether its song is queued, or what it still waits for", () => {
-        expect(describeIntentWaiting(owned, ["s-owned"])).toBe("Plays after the current song.");
+        expect(describeIntentWaiting(owned, ["s-owned"])).toBe("Queued to play next.");
         expect(describeIntentWaiting(owned, [])).toBe("Plays once it reaches this device.");
         expect(describeIntentWaiting(intent({ songRequestId: "r1" }), [])).toBe("Plays once its request is done and it reaches this device.");
     });
