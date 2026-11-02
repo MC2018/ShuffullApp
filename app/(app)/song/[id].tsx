@@ -25,6 +25,7 @@ import AddToPlaylistSheet from "@/app/components/playlists/AddToPlaylistSheet";
 import { AlbumArt, Button, Chip, IconButton, Screen, SectionHeader, Text, TextField } from "@/app/components/ui";
 import { useTheme } from "@/app/theme";
 import { showAlert } from "@/app/tools/dialog";
+import { log } from "@/app/tools/log";
 
 const defaultArt: ImageURISource = require("@/assets/images/default-album-art.jpg");
 type ArtSource = ImageURISource | { uri: string };
@@ -200,7 +201,7 @@ export default function SongScreen() {
             await refresh();
             setEditing(false);
         } catch (e) {
-            console.log(e);
+            log.warn("song-edit", "Couldn't save the metadata edit.", e);
             showAlert("Couldn't save", "Something went wrong applying the edit.");
         } finally {
             setSaving(false);

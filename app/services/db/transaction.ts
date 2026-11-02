@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import { GenericDb } from "./GenericDb";
+import { log } from "../../tools/log";
 
 /**
  * Runs `work` inside one SQLite transaction and returns its result. Use this, not `db.transaction()`, for any
@@ -34,7 +35,8 @@ export async function withTransaction<T>(db: GenericDb, work: (tx: GenericDb) =>
     }
 
     // A body that breaks the handle rule waits on itself, and every outbox write after it hangs with no error. Say so.
-    const stalled = setTimeout(() => console.warn(
+    const stalled = setTimeout(() => log.warn(
+        "db",
         `withTransaction has waited ${STALL_WARNING_MS / 1000}s to start. Is a transaction body calling it with the plain db instead of its tx?`,
     ), STALL_WARNING_MS);
     const run = queue.then(() => {

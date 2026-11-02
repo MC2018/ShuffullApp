@@ -4,6 +4,7 @@ import { closeListen, getOpenListens, saveOpenListen } from "../db/queries/liste
 import { createSerialLock } from "@/app/tools/serialLock";
 import { generateId } from "@/app/tools/pure";
 import { clockAt, clockSeconds, finishedListen, ListenClock, listenToTakeOver, newListenClock, PlayingTrack } from "@/app/tools/listens";
+import { log } from "@/app/tools/log";
 
 /** How often an open listen is checkpointed while it plays. A kill mid-song loses at most this much of it. */
 export const LISTEN_CHECKPOINT_INTERVAL_MS = 10_000;
@@ -92,14 +93,14 @@ export class ListenRecorder {
                 await closeListen(db, finishedListen(orphan, orphan.checkpointedAt.getTime(), orphan.secondsListened, "stopped"));
             }
             if (closing.length) {
-                console.info(`[listens] closed ${closing.length} listen(s) left open by the last run as stopped.`);
+                log.info("listens", `closed ${closing.length} listen(s) left open by the last run as stopped.`);
             }
 
             if (heir != undefined) {
                 this.current = { row: heir, clock: { seconds: heir.secondsListened, playingSince: now }, failed: false };
                 this.syncTimer();
                 tookOver = true;
-                console.info("[listens] carried on the listen the last run left open for the song still playing.");
+                log.info("listens", "carried on the listen the last run left open for the song still playing.");
             }
         });
         return tookOver;
@@ -232,7 +233,7 @@ export class ListenRecorder {
             try {
                 await work(db);
             } catch (e) {
-                console.warn(`[listens] ${what} failed`, e);
+                log.warn("listens", `${what} failed`, e);
             }
         });
     }

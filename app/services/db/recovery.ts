@@ -5,6 +5,7 @@ import { namedRows } from "./queries/_rawRow";
 import { deadLetterRow } from "./queries/request";
 import { deadLetterRequestTable, requestTable } from "./schema";
 import { withTransaction } from "./transaction";
+import { log } from "../../tools/log";
 
 /**
  * Opening the database, and the last-resort recovery when the on-device schema cannot be migrated: rebuild the
@@ -121,7 +122,7 @@ export async function restoreRescuedTables(db: GenericDb): Promise<RescueRestore
     try {
         rescues = (await schemaObjects(db)).filter((x) => x.type == "table" && isRescue(x.name)).map((x) => x.name).sort();
     } catch (e) {
-        console.error("Could not look for rescued tables.", e);
+        log.error("db", "Could not look for rescued tables.", e);
         return result;
     }
 
@@ -189,7 +190,7 @@ export async function restoreRescuedTables(db: GenericDb): Promise<RescueRestore
                             continue;
                         } catch (e) {
                             await tx.run(sql`ROLLBACK TO restore_row`);
-                            console.error(`${rescue}: could not dead-letter ${String(row.request_id)}; it stays rescued.`, e);
+                            log.error("db", `${rescue}: could not dead-letter ${String(row.request_id)}; it stays rescued.`, e);
                         }
                     }
 
@@ -204,23 +205,23 @@ export async function restoreRescuedTables(db: GenericDb): Promise<RescueRestore
         } catch (e) {
             // Rolled back: nothing committed for this table, and all of it is still rescued.
             result.leftInPlace.push(rescue);
-            console.error(`${rescue} could not be restored; kept in place and retried on every start.`, e);
+            log.error("db", `${rescue} could not be restored; kept in place and retried on every start.`, e);
             continue;
         }
 
         result.restored += restored;
         result.deadLettered += deadLettered;
         if (deadLettered > 0) {
-            console.error(`${rescue}: ${deadLettered} request(s) the rebuilt schema refused were dead-lettered.`, failure);
+            log.error("db", `${rescue}: ${deadLettered} request(s) the rebuilt schema refused were dead-lettered.`, failure);
         }
         if (refused > 0) {
             result.leftInPlace.push(rescue);
-            console.error(`${rescue}: ${refused} row(s) could not be restored; kept in place and retried on every start.`, failure);
+            log.error("db", `${rescue}: ${refused} row(s) could not be restored; kept in place and retried on every start.`, failure);
         }
     }
 
     if (result.restored > 0) {
-        console.warn(`Restored ${result.restored} preserved row(s) into the rebuilt database.`);
+        log.warn("db", `Restored ${result.restored} preserved row(s) into the rebuilt database.`);
     }
     return result;
 }
@@ -240,7 +241,7 @@ export async function rebuildKeepingLocalData<T extends GenericDb>(
     try {
         await setAside(db);
     } catch (e) {
-        console.error("Could not set the outbox aside in the damaged database; deleting it. Its outbox, dead letters and genre jams are lost.", e);
+        log.error("db", "Could not set the outbox aside in the damaged database; deleting it. Its outbox, dead letters and genre jams are lost.", e);
         db = await deleteFile();
     }
 
@@ -262,7 +263,7 @@ export async function prepareDatabase<T extends GenericDb>(
     try {
         await migrate(db);
     } catch (e) {
-        console.warn("Migrations failed; rebuilding the database.", e);
+        log.warn("db", "Migrations failed; rebuilding the database.", e);
         return rebuildKeepingLocalData(db, migrate, deleteFile);
     }
 

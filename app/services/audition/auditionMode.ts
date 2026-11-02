@@ -5,6 +5,7 @@ import DbQueries from "../db/queries";
 import { MediaManager } from "../media-manager";
 import { AuditionController, useActiveSong } from "../media-manager/mediaManager";
 import { AuditionPort, AuditionSession, AuditionSnapshot } from "@/app/tools/auditionSession";
+import { log } from "@/app/tools/log";
 
 // Audition mode's one live session (ShuffullApp#125), between the deck screen and the player. The rules live in
 // tools/auditionSession; this file only plugs the real player into them and keeps the screen's copy current.
@@ -37,7 +38,7 @@ const port: AuditionPort = {
     rate: (songId, likeStatus) => MediaManager.applyLikeStatus(songId, likeStatus),
     keep: songId => MediaManager.keepSong(songId),
     markHeard: songId => MediaManager.markAuditionHeard(songId),
-    prefetch: songIds => void MediaManager.prefetchAudition(songIds).catch(e => console.warn("[audition] prefetch failed", e)),
+    prefetch: songIds => void MediaManager.prefetchAudition(songIds).catch(e => log.warn("audition", "prefetch failed", e)),
 };
 
 /** Deals out `playlistId`'s unheard songs and starts the first. Returns the session, or undefined if superseded. */
@@ -96,6 +97,6 @@ async function tick(session: AuditionSession) {
         const [{ duration }, { state }] = await Promise.all([TrackPlayer.getProgress(), TrackPlayer.getPlaybackState()]);
         session.tick(duration, state === State.Playing, useActiveSong.getState().songId);
     } catch (e) {
-        console.warn("[audition] tick failed", e);
+        log.warn("audition", "tick failed", e);
     }
 }

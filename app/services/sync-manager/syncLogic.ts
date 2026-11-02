@@ -1,6 +1,7 @@
 import { getProcessingMethod, ProcessingMethod, RequestType } from "@/app/enums";
 import type { FeedCursor, FeedKey } from "@/app/services/api/models";
 import type { DeletePlaylistPayload } from "@/app/services/db/schema";
+import { log } from "@/app/tools/log";
 
 // Pure, dependency-free pieces lifted out of SyncManager.overallSync so they can be unit-tested without
 // the surrounding native deps (expo-sqlite, async-storage, the API client). Behaviour is preserved
@@ -124,7 +125,7 @@ export async function pageFeed<T>(
             // newer anyway. Here either the tie ended exactly at the page boundary, or the server predates
             // Shuffull#64: it ignored `afterId`, read the request as `Version > afterDate`, and skipped the rest of the
             // tie. Can't tell which.
-            console.warn(`[sync] A feed page after ${cursor.afterDate}/${cursor.afterId} held no more rows at that Version. `
+            log.warn("sync", `A feed page after ${cursor.afterDate}/${cursor.afterId} held no more rows at that Version. `
                 + "If the API predates keyset paging (Shuffull#64), the rest of that tie was skipped.");
         }
         items.push(...page.items);

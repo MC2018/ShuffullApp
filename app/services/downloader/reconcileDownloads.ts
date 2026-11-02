@@ -2,6 +2,7 @@ import DbQueries from "../db/queries";
 import { GenericDb } from "../db/GenericDb";
 import type { DesktopMediaStore } from "../desktopShell";
 import { DownloadReconcile, reconcileDownloads } from "../../tools/downloadReconcile";
+import { log } from "../../tools/log";
 
 /** Lists the music folder. Given the file names of every local song, for a store that can only be asked one by one. */
 export type ListSongFiles = (songFileNames: string[]) => Promise<Iterable<string>>;
@@ -24,7 +25,7 @@ export async function reconcileDownloadsWithDisk(db: GenericDb, listFiles: ListS
     await DbQueries.removeDownloadedSongs(db, result.forget);
 
     if (result.record.length || result.forget.length) {
-        console.log(`[downloader] matched downloads to disk: recorded ${result.record.length} song(s) found on disk, forgot ${result.forget.length} whose file is gone`);
+        log.info("downloader", `matched downloads to disk: recorded ${result.record.length} song(s) found on disk, forgot ${result.forget.length} whose file is gone`);
     }
     return result;
 }
@@ -40,7 +41,7 @@ export function createDiskReconciler(db: GenericDb, listFiles: ListSongFiles, so
             try {
                 await reconcileDownloadsWithDisk(db, listFiles, songFileName);
             } catch (e) {
-                console.warn("[downloader] couldn't match downloads to disk", e);
+                log.warn("downloader", "couldn't match downloads to disk", e);
             } finally {
                 running = undefined;
             }

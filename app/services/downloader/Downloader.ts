@@ -6,6 +6,7 @@ import path from "path-browserify";
 import { Song } from "../db/models";
 import { albumArtFileName, DownloadQueueRunner, songFileName } from "./DownloadQueueRunner";
 import { albumArtFolder, createNativeDownloadAdapter, fileExists, musicFolder } from "./nativeDownloadAdapter";
+import { log } from "../../tools/log";
 
 /**
  * The native Downloader: the shared download loop (DownloadQueueRunner.ts) on the native adapter
@@ -61,7 +62,7 @@ export class Downloader extends DownloadQueueRunner {
             await FileSystem.deleteAsync(Downloader.generateLocalSongUri(song), { idempotent: true });
             await FileSystem.deleteAsync(Downloader.generateLocalAlbumArtUri(song), { idempotent: true });
         } catch (e) {
-            console.warn(`Failed to delete local files for replaced song ${song.songId}:`, e);
+            log.warn("downloader", `Failed to delete local files for replaced song ${song.songId}:`, e);
         }
     }
 

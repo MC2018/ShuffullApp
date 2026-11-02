@@ -4,6 +4,7 @@
 // Kept apart from mediaManager, which imports native modules, so the rules can be tested.
 
 import type { PlayingTrack } from "@/app/tools/listens";
+import { log } from "@/app/tools/log";
 
 export interface ResumeListenInput {
     /** The song the app shows as the current one. */
@@ -63,13 +64,13 @@ export async function recoverListensAfterRestart(input: RestartListenInput): Pro
         const songId = await songToRecord(input);
         if (songId != undefined) {
             const positionSeconds = await input.positionSeconds().catch(e => {
-                console.warn("[listens] could not read the player's position; not carrying on the last run's listen", e);
+                log.warn("listens", "could not read the player's position; not carrying on the last run's listen", e);
                 return NaN;
             });
             playing = { songId, positionSeconds };
         }
     } catch (e) {
-        console.warn("[listens] could not ask the player what is playing; closing the last run's listens", e);
+        log.warn("listens", "could not ask the player what is playing; closing the last run's listens", e);
     }
 
     if (await input.recover(playing)) {

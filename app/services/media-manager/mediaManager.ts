@@ -34,6 +34,7 @@ import { openListenIfPlaying, recoverListensAfterRestart, ResumeListenInput } fr
 import { listenContext, listenPlatform } from "../../tools/listens";
 import { desktopShell } from "../desktopShell";
 import { isServerUnreachable, useServerReachability } from "../connectivity/serverReachability";
+import { log } from "../../tools/log";
 
 let queue: string[] = [];
 let db: GenericDb;
@@ -270,7 +271,7 @@ export async function setup(activeDb: GenericDb) {
         if (currentlyPlayingSong != undefined) {
             useActiveSong.getState().setSongId(currentlyPlayingSong.songId);
             void lineUpAfterRestart(playerReady, currentlyPlayingSong.songId)
-                .catch(e => console.warn("[lookahead] could not line up after a restart", e));
+                .catch(e => log.warn("lookahead", "could not line up after a restart", e));
         }
     } finally {
         // A listen still open in the database was cut short by the last JS context dying. Android can keep the player
@@ -280,7 +281,7 @@ export async function setup(activeDb: GenericDb) {
         // on (ShuffullApp#147). The close waits for the player, since it needs to know what is playing. It runs even if
         // the player or the lines above failed: until it has, a transition to Playing opens no listen.
         void playerReady
-            .catch(e => console.warn("[player] could not set up the player", e))
+            .catch(e => log.warn("player", "could not set up the player", e))
             .then(() => transportLock.run(recoverListensForRestart));
     }
 }
@@ -511,14 +512,14 @@ async function handlePlaybackFailure(raw: unknown) {
 
     if (userPaused) {
         // Recorded, not acted on. The user has stopped playback; retrying now would override that.
-        console.warn(`[player] ${kind} playback failure on song ${songId} while paused - leaving it paused.`);
+        log.warn("player", `${kind} playback failure on song ${songId} while paused - leaving it paused.`);
         return;
     }
 
     const recovery = decidePlaybackRecovery({ kind, attempt: trackRetryAttempts });
 
-    console.warn(
-        `[player] ${kind} playback failure on song ${songId} ` +
+    log.warn("player",
+        `${kind} playback failure on song ${songId} ` +
         `(code=${error.code ?? "none"}, source=${activeSourceIsLocal ? "local" : "stream"}, ` +
         `probe=${probedStatus ?? "none"}, ` +
         `attempt=${trackRetryAttempts}) -> ${recovery.action}: ${error.message ?? "no message"}`);
@@ -535,13 +536,13 @@ async function handlePlaybackFailure(raw: unknown) {
         // The timer gives up; the recovery does not. stalledSongId stays set, so the network coming back
         // resumes THIS song - which is the whole point of never having skipped it.
         stalledSongId = recovery.resumeOnReconnect ? songId : undefined;
-        console.warn("[player] still unreachable - waiting for the connection to come back before retrying.");
+        log.warn("player", "still unreachable - waiting for the connection to come back before retrying.");
         usePlaybackIssue.getState().setIssue({ kind: "offline", songId });
         return;
     }
 
     // Stopped on this song, never skipped past it: play retries it, next moves on, both the user's call.
-    console.warn("[player] song can't be played - stopped on it until the user retries or skips.");
+    log.warn("player", "song can't be played - stopped on it until the user retries or skips.");
     stalledSongId = recovery.resumeOnReconnect ? songId : undefined;
     usePlaybackIssue.getState().setIssue({ kind: "unplayable", songId });
 }
@@ -620,7 +621,7 @@ async function retryCurrentTrack() {
 
         await TrackPlayer.play();
     } catch (error) {
-        console.warn("[player] could not restart the stalled track:", error);
+        log.warn("player", "could not restart the stalled track:", error);
     }
 }
 
@@ -640,7 +641,7 @@ function subscribeToNetworkRecovery() {
             return;
         }
 
-        console.info(`[player] connection is back - resuming song ${stalledSongId}.`);
+        log.info("player", `connection is back - resuming song ${stalledSongId}.`);
         cancelScheduledRetry();
         // A fresh budget: the reason the old one ran out has demonstrably changed.
         trackRetryAttempts = 0;
@@ -1380,7 +1381,7 @@ async function loadTrack(songWithArtist: SongDetails) {
     }
 
     activeStreamUrl = activeSourceIsLocal ? undefined : songUri;
-    console.info(`[player] starting ${songId} from ${downloaded ? "downloads" : prefetched ? "the prefetch cache" : "a stream"}`);
+    log.info("player", `starting ${songId} from ${downloaded ? "downloads" : prefetched ? "the prefetch cache" : "a stream"}`);
 
     // Album art for the lock-screen / media-notification. Without an `artwork` on the track, Media3 has
     // nothing to render, which is why the notification showed no icon. Prefer the already-downloaded local
@@ -1434,7 +1435,7 @@ async function beginListen(song: Song, userId: string, playing: boolean, context
             playing,
         });
     } catch (e) {
-        console.warn("[listens] could not open a listen", e);
+        log.warn("listens", "could not open a listen", e);
     }
 }
 
@@ -1454,7 +1455,7 @@ async function openListenForResume() {
     try {
         await openListenIfPlaying(resumeListenInput(activeDb));
     } catch (e) {
-        console.warn("[listens] could not open a listen for the resumed song", e);
+        log.warn("listens", "could not open a listen for the resumed song", e);
     }
 }
 
@@ -1495,7 +1496,7 @@ async function recoverListensForRestart() {
             recover: playing => listenRecorder.recover(playing),
         });
     } catch (e) {
-        console.warn("[listens] could not recover the last run's listens", e);
+        log.warn("listens", "could not recover the last run's listens", e);
     } finally {
         listensRecovered = true;
     }
@@ -1535,7 +1536,7 @@ function scheduleLookaheadRefresh() {
                 await refreshLookaheadOnce();
             } while (lookaheadRefreshAgain);
         } catch (e) {
-            console.warn("[lookahead] refresh failed", e);
+            log.warn("lookahead", "refresh failed", e);
         } finally {
             lookaheadRefreshRunning = false;
         }
@@ -1574,7 +1575,7 @@ async function refreshLookaheadOnce() {
         return;
     }
 
-    console.info(`[lookahead] next: ${upcoming.length ? upcoming.join(", ") : "nothing"}`);
+    log.info("lookahead", `next: ${upcoming.length ? upcoming.join(", ") : "nothing"}`);
     prefetcher.want(songs);
 }
 

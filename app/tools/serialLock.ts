@@ -1,3 +1,5 @@
+import { log } from "./log";
+
 /**
  * Runs async tasks one at a time, in the order they were requested, each starting from the state the previous
  * one left. A task that fails rejects only its own caller; the ones behind it still run.
@@ -38,7 +40,7 @@ export function createSerialLock(options: { maxHoldMs?: number; name?: string } 
                 let timer: ReturnType<typeof setTimeout> | undefined;
                 const givenUp = new Promise<void>((resolve) => {
                     timer = setTimeout(() => {
-                        console.warn(`[${name}] a task held the lock for over ${maxHoldMs}ms - letting the next one run.`);
+                        log.warn(name, `a task held the lock for over ${maxHoldMs}ms - letting the next one run.`);
                         resolve();
                     }, maxHoldMs);
                 });

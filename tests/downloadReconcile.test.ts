@@ -118,7 +118,7 @@ describe("reconcileDownloadsWithDisk", () => {
 
     it("is a no-op, and quiet, when everything already matches", async () => {
         await addDownloadedSong(db, "1");
-        const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+        const log = vi.spyOn(console, "info").mockImplementation(() => undefined);
 
         expect(await reconcileDownloadsWithDisk(db, async () => ["hash1.mp3"], fileName)).toEqual({ record: [], forget: [] });
         expect(log).not.toHaveBeenCalled();

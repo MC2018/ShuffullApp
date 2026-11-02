@@ -45,7 +45,8 @@ module.exports = defineConfig([{
     ),
 
     rules: {
-        "no-console": "warn",
+        // Log through `log` from @/app/tools/log, which tags each line so the device log can be grepped by area.
+        "no-console": "error",
         "eqeqeq": "off",
         "curly": "error",
         "semi": ["error", "always"],
@@ -74,5 +75,12 @@ module.exports = defineConfig([{
     files: ["app/tools/dialog.ts"],
     rules: {
         "no-restricted-imports": "off",
+    },
+}, {
+    // The one place allowed to call console: the logger every other module writes through. Tests may too, since
+    // they check what reached it.
+    files: ["app/tools/log.ts", "tests/**"],
+    rules: {
+        "no-console": "off",
     },
 }]);

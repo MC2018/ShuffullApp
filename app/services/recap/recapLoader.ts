@@ -4,6 +4,7 @@ import type { ApiClient } from "../api/ApiClient";
 import { statusOfFailure } from "../api/errors";
 import { Recap, RecapSchema } from "../api/models";
 import { recapCacheKey } from "../../tools/recap";
+import { log } from "../../tools/log";
 
 export interface SavedRecap {
     recap: Recap;
@@ -48,7 +49,7 @@ async function saveRecap(userId: string, year: number, saved: SavedRecap): Promi
         await AsyncStorage.setItem(recapCacheKey(userId, year), JSON.stringify(saved));
     } catch (error) {
         // Only the offline copy is lost; the recap on screen is fine.
-        console.log("[Recap] Couldn't save the recap for offline use:", error);
+        log.warn("Recap", "Couldn't save the recap for offline use:", error);
     }
 }
 

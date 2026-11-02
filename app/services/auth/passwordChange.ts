@@ -3,6 +3,7 @@ import { ApiClient } from "../api/ApiClient";
 import { ApiStatusFailureError, describeAuthFailure, isUnreachableStatus, statusOfFailure } from "../api/errors";
 import { AuthenticateResponse } from "../api/models";
 import { useAuthStore } from "./authStore";
+import { log } from "../../tools/log";
 
 // The parts of a password change that need no native module, so tests can run them: checking the form, building the
 // request, explaining a failure, and keeping a stale 401 from logging this device out. auth.ts wires them to the
@@ -96,7 +97,7 @@ export async function logoutUnlessReplaced(client: ApiClient, logout: () => Prom
     await credentialChange?.catch(() => undefined);
 
     if (useAuthStore.getState().apiClient !== client) {
-        console.log("[auth] Ignoring a 401 on a replaced session's token.");
+        log.info("auth", "Ignoring a 401 on a replaced session's token.");
         return;
     }
 

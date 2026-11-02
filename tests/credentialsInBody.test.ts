@@ -13,13 +13,15 @@ describe("ApiClient: credentials stay out of URLs and logs", () => {
 
     const okSession = { user: { userId: "u1", username: "a", version: new Date().toISOString() }, token: "t", expiration: new Date().toISOString() };
 
-    // Everything console.log was handed, serialised the way a log would render an object (AxiosError.toJSON
-    // includes the request config).
+    // Everything the console was handed, at any level, serialised the way a log would render an object
+    // (AxiosError.toJSON includes the request config).
     function captureLogs() {
         const logged: string[] = [];
-        vi.spyOn(console, "log").mockImplementation((...args: unknown[]) => {
-            logged.push(args.map(arg => typeof arg === "string" ? arg : JSON.stringify(arg) ?? String(arg)).join(" "));
-        });
+        for (const level of ["debug", "log", "info", "warn", "error"] as const) {
+            vi.spyOn(console, level).mockImplementation((...args: unknown[]) => {
+                logged.push(args.map(arg => typeof arg === "string" ? arg : JSON.stringify(arg) ?? String(arg)).join(" "));
+            });
+        }
         return logged;
     }
 

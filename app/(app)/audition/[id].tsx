@@ -21,6 +21,7 @@ import { useTheme } from "@/app/theme";
 import { LikeStatus } from "@/app/enums";
 import { AuditionProgress, isAuditionComplete } from "@/app/tools/audition";
 import { AuditionSession, AuditionSummary } from "@/app/tools/auditionSession";
+import { log } from "@/app/tools/log";
 
 // Audition mode (ShuffullApp#125): flip through a mix's unheard songs. Flick up for the next song, down for the one
 // before; in the middle band, swipe right to Like or left to Dislike, and either moves on. A tap plays or pauses.
@@ -65,7 +66,7 @@ export default function AuditionScreen() {
                 setStartFailed(session == undefined);
             }
         })().catch((e) => {
-            console.warn("[audition] could not start", e);
+            log.warn("audition", "could not start", e);
             if (!closed) {
                 setStartFailed(true);
             }

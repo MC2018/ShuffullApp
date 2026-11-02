@@ -1,5 +1,6 @@
 import { AppState, AppStateStatus, Platform } from "react-native";
 import BackgroundService from "react-native-background-actions";
+import { log } from "@/app/tools/log";
 
 /**
  * The one owner of the Android foreground service.
@@ -76,7 +77,7 @@ class ForegroundService {
     }
 
     private enqueue(step: () => Promise<void>) {
-        this.chain = this.chain.then(step).catch((e) => console.warn("[foreground-service]", e));
+        this.chain = this.chain.then(step).catch((e) => log.warn("foreground-service", "a queued step failed", e));
     }
 
     private current(): HoldNotification | undefined {
@@ -123,7 +124,7 @@ class ForegroundService {
         } catch (e) {
             // Android 12+ refuses a foreground service started from the background; the native side already
             // stopped itself. Nothing to retry — the next foreground re-assert will try again.
-            console.warn("[foreground-service] could not start; background work pauses until the app is opened", e);
+            log.warn("foreground-service", "could not start; background work pauses until the app is opened", e);
         }
     }
 

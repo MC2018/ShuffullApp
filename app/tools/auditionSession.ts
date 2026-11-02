@@ -1,5 +1,6 @@
 import { LikeStatus } from "@/app/enums";
 import type { ListenEndReason } from "@/app/services/db/models";
+import { log } from "./log";
 
 // Audition mode (ShuffullApp#125): a flip-through deck over an audition mix's unheard songs. This module is the
 // whole of its logic - the heard rule, the two laps, the verdicts and what moves the deck - with the player and
@@ -392,7 +393,7 @@ export class AuditionSession {
             // this way only ever leaves a song unheard, which replays it; it never makes one purgeable.
             progress.stamped = false;
             progress.heard = false;
-            console.warn(`[audition] could not mark ${songId} heard:`, error);
+            log.warn("audition", `could not mark ${songId} heard:`, error);
         });
     }
 

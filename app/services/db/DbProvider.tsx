@@ -6,6 +6,7 @@ import migrations from "./drizzle/migrations";
 import { getDb, resetDb } from "./database";
 import { prepareDatabase } from "./recovery";
 import { MediaManager } from "../media-manager";
+import { log } from "../../tools/log";
 
 const DbContext = createContext<ExpoSQLiteDatabase | null>(null);
 
@@ -34,7 +35,7 @@ export const DbProvider = ({ children }: DbProviderProps) => {
                 // across inside the file (recovery.ts). The rest is a cache of the server and comes back on sync.
                 await prepareDatabase(getDb(), (db) => migrate(db, migrations), resetDb);
             } catch (fatal) {
-                console.error("Database unavailable.", fatal);
+                log.error("db", "Database unavailable.", fatal);
                 if (!cancelled) {
                     setFailure(String(fatal));
                 }
@@ -44,7 +45,7 @@ export const DbProvider = ({ children }: DbProviderProps) => {
             if (!cancelled) {
                 setReady(true);
             }
-            MediaManager.setup(getDb()).catch((e) => console.error("MediaManager setup failed.", e));
+            MediaManager.setup(getDb()).catch((e) => log.error("player", "MediaManager setup failed.", e));
         })();
 
         return () => {

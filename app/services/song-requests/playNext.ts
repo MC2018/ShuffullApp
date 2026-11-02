@@ -11,6 +11,7 @@ import { createSerialLock } from "../../tools/serialLock";
 import { showAlert } from "../../tools/dialog";
 import { combineMessages, decidePlayNext, needsRequestStatus, resolveIntent } from "../../tools/playNext";
 import { currentSongRequests, refreshSongRequests } from "./useSongRequests";
+import { log } from "../../tools/log";
 
 // "Request & play next" (ShuffullApp#108). The tap writes a play_next_intents row before anything else. After every
 // sync, reconcilePlayNext reads the user's request list (the same one the requests screen shows) while an intent is
@@ -57,7 +58,7 @@ export function startPlayNext(db: GenericDb, api: ApiClient, userId: string): ()
     const unsubscribe = useActiveSong.subscribe((state, previous) => {
         if (state.songId != null && state.songId !== previous.songId
             && usePlayNext.getState().intents.some(i => i.songId === state.songId)) {
-            void lock.run(() => clearPlayed(s, state.songId!)).catch(e => console.warn("[play-next] clearing a played intent failed", e));
+            void lock.run(() => clearPlayed(s, state.songId!)).catch(e => log.warn("play-next", "clearing a played intent failed", e));
         }
     });
     void reconcilePlayNext({ readRequests: false });
@@ -93,7 +94,7 @@ export function reconcilePlayNext({ readRequests }: { readRequests: boolean }): 
     if (s == null) {
         return Promise.resolve();
     }
-    return lock.run(() => reconcile(s, readRequests)).catch(e => console.warn("[play-next] reconcile failed", e));
+    return lock.run(() => reconcile(s, readRequests)).catch(e => log.warn("play-next", "reconcile failed", e));
 }
 
 async function reconcile(s: Session, readRequests: boolean): Promise<void> {
