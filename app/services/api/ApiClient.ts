@@ -205,7 +205,10 @@ export class ApiClient {
      * A call that gets no answer rejects with the AxiosError, its credentials already stripped (redactCredentials).
      * Either way the error is logged and rethrown; statusOfFailure turns it into the status the outbox acts on.
      */
-    private async request<T = void>(method: "get" | "post" | "put" | "delete", endpoint: string, options: RequestOptions<T> = {}): Promise<T> {
+    private request<T>(method: HttpMethod, endpoint: string, options: RequestOptions & { schema: ResponseSchema<T> }): Promise<T>;
+    // Without a schema the answer is void, so a method that declares a return value can't skip the parse.
+    private request(method: HttpMethod, endpoint: string, options?: RequestOptions & { schema?: undefined }): Promise<void>;
+    private async request<T>(method: HttpMethod, endpoint: string, options: RequestOptions & { schema?: ResponseSchema<T> } = {}): Promise<T | void> {
         const { body, params, timeout, schema, note } = options;
         const label = note ? `${endpoint} (${note})` : endpoint;
         console.log(`[API] Calling endpoint: ${label}`);
@@ -225,7 +228,7 @@ export class ApiClient {
             }
 
             console.log(`[API] Endpoint ${label} succeeded`);
-            return schema ? schema.parse(response.data) : undefined as T;
+            return schema?.parse(response.data);
         } catch (error) {
             console.log(`[API] Endpoint ${label} failed with error:`, error);
             throw error;
@@ -233,15 +236,20 @@ export class ApiClient {
     }
 }
 
-interface RequestOptions<T> {
+type HttpMethod = "get" | "post" | "put" | "delete";
+
+/** Parses an answer: a zod schema, or `{ parse }` to reshape it. */
+interface ResponseSchema<T> {
+    parse(data: unknown): T;
+}
+
+interface RequestOptions {
     /** Sent as the JSON body. Leave out for a call without one. */
     body?: unknown;
     /** Query string parameters. Never credentials: URLs end up in proxy logs. */
     params?: Record<string, unknown>;
     /** Defaults to DEFAULT_TIMEOUT_MS; see the timeouts at the top for which calls need more. */
     timeout?: number;
-    /** Parses the answer; a zod schema, or `{ parse }` to reshape it. Leave out when the answer isn't read. */
-    schema?: { parse(data: unknown): T };
     /** Added to the log line, to tell calls on one endpoint apart. */
     note?: string;
 }
