@@ -181,7 +181,8 @@ function isHttpUrl(value) {
  * `onProgress(received, total)` fires as bytes arrive; total is 0 when the server sends no Content-Length.
  * `signal` aborts the fetch, which fails the download like any other error.
  * Resolves `{ ok: true, bytes }` or `{ ok: false, error }` - never throws, so one bad song can't take down the IPC
- * call.
+ * call. A failure also says `status` when the server answered with an error, and `hashMismatch` when the bytes
+ * didn't match the name, so the renderer can tell a song the server no longer has from one worth retrying.
  */
 async function downloadMedia({ root, fetchImpl, host, kind, fileName, verify, onProgress, signal }) {
     const finalPath = mediaFilePath(root, kind, fileName);
@@ -200,7 +201,7 @@ async function downloadMedia({ root, fetchImpl, host, kind, fileName, verify, on
         const url = new URL(`${kind}/${fileName}`, host.endsWith("/") ? host : `${host}/`).toString();
         const response = await fetchImpl(url, signal ? { signal } : undefined);
         if (!response.ok || response.body == null) {
-            return { ok: false, error: `HTTP ${response.status} for ${kind}/${fileName}` };
+            return { ok: false, error: `HTTP ${response.status} for ${kind}/${fileName}`, status: response.status };
         }
 
         const total = Number(response.headers.get("content-length")) || 0;
@@ -217,7 +218,7 @@ async function downloadMedia({ root, fetchImpl, host, kind, fileName, verify, on
         await pipeline(Readable.fromWeb(response.body), meter, fs.createWriteStream(tempPath));
 
         if (verify && !hashMatchesFileName(hash.digest("hex"), fileName)) {
-            return { ok: false, error: `integrity check failed for ${kind}/${fileName}` };
+            return { ok: false, error: `integrity check failed for ${kind}/${fileName}`, hashMismatch: true };
         }
 
         await fsp.rename(tempPath, finalPath);

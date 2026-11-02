@@ -11,8 +11,11 @@ import { MediaKind } from "../tools/desktopMedia";
 export type ShortcutAction = "like" | "love" | "dislike" | "keep" | "neutral";
 
 export interface DesktopMediaStore {
-    /** Fetches `<host>/<kind>/<fileName>` into the store (songs hash-checked by main). Reports failure; doesn't reject. */
-    download: (host: string, kind: MediaKind, fileName: string) => Promise<{ ok: boolean; error?: string }>;
+    /**
+     * Fetches `<host>/<kind>/<fileName>` into the store (songs hash-checked by main). Reports failure; doesn't reject.
+     * A failure carries `status` for an HTTP error and `hashMismatch` for a song whose bytes didn't match its name.
+     */
+    download: (host: string, kind: MediaKind, fileName: string) => Promise<{ ok: boolean; error?: string; status?: number; hashMismatch?: boolean }>;
     exists: (kind: MediaKind, fileName: string) => Promise<boolean>;
     /** The file names stored under `kind`. Absent in a desktop shell built before ShuffullApp#56. */
     list?: (kind: MediaKind) => Promise<string[]>;

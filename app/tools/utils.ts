@@ -33,4 +33,3 @@ export async function verifyFileIntegrity(uri: string) {
     return newHash != undefined && newHash.startsWith(originalHash);
 }
 
-export const sleep = (time: number) => new Promise((resolve) => setTimeout(() => resolve(null), time));

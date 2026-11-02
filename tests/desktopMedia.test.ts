@@ -117,7 +117,7 @@ describe("downloadMedia", () => {
     it("leaves nothing behind when the bytes don't match the name", async () => {
         const root = tempRoot();
         const result = await media.downloadMedia({ root, fetchImpl: fakeFetch(200, body), host: "https://example.test", kind: "music", fileName: `${HASH}.mp3`, verify: true });
-        expect(result.ok).toBe(false);
+        expect(result).toEqual({ ok: false, error: `integrity check failed for music/${HASH}.mp3`, hashMismatch: true });
         expect(existsSync(path.join(root, "music", `${HASH}.mp3`))).toBe(false);
         expect(readdirSync(path.join(root, "temp"))).toEqual([]);
     });
@@ -125,7 +125,7 @@ describe("downloadMedia", () => {
     it("fails on an HTTP error instead of storing the error page", async () => {
         const root = tempRoot();
         const result = await media.downloadMedia({ root, fetchImpl: fakeFetch(404, body), host: "https://example.test", kind: "albumart", fileName: `${HASH}.jpg`, verify: false });
-        expect(result).toEqual({ ok: false, error: `HTTP 404 for albumart/${HASH}.jpg` });
+        expect(result).toEqual({ ok: false, error: `HTTP 404 for albumart/${HASH}.jpg`, status: 404 });
         expect(existsSync(path.join(root, "albumart", `${HASH}.jpg`))).toBe(false);
     });
 
@@ -179,7 +179,7 @@ describe("prefetch store", () => {
         const root = tempRoot();
         const store = media.createPrefetchStore({ root, fetchImpl: serve(body) });
 
-        expect(await store.download("https://example.test", "music", `${HASH}.mp3`)).toEqual({ ok: false, error: `integrity check failed for music/${HASH}.mp3` });
+        expect(await store.download("https://example.test", "music", `${HASH}.mp3`)).toEqual({ ok: false, error: `integrity check failed for music/${HASH}.mp3`, hashMismatch: true });
         expect(await store.exists("music", `${HASH}.mp3`)).toBe(false);
 
         expect(await store.download("https://example.test", "music", goodName)).toEqual({ ok: true, bytes: body.length });
