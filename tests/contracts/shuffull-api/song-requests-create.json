@@ -1,0 +1,16 @@
+{
+  "songRequestId": "request-3",
+  "externalSongId": "9bZkp7q19f0",
+  "title": "Gangnam Style",
+  "artists": [
+    "PSY"
+  ],
+  "durationSeconds": 252,
+  "thumbnailUrl": null,
+  "status": 0,
+  "failureReason": null,
+  "songId": null,
+  "targetPlaylistName": "Requests \u00B7 week of 2026-09-28",
+  "createdAt": "2026-10-01T12:34:56.123456Z",
+  "updatedAt": "2026-10-01T12:34:56.123456Z"
+}

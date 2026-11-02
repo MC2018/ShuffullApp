@@ -1,0 +1,24 @@
+[
+  {
+    "songRequestId": "request-3",
+    "userId": "user-1",
+    "externalSongId": "9bZkp7q19f0",
+    "title": "Gangnam Style",
+    "artists": [
+      "PSY"
+    ],
+    "durationSeconds": 252,
+    "thumbnailUrl": "https://i.ytimg.com/vi/9bZkp7q19f0/hqdefault.jpg",
+    "targetPlaylistName": "Requests \u00B7 week of 2026-09-28"
+  },
+  {
+    "songRequestId": "request-4",
+    "userId": "user-1",
+    "externalSongId": "kJQP7kiw5Fk",
+    "title": "Untitled",
+    "artists": [],
+    "durationSeconds": null,
+    "thumbnailUrl": null,
+    "targetPlaylistName": "Requests \u00B7 week of 2026-09-28"
+  }
+]

@@ -1,0 +1,32 @@
+[
+  {
+    "songRequestId": "request-2",
+    "externalSongId": "9bZkp7q19f0",
+    "title": "Gangnam Style",
+    "artists": [],
+    "durationSeconds": null,
+    "thumbnailUrl": null,
+    "status": 4,
+    "failureReason": "Video unavailable",
+    "songId": null,
+    "targetPlaylistName": "Requests \u00B7 week of 2026-09-28",
+    "createdAt": "2026-10-02T08:00:00.000001Z",
+    "updatedAt": "2026-10-02T08:00:00.000001Z"
+  },
+  {
+    "songRequestId": "request-1",
+    "externalSongId": "dQw4w9WgXcQ",
+    "title": "Everybody Wants You",
+    "artists": [
+      "Billy Squier"
+    ],
+    "durationSeconds": 230,
+    "thumbnailUrl": "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg",
+    "status": 5,
+    "failureReason": null,
+    "songId": "song-full",
+    "targetPlaylistName": "Requests \u00B7 week of 2026-09-28",
+    "createdAt": "2026-10-01T12:34:56.123456Z",
+    "updatedAt": "2026-10-01T12:34:56.123456Z"
+  }
+]
