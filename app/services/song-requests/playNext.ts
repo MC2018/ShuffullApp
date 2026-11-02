@@ -205,7 +205,7 @@ export async function playNowOrNext(
     if (!onDevice) {
         const error = await savePlayNext(result, known);
         if (error != null) {
-            console.warn("[play-next] couldn't save the intent for a play-now", error);
+            log.warn("play-next", "couldn't save the intent for a play-now", error);
         }
         queued = error == null;
     }
