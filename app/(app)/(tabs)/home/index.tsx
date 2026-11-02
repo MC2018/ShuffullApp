@@ -18,6 +18,7 @@ import OfflineBanner from "@/app/components/connectivity/molecules/OfflineBanner
 import { useTheme } from "@/app/theme";
 import { useRecapButton } from "@/app/services/recap/useRecapButton";
 import { useSongRequestsEnabled } from "@/app/services/song-requests/capability";
+import { log } from "@/app/tools/log";
 
 const defaultArt: ImageURISource = require("@/assets/images/default-album-art.jpg");
 type ArtSource = ImageURISource | { uri: string };
@@ -35,7 +36,8 @@ export default function HomeScreen() {
 
     useEffect(() => {
         let cancelled = false;
-        (async () => {
+        // Never rejects: everything in it that can fail is caught inside.
+        void (async () => {
             if (!songId) {
                 setDetails(null);
                 return;
@@ -65,7 +67,7 @@ export default function HomeScreen() {
                 if (!cancelled) {
                     setJams(all);
                 }
-            })();
+            })().catch((e) => log.warn("home", "Loading genre jams failed.", e));
             return () => {
                 cancelled = true;
             };

@@ -3,6 +3,7 @@ import { useDb } from "@/app/services/db/DbProvider";
 import DbQueries from "@/app/services/db/queries";
 import { useDownloadStatus } from "@/app/services/downloader/downloadStatus";
 import { DownloadStatus } from "@/app/tools/downloadStatus";
+import { log } from "@/app/tools/log";
 
 // The store only carries the in-flight songId (the Downloader shouldn't be doing display joins). Screens
 // want the title next to the progress, so resolve it here, once per song change rather than per progress tick.
@@ -23,7 +24,7 @@ export function useDownloadStatusView(): { status: DownloadStatus; currentName: 
             if (!cancelled) {
                 setCurrentName(song?.name);
             }
-        })();
+        })().catch((e) => log.warn("downloader", "Loading the downloading song's name failed.", e));
         return () => {
             cancelled = true;
         };

@@ -1,3 +1,4 @@
+import { ExtractTablesWithRelations } from "drizzle-orm";
 import { BaseSQLiteDatabase, SQLiteTransaction } from "drizzle-orm/sqlite-core";
 
 /**
@@ -17,10 +18,11 @@ import { BaseSQLiteDatabase, SQLiteTransaction } from "drizzle-orm/sqlite-core";
  * be called synchronously), so a sync-only type would have excluded the browser outright. Every query here
  * already awaits its result, so admitting async costs nothing.
  *
- * The remaining type arguments are deliberately loose — pinning TRunResult or the schema would drag driver
- * specifics straight back in, and no query depends on either.
+ * The remaining type arguments are deliberately loose — pinning TRunResult to a driver's result type would drag
+ * driver specifics straight back in, so it is `unknown`, and the schema is Drizzle's default (none), since no
+ * driver here is given one. No query depends on either.
  */
 export type GenericDb =
-    | BaseSQLiteDatabase<"sync" | "async", any, any, any>
+    | BaseSQLiteDatabase<"sync" | "async", unknown>
     // Transactions are handed to the same query functions, so they must satisfy the same type.
-    | SQLiteTransaction<"sync" | "async", any, any, any>;
+    | SQLiteTransaction<"sync" | "async", unknown, Record<string, never>, ExtractTablesWithRelations<Record<string, never>>>;

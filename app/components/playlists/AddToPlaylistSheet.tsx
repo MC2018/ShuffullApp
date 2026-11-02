@@ -9,6 +9,7 @@ import { Playlist } from "@/app/services/db/models";
 import { Button, ListRow, SectionHeader, Text, TextField } from "@/app/components/ui";
 import { useTheme } from "@/app/theme";
 import { showAlert } from "@/app/tools/dialog";
+import { log } from "@/app/tools/log";
 
 interface Props {
     songId: string;
@@ -47,7 +48,7 @@ export default function AddToPlaylistSheet({ songId, visible, onClose }: Props) 
 
     useEffect(() => {
         if (visible) {
-            load();
+            load().catch((e) => log.warn("playlists", "Loading playlists failed.", e));
         }
     }, [visible, load]);
 

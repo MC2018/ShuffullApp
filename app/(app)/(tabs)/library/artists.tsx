@@ -8,6 +8,7 @@ import { useDb } from "@/app/services/db/DbProvider";
 import PlayerBar, { totalPlayerBarHeight } from "@/app/components/music-control/organisms/PlayerBar";
 import { ListRow, Screen, Text, TextField } from "@/app/components/ui";
 import { useTheme } from "@/app/theme";
+import { log } from "@/app/tools/log";
 
 export default function ArtistsScreen() {
     const theme = useTheme();
@@ -23,7 +24,7 @@ export default function ArtistsScreen() {
                 if (!cancelled) {
                     setArtists(all);
                 }
-            })();
+            })().catch((e) => log.warn("library", "Loading artists failed.", e));
             return () => {
                 cancelled = true;
             };

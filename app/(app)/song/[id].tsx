@@ -82,7 +82,8 @@ export default function SongScreen() {
             return;
         }
         let cancelled = false;
-        (async () => {
+        // Never rejects: everything in it that can fail is caught inside.
+        void (async () => {
             try {
                 const fetched = await DbQueries.fetchSongDetails(db, songId);
                 const songTags = await DbQueries.getTagsFromSong(db, songId);

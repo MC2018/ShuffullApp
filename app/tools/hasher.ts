@@ -1,4 +1,4 @@
-// @ts-ignore
+// @ts-expect-error -- the package ships no type declarations.
 import argon2 from "@sphereon/react-native-argon2";
 import * as Crypto from "expo-crypto";
 

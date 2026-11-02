@@ -1002,7 +1002,7 @@ export async function clearSong() {
     // Running TrackPlayer.reset() causes a 300ms delay,
     // Removing the songs individually is more ideal
     const trackPlayerQueue = await TrackPlayer.getQueue();
-    TrackPlayer.remove(generateRange(trackPlayerQueue.length));
+    TrackPlayer.remove(generateRange(trackPlayerQueue.length)).catch((e) => log.warn("player", "Removing tracks from the player failed.", e));
 }
 
 export function clearQueue() {
@@ -1316,13 +1316,14 @@ async function startNewSong(songId: string, recentlyPlayedSong?: RecentlyPlayedS
     useActiveSong.getState().setSongId(songId);
     useAuditionFinished.getState().setPlaylistId(undefined);
 
-    if (recentlyPlayedSongFound) {
-        const timestampSeconds = recentlyPlayedSong?.timestampSeconds ?? 0;
+    // Found implies recentlyPlayedSong is set; the second check only tells the compiler so.
+    if (recentlyPlayedSongFound && recentlyPlayedSong) {
+        const timestampSeconds = recentlyPlayedSong.timestampSeconds ?? 0;
         await TrackPlayer.seekTo(timestampSeconds);
         // markCurrent, not the progress writer: every marker was just cleared above, and only a genuine
         // start/resume may set one. The progress writer deliberately cannot, so a late tick from the song that
         // just finished can't resurrect it as "current" and get itself played twice.
-        await DbQueries.markRecentlyPlayedSongCurrent(db, recentlyPlayedSong?.recentlyPlayedSongId!, timestampSeconds);
+        await DbQueries.markRecentlyPlayedSongCurrent(db, recentlyPlayedSong.recentlyPlayedSongId, timestampSeconds);
     } else {
         await DbQueries.addRecentlyPlayedSong(db, {
             songId: songId,

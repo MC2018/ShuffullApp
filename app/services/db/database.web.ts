@@ -36,11 +36,11 @@ let db: GenericDb | null = null;
  * It is marked "advanced use only" rather than private; the alternative is aliasing every column, which the
  * Drizzle-generated SQL does not do.
  */
-async function queryRows(db: SQLite.SQLiteDatabase, source: string, params: any[]): Promise<any[][]> {
+async function queryRows(db: SQLite.SQLiteDatabase, source: string, params: SQLite.SQLiteBindValue[]): Promise<unknown[][]> {
     const statement = await db.prepareAsync(source);
     try {
         const result = await statement.executeForRawResultAsync(params);
-        return (await result.getAllAsync()) as any[][];
+        return (await result.getAllAsync()) as unknown[][];
     } finally {
         await statement.finalizeAsync();
     }
@@ -51,15 +51,17 @@ async function openAsync(): Promise<GenericDb> {
 
     return drizzle(
         async (sql, params, method) => {
-            if (!native) throw new Error("Database is not open.");
+            if (!native) {
+                throw new Error("Database is not open.");
+            }
 
             try {
                 if (method === "run") {
-                    await native.runAsync(sql, params as any[]);
+                    await native.runAsync(sql, params as SQLite.SQLiteBindValue[]);
                     return { rows: [] };
                 }
 
-                const rows = await queryRows(native, sql, params as any[]);
+                const rows = await queryRows(native, sql, params as SQLite.SQLiteBindValue[]);
                 // "get" wants a single row, not a list of them.
                 return { rows: method === "get" ? (rows[0] ?? []) : rows };
             } catch (e) {
@@ -77,12 +79,14 @@ async function openAsync(): Promise<GenericDb> {
             // Batch driver: sqlite-proxy issues these together; expo-sqlite has no batch API, so run in order.
             const results = [];
             for (const q of queries) {
-                if (!native) throw new Error("Database is not open.");
+                if (!native) {
+                    throw new Error("Database is not open.");
+                }
                 if (q.method === "run") {
-                    await native.runAsync(q.sql, q.params as any[]);
+                    await native.runAsync(q.sql, q.params as SQLite.SQLiteBindValue[]);
                     results.push({ rows: [] });
                 } else {
-                    const rows = await queryRows(native, q.sql, q.params as any[]);
+                    const rows = await queryRows(native, q.sql, q.params as SQLite.SQLiteBindValue[]);
                     results.push({ rows: q.method === "get" ? (rows[0] ?? []) : rows });
                 }
             }
@@ -96,7 +100,9 @@ async function openAsync(): Promise<GenericDb> {
  * provider before anything queries it.
  */
 export async function initDbAsync(): Promise<GenericDb> {
-    if (!db) db = await openAsync();
+    if (!db) {
+        db = await openAsync();
+    }
     return db;
 }
 

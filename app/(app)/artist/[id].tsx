@@ -12,6 +12,7 @@ import { SongDetails } from "@/app/services/db/types";
 import { MediaManager } from "@/app/services/media-manager";
 import { Button, IconButton, Screen, Text, TextField } from "@/app/components/ui";
 import { useTheme } from "@/app/theme";
+import { log } from "@/app/tools/log";
 
 export default function ArtistScreen() {
     const theme = useTheme();
@@ -29,7 +30,7 @@ export default function ArtistScreen() {
         (async () => {
             setArtist((await DbQueries.getArtist(db, artistId)) ?? null);
             setSongs(await DbQueries.getSongDetailsByArtist(db, artistId));
-        })();
+        })().catch((e) => log.warn("artist", "Loading the artist failed.", e));
     }, [artistId]);
 
     const q = query.trim().toLowerCase();

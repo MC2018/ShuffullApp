@@ -14,6 +14,7 @@ import { useDownloadStatus } from "@/app/services/downloader/downloadStatus";
 import { IconButton, ListRow, Screen, SectionHeader, Text, TextField } from "@/app/components/ui";
 import { useTheme } from "@/app/theme";
 import { showAlert } from "@/app/tools/dialog";
+import { log } from "@/app/tools/log";
 
 // The queue can be an entire playlist; show its head and a "+N more" line rather than a second full list.
 const QUEUE_PREVIEW_LIMIT = 8;
@@ -41,17 +42,17 @@ export default function LocalDownloadsScreen() {
     // again once its rows have been matched to the files actually on disk (ShuffullApp#56)...
     useFocusEffect(
         useCallback(() => {
-            loadDownloaded();
-            loadQueue();
-            downloader?.reconcileWithDisk().then(loadDownloaded);
+            loadDownloaded().catch((e) => log.warn("downloader", "Loading downloaded songs failed.", e));
+            loadQueue().catch((e) => log.warn("downloader", "Loading the download queue failed.", e));
+            downloader?.reconcileWithDisk().then(loadDownloaded).catch((e) => log.warn("downloader", "Matching downloads to the files on disk failed.", e));
         }, [downloader, loadDownloaded, loadQueue]),
     );
     // ...the saved list again whenever a song finishes, and the queue whenever its size or head changes.
     useEffect(() => {
-        loadDownloaded();
+        loadDownloaded().catch((e) => log.warn("downloader", "Loading downloaded songs failed.", e));
     }, [status.completedCount, loadDownloaded]);
     useEffect(() => {
-        loadQueue();
+        loadQueue().catch((e) => log.warn("downloader", "Loading the download queue failed.", e));
     }, [status.queuedCount, status.current?.songId, loadQueue]);
 
     const filteredSongs = useMemo(() => {

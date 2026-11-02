@@ -34,6 +34,6 @@ const DbQueries = {
     ...tag,
     ...user,
     ...userSong
-}
+};
 
 export default DbQueries;

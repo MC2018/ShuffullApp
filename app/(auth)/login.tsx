@@ -10,6 +10,7 @@ import { describeAuthFailure } from "@/app/services/api/errors";
 import { Button, Screen, Text, TextField } from "@/app/components/ui";
 import AppVersion from "@/app/components/common/AppVersion";
 import { useTheme } from "@/app/theme";
+import { log } from "@/app/tools/log";
 
 // Canonical Shuffull server; pre-filled on a fresh install so most users never touch the host field.
 // Still editable (self-hosters / local dev can point elsewhere); a saved value always wins.
@@ -31,7 +32,7 @@ export default function LoginScreen() {
         (async () => {
             const savedHostAddress = await AsyncStorage.getItem(STORAGE_KEYS.HOST_ADDRESS);
             setHostAddress(savedHostAddress ?? DEFAULT_HOST_ADDRESS);
-        })();
+        })().catch((e) => log.warn("auth", "Reading the saved host address failed.", e));
     }, []);
 
     if (status === "authenticated") {

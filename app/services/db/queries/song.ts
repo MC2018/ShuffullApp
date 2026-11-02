@@ -497,7 +497,7 @@ export async function getRandomDownloadedSongId(db: GenericDb): Promise<string |
         count: sql<number>`COUNT(*)`.as("count"),
     }).from(songTable)
         .innerJoin(downloadedSongTable, eq(songTable.songId, downloadedSongTable.songId))
-        )[0].count;
+    )[0].count;
     const randomSongIndex = Math.floor(songCount * Math.random() * 0.3);
     
     const song = await db
@@ -552,7 +552,7 @@ export async function fetchSongDetails(db: GenericDb, songId: string): Promise<S
         throw Error(errMsg);
     }
 
-    let result: SongDetails = {
+    const result: SongDetails = {
         song: song[0],
         artists: []
     };

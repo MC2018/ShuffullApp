@@ -62,7 +62,8 @@ export default function NowPlayingScreen() {
 
     useEffect(() => {
         let cancelled = false;
-        (async () => {
+        // Never rejects: everything in it that can fail is caught inside.
+        void (async () => {
             if (!songId) {
                 setDetails(null);
                 return;

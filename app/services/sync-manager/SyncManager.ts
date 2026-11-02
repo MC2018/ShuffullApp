@@ -62,7 +62,7 @@ export class SyncManager {
         void this.sync();
     }
 
-    async dispose() {
+    dispose() {
         clearInterval(this.timerId);
     }
 

@@ -1,6 +1,7 @@
 import * as SQLite from "expo-sqlite";
 import { drizzle, ExpoSQLiteDatabase } from "drizzle-orm/expo-sqlite";
 import { MediaManager } from "../media-manager";
+import { log } from "@/app/tools/log";
 
 // The local SQLite database is a process-wide singleton: it is opened once on module load and shared
 // through DbProvider. Keeping it here (rather than inside a component) means the handle survives
@@ -18,7 +19,7 @@ export function getDb(): ExpoSQLiteDatabase {
 // callers must read it via getDb() rather than capturing the reference. The caller migrates the new
 // database, then sets up the MediaManager.
 export function resetDb(): ExpoSQLiteDatabase {
-    MediaManager.clear();
+    MediaManager.clear().catch((e) => log.warn("player", "Clearing the player failed.", e));
     expoDb.closeSync();
     SQLite.deleteDatabaseSync(dbName);
     expoDb = SQLite.openDatabaseSync(dbName);

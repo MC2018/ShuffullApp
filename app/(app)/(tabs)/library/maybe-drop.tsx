@@ -10,6 +10,7 @@ import PlayerBar, { totalPlayerBarHeight } from "@/app/components/music-control/
 import { ListRow, Screen, Text } from "@/app/components/ui";
 import { useTheme } from "@/app/theme";
 import { describeAgo, describeMaybeDropRule, describeQuickSkips } from "@/app/tools/listenStats";
+import { log } from "@/app/tools/log";
 
 // Library › Maybe drop this (ShuffullApp#115): songs the server flagged because you keep skipping them early. A list
 // to look at, nothing more: it changes no like, playlist or shuffle. Each row opens the song, where you can dislike it
@@ -36,7 +37,7 @@ export default function MaybeDropScreen() {
                     setSnapshot(synced);
                     setLoaded(true);
                 }
-            })();
+            })().catch((e) => log.warn("library", "Loading maybe-drop songs failed.", e));
             return () => {
                 cancelled = true;
             };

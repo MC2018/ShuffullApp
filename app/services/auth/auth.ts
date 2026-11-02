@@ -9,6 +9,7 @@ import { AuthenticateResponse } from "../api/models";
 import { MediaManager } from "../media-manager";
 import { useAuthStore } from "./authStore";
 import { sendPasswordChange } from "./passwordChange";
+import { log } from "@/app/tools/log";
 
 // Imperative auth service. All session transitions funnel through here and end by mutating the auth
 // store, which the route guards observe. Pulling this out of a React component (the old index.tsx /
@@ -22,7 +23,7 @@ export async function restoreSession(): Promise<void> {
     const localSessionData = await DbQueries.getActiveLocalSessionData(getDb());
 
     if (!localSessionData || !hostAddress) {
-        MediaManager.clear();
+        MediaManager.clear().catch((e) => log.warn("player", "Clearing the player failed.", e));
         useAuthStore.getState().clearSession();
         return;
     }
@@ -95,7 +96,7 @@ export async function logout(): Promise<void> {
         expiration: new Date(Date.now()),
     });
 
-    MediaManager.clear();
+    MediaManager.clear().catch((e) => log.warn("player", "Clearing the player failed.", e));
     await AsyncStorage.removeItem(STORAGE_KEYS.CURRENT_USER_ID);
     useAuthStore.getState().clearSession();
 }

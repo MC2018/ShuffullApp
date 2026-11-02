@@ -64,7 +64,7 @@ export function generateRange(x: number): number[] {
 }
 
 // `== null` is already true for undefined, so the second half of the old condition never fired.
-export function isAnyNullish(...args: any[]): boolean {
+export function isAnyNullish(...args: unknown[]): boolean {
     return args.some(arg => arg == null);
 }
 

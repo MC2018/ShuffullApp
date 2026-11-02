@@ -8,6 +8,7 @@ import { useApi } from "@/app/services/api/ApiProvider";
 import { useDb } from "@/app/services/db/DbProvider";
 import { useCurrentUser } from "@/app/services/auth/CurrentUserProvider";
 import DbQueries from "@/app/services/db/queries";
+import { log } from "@/app/tools/log";
 
 // Server caps a single retag-stale request at 200 and each item is an AI call, so a small batch keeps each
 // round quick and gives responsive progress. The screen loops rounds until nothing stale remains.
@@ -40,7 +41,7 @@ export default function CuratorScreen() {
             const user = await DbQueries.getUser(db, userId);
             setIsCurator(user?.isCurator ?? false);
             setCheckedRole(true);
-        })();
+        })().catch((e) => log.warn("curator", "Loading the user's role failed.", e));
     }, [db, userId]);
 
     const runUpgrade = useCallback(async () => {
