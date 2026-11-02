@@ -4,7 +4,7 @@ import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useShallow } from "zustand/react/shallow";
 import { AlbumArt, Button, Card, IconButton, Screen, SectionHeader, Text, TextField } from "@/app/components/ui";
-import SongRequestStatusList from "@/app/components/song-requests/SongRequestStatusList";
+import SongRequestStatusList, { PlayNextWithoutRequestList } from "@/app/components/song-requests/SongRequestStatusList";
 import { useTheme } from "@/app/theme";
 import { useApi } from "@/app/services/api/ApiProvider";
 import { useDb } from "@/app/services/db/DbProvider";
@@ -51,7 +51,8 @@ const PLAY_NEXT_NOTE = "Plays next once it arrives.";
 
 // Find a song the library doesn't have and request it (ShuffullApp#107). Reached from Home and now-playing, only when
 // the server offers song requests. Search waits for a pause in typing; each request is a direct call, so its outcome
-// shows at once and a failure can be retried by hand. The user's requests and their status sit below the results.
+// shows at once and a failure can be retried by hand. The user's requests and their status sit below the results, after
+// any play-next with no request row to show it (ShuffullApp#175).
 export default function SongRequestsScreen() {
     const theme = useTheme();
     const api = useApi();
@@ -230,6 +231,7 @@ export default function SongRequestsScreen() {
                     />
                     <SearchResults search={search} rows={rows} requests={requests.requests} onRetry={runSearch} onRequest={request} onPlay={playNow} onPlayNext={playNext} />
 
+                    <PlayNextWithoutRequestList view={requests} title="Playing next" />
                     <SectionHeader title="Your requests" />
                     <SongRequestStatusList view={requests} emptyText="Nothing requested yet. Search above to find a song." />
                 </ScrollView>

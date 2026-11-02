@@ -136,6 +136,33 @@ export function withPlayNextFirst(queue: readonly string[], songIds: readonly st
 }
 
 /**
+ * Whether a request's row shows this intent's "Plays next". By its request id once known; until then, by the song, so
+ * a tap whose create call hasn't answered still shows on the request it filed.
+ */
+export function isIntentForRequest(intent: PlayNextIntent, request: SongRequest): boolean {
+    return intent.songRequestId != null
+        ? intent.songRequestId === request.songRequestId
+        : intent.externalSongId === request.externalSongId;
+}
+
+/**
+ * The intents no row in `rows` shows (ShuffullApp#175), oldest first, so each still gets somewhere to be taken back. Mostly
+ * a song the user already had, which needed no request (Shuffull#117), but also one whose request the list no longer
+ * holds (it keeps the newest 50) or hides.
+ */
+export function intentsWithoutRequestRow(intents: readonly PlayNextIntent[], rows: readonly SongRequest[]): PlayNextIntent[] {
+    return intents.filter(intent => !rows.some(request => isIntentForRequest(intent, request)));
+}
+
+/** What a row of its own says under an intent's title: whether its song is queued, or what it still waits for. */
+export function describeIntentWaiting(intent: PlayNextIntent, queuedSongIds: readonly string[]): string {
+    if (intent.songId != null && queuedSongIds.includes(intent.songId)) {
+        return "Plays after the current song.";
+    }
+    return intent.songId != null ? "Plays once it reaches this device." : "Plays once its request is done and it reaches this device.";
+}
+
+/**
  * What "Up next" says: the first intent whose song is queued, since that one plays next, or else the oldest one still
  * waiting for its song. Null with no intent.
  */
