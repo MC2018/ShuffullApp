@@ -10,7 +10,24 @@
     "thumbnailUrl": "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg",
     "isExplicit": false,
     "inLibrary": true,
-    "alreadyRequested": false
+    "alreadyRequested": false,
+    "songId": "song-1",
+    "inUserLibrary": true
+  },
+  {
+    "externalSongId": "fJ9rUzIMcZQ",
+    "title": "Bohemian Rhapsody",
+    "artists": [
+      "Queen"
+    ],
+    "album": "A Night at the Opera",
+    "durationSeconds": 354,
+    "thumbnailUrl": null,
+    "isExplicit": false,
+    "inLibrary": true,
+    "alreadyRequested": false,
+    "songId": "song-2",
+    "inUserLibrary": false
   },
   {
     "externalSongId": "9bZkp7q19f0",
@@ -23,7 +40,9 @@
     "thumbnailUrl": null,
     "isExplicit": true,
     "inLibrary": false,
-    "alreadyRequested": true
+    "alreadyRequested": true,
+    "songId": null,
+    "inUserLibrary": false
   },
   {
     "externalSongId": "kJQP7kiw5Fk",
@@ -34,6 +53,8 @@
     "thumbnailUrl": null,
     "isExplicit": false,
     "inLibrary": false,
-    "alreadyRequested": false
+    "alreadyRequested": false,
+    "songId": null,
+    "inUserLibrary": false
   }
 ]

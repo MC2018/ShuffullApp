@@ -457,12 +457,13 @@ describe("API contract: song requests (ShuffullApp#107)", () => {
 
         expect([sent[0].method, sent[0].url, sent[0].params]).toEqual(["get", "/api/v1/song-requests/search", { q: "everybody", limit: 15 }]);
         expect(sent[0].timeout).toBeGreaterThan(10_000);
-        expect(results.map(r => [r.externalSongId, r.inLibrary, r.alreadyRequested, r.isExplicit])).toEqual([
-            ["dQw4w9WgXcQ", true, false, false],
-            ["9bZkp7q19f0", false, true, true],
-            ["kJQP7kiw5Fk", false, false, false],
+        expect(results.map(r => [r.externalSongId, r.inLibrary, r.alreadyRequested, r.isExplicit, r.songId, r.inUserLibrary])).toEqual([
+            ["dQw4w9WgXcQ", true, false, false, "song-1", true],
+            ["fJ9rUzIMcZQ", true, false, false, "song-2", false],
+            ["9bZkp7q19f0", false, true, true, null, false],
+            ["kJQP7kiw5Fk", false, false, false, null, false],
         ]);
-        expect(results[2]).toMatchObject({ artists: [], album: null, durationSeconds: null, thumbnailUrl: null });
+        expect(results[3]).toMatchObject({ artists: [], album: null, durationSeconds: null, thumbnailUrl: null });
     });
 
     it("GET /song-requests: every field read, the status and reason as the list shows them", async () => {

@@ -132,15 +132,25 @@ export function completedRequestFor(requests: readonly SongRequest[] | null, ext
         r.externalSongId === externalSongId && r.status === SongRequestStatus.Completed && r.songId != null);
 }
 
+/**
+ * The song a result plays without filing a request: one the user already has (Shuffull#117). Null means it has to be
+ * requested first. Requesting a song the user has would add it to this week's requests playlist again, and to their
+ * auditions.
+ */
+export function ownedSongIdFor(result: SongRequestSearchResult): string | null {
+    return result.inUserLibrary ? result.songId : null;
+}
+
 /** A request for this search result the producer is still working on, so asking for it again needs no new one. */
 export function openRequestFor(requests: readonly SongRequest[] | null, externalSongId: string): SongRequest | undefined {
     return requests?.find(r => r.externalSongId === externalSongId && isInFlightSongRequest(r.status));
 }
 
 /**
- * A search result as the user's requests now stand, so it follows the list below it: in the library once a request for
- * it completed, Requested while one is open (Failed included: the API refuses a second until it is cancelled), and
- * requestable again once every request for it was cancelled. A result no request mentions keeps what the search said.
+ * A search result as the user's requests now stand, so it follows the list below it: in the user's library once a
+ * request for it completed (completing links the song to them), Requested while one is open (Failed included: the API
+ * refuses a second until it is cancelled), and requestable again once every request for it was cancelled. A result no
+ * request mentions keeps what the search said.
  */
 export function resultWithRequests(result: SongRequestSearchResult, requests: readonly SongRequest[] | null): SongRequestSearchResult {
     const mine = requests?.filter(r => r.externalSongId === result.externalSongId) ?? [];
@@ -148,7 +158,8 @@ export function resultWithRequests(result: SongRequestSearchResult, requests: re
         return result;
     }
     if (mine.some(r => r.status === SongRequestStatus.Completed)) {
-        return { ...result, inLibrary: true, alreadyRequested: false };
+        const songId = completedRequestFor(mine, result.externalSongId)?.songId ?? result.songId;
+        return { ...result, inLibrary: true, alreadyRequested: false, inUserLibrary: true, songId };
     }
     const open = mine.some(r => isInFlightSongRequest(r.status) || r.status === SongRequestStatus.Failed);
     return { ...result, alreadyRequested: open };

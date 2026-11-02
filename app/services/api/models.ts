@@ -289,7 +289,9 @@ export const CapabilitiesSchema = z.object({
 export type Capabilities = z.infer<typeof CapabilitiesSchema>;
 
 // GET /api/v1/song-requests/search?q=&limit= -> songs the user can request (ShuffullApp#107). inLibrary: the server
-// already has it, so a request completes at once. alreadyRequested: the caller has an open request for it.
+// already has it, so a request completes at once. alreadyRequested: the caller has an open request for it. songId: the
+// library song, when inLibrary. inUserLibrary: the caller already has it, so it plays without a request (Shuffull#117).
+// A server older than that sends neither, and every library result is requested as before.
 export const SongRequestSearchResultSchema = z.object({
     externalSongId: z.string(),
     title: z.string(),
@@ -300,6 +302,8 @@ export const SongRequestSearchResultSchema = z.object({
     isExplicit: z.boolean(),
     inLibrary: z.boolean(),
     alreadyRequested: z.boolean(),
+    songId: z.string().nullable().default(null),
+    inUserLibrary: z.boolean().default(false),
 });
 export const SongRequestSearchResponseSchema = SongRequestSearchResultSchema.array();
 export type SongRequestSearchResult = z.infer<typeof SongRequestSearchResultSchema>;

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { AxiosError } from "axios";
 import { ApiStatusFailureError } from "@/app/services/api/errors";
-import { SongRequest, SongRequestSearchResult } from "@/app/services/api/models";
+import { SongRequest, SongRequestSearchResult, SongRequestSearchResultSchema } from "@/app/services/api/models";
 import { SongRequestStatus } from "@/app/enums";
 import {
     CAPABILITIES_REFRESH_MS,
@@ -13,6 +13,7 @@ import {
     isInFlightSongRequest,
     newlyCompletedRequests,
     nextCapabilityAnswer,
+    ownedSongIdFor,
     resultWithRequests,
     SEARCH_MAX_LENGTH,
     SONG_REQUEST_POLL_MS,
@@ -164,7 +165,7 @@ describe("polling and Completed", () => {
     it("a search result follows the user's requests: Requested while open, in the library once completed, requestable once cancelled", () => {
         const found: SongRequestSearchResult = {
             externalSongId: "source-a", title: "A song", artists: [], album: null, durationSeconds: null, thumbnailUrl: null,
-            isExplicit: false, inLibrary: false, alreadyRequested: false,
+            isExplicit: false, inLibrary: false, alreadyRequested: false, songId: null, inUserLibrary: false,
         };
         const badge = (requests: SongRequest[] | null, result = found) => {
             const r = resultWithRequests(result, requests);
@@ -179,6 +180,26 @@ describe("polling and Completed", () => {
         expect(badge([request("a", SongRequestStatus.Cancelled)], { ...found, alreadyRequested: true })).toEqual([false, false]);
         // A cancelled request doesn't hide one filed after it.
         expect(badge([request("a", SongRequestStatus.Pending), { ...request("a", SongRequestStatus.Cancelled), songRequestId: "old" }])).toEqual([false, true]);
+    });
+
+    // Shuffull#117: a song the user has plays by its id, with no request, which would add it to this week's requests
+    // playlist and their auditions again. One only the library has is requested, which links it to them.
+    it("a result the user has plays without a request; one only the library has, or from an older server, is requested", () => {
+        const found: SongRequestSearchResult = {
+            externalSongId: "source-a", title: "A song", artists: [], album: null, durationSeconds: null, thumbnailUrl: null,
+            isExplicit: false, inLibrary: true, alreadyRequested: false, songId: "song-1", inUserLibrary: true,
+        };
+        expect(ownedSongIdFor(found)).toBe("song-1");
+        expect(ownedSongIdFor({ ...found, inUserLibrary: false })).toBeNull();
+        expect(ownedSongIdFor({ ...found, songId: null })).toBeNull();
+        // An older server sends neither field: every library result is requested, as before.
+        const { songId: _, inUserLibrary: __, ...old } = found;
+        expect(ownedSongIdFor(SongRequestSearchResultSchema.parse(old))).toBeNull();
+
+        // Completing a request links the song to the user, so the result plays as theirs from then on.
+        const notYours = { ...found, inLibrary: false, songId: null, inUserLibrary: false };
+        expect(ownedSongIdFor(resultWithRequests(notYours, [request("a", SongRequestStatus.Completed)]))).toBe("song-a");
+        expect(ownedSongIdFor(resultWithRequests(notYours, [request("a", SongRequestStatus.Downloading)]))).toBeNull();
     });
 
     it("the first read syncs nothing: those requests completed before the screen opened", () => {
