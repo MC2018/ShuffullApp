@@ -15,8 +15,9 @@ import { PLAY_NEXT_WAIT_MS } from "@/app/tools/playNext";
 // sync, the queue it builds, the alert when a request ends badly, and the row going once its song plays. The media
 // manager, the alert and React Native are stubbed; everything else is the real code.
 
-const { queueNext, unqueue, showAlert } = vi.hoisted(() => ({
+const { queueNext, unqueue, playSpecificSong, showAlert } = vi.hoisted(() => ({
     queueNext: vi.fn((_songIds: string[]) => {}),
+    playSpecificSong: vi.fn(async (_songId: string) => {}),
     unqueue: vi.fn((_songId: string) => {}),
     showAlert: vi.fn((_title: string, _message: string) => {}),
 }));
@@ -24,7 +25,7 @@ const { queueNext, unqueue, showAlert } = vi.hoisted(() => ({
 vi.mock("@/app/tools", () => import("@/app/tools/pure"));
 vi.mock("@/app/services/media-manager/mediaManager", async () => {
     const { create: createStore } = await import("zustand");
-    return { queueNext, unqueue, useActiveSong: createStore<{ songId: string | null }>(() => ({ songId: "playing" })) };
+    return { queueNext, unqueue, playSpecificSong, useActiveSong: createStore<{ songId: string | null }>(() => ({ songId: "playing" })) };
 });
 vi.mock("@/app/tools/dialog", () => ({ showAlert }));
 vi.mock("react-native", () => ({ AppState: { currentState: "active" } }));
@@ -32,7 +33,7 @@ vi.mock("expo-router", () => ({ useFocusEffect: () => {} }));
 vi.mock("@/app/services/api/ApiProvider", () => ({ useApi: () => null }));
 
 const { useActiveSong: activeSong } = await import("@/app/services/media-manager/mediaManager");
-const { attachPlayNextRequest, cancelPlayNext, reconcilePlayNext, recordPlayNext, startPlayNext, usePlayNext } =
+const { attachPlayNextRequest, cancelPlayNext, playNowOrNext, reconcilePlayNext, recordPlayNext, startPlayNext, usePlayNext } =
     await import("@/app/services/song-requests/playNext");
 const { applySongRequest, currentSongRequests, refreshSongRequests } = await import("@/app/services/song-requests/useSongRequests");
 
@@ -182,6 +183,30 @@ describe("play-next driver", () => {
         expect(queueNext).toHaveBeenLastCalledWith(["s1"]);
         expect(api.songRequestListMine).not.toHaveBeenCalled();
         expect(showAlert).not.toHaveBeenCalled();
+    });
+
+    // Shuffull#117: play now on a song the server has linked to the user.
+    it("play now on a song this device has plays it and saves no intent", async () => {
+        await addSong(db, "s1");
+        const played = await playNowOrNext(db, result(), { songId: "s1", songRequestId: null }, new AbortController().signal);
+        expect(played).toEqual({ outcome: "played", queued: false });
+        expect(playSpecificSong).toHaveBeenCalledWith("s1");
+        expect(await getPlayNextIntents(db, USER)).toEqual([]);
+    });
+
+    it("play now on a song not on this device saves the intent before it waits, so leaving still plays it next", async () => {
+        const controller = new AbortController();
+        const playing = playNowOrNext(db, result(), { songId: "s1", songRequestId: "r1" }, controller.signal);
+        await vi.waitFor(async () =>
+            expect(await getPlayNextIntents(db, USER)).toMatchObject([{ externalSongId: "yt-1", songRequestId: "r1", songId: "s1" }]));
+
+        controller.abort(); // the user leaves the screen
+        expect(await playing).toEqual({ outcome: "cancelled", queued: true });
+        expect(playSpecificSong).not.toHaveBeenCalled();
+
+        await addSong(db, "s1");
+        await reconcilePlayNext({ readRequests: true });
+        expect(queueNext).toHaveBeenLastCalledWith(["s1"]);
     });
 
     it("queues nothing for a session that has stopped", async () => {

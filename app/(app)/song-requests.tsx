@@ -8,12 +8,17 @@ import SongRequestStatusList from "@/app/components/song-requests/SongRequestSta
 import { useTheme } from "@/app/theme";
 import { useApi } from "@/app/services/api/ApiProvider";
 import { useDb } from "@/app/services/db/DbProvider";
-import DbQueries from "@/app/services/db/queries";
 import { SongRequest, SongRequestSearchResult } from "@/app/services/api/models";
 import { useSongRequestsCapability } from "@/app/services/song-requests/capability";
 import { useSongRequests } from "@/app/services/song-requests/useSongRequests";
-import { playWhenSynced } from "@/app/services/song-requests/playRequested";
-import { attachPlayNextRequest, cancelPlayNext, reconcilePlayNext, recordPlayNext, usePlayNext } from "@/app/services/song-requests/playNext";
+import {
+    attachPlayNextRequest,
+    cancelPlayNext,
+    playNowOrNext,
+    recordPlayNext,
+    savePlayNext,
+    usePlayNext,
+} from "@/app/services/song-requests/playNext";
 import { SongRequestStatus } from "@/app/enums";
 import {
     openRequestFor,
@@ -127,19 +132,6 @@ export default function SongRequestsScreen() {
         }
     };
 
-    // Saves a play-next intent for a song whose request needs no filing (or already completed), and queues it at once
-    // if it is on this device. False when it couldn't be saved; the caller then says so its own way.
-    const savePlayNext = async (result: SongRequestSearchResult, known: { songId: string; songRequestId: string | null }) => {
-        try {
-            await recordPlayNext(result, known);
-        } catch (error) {
-            console.warn("[song-requests] couldn't save a play-next intent", error);
-            return false;
-        }
-        await reconcilePlayNext({ readRequests: false });
-        return true;
-    };
-
     // The server has the song. One the user already has plays with no request (Shuffull#117): requesting it would add it
     // to this week's requests playlist and their auditions again. One they don't have is requested, which completes at
     // once and links it to them. A song not on this device yet gets a play-next intent before the wait, so the ask
@@ -165,11 +157,10 @@ export default function SongRequestsScreen() {
             songId = created.songId;
             songRequestId = created.songRequestId;
         }
-        const waits = (await DbQueries.getSong(db, songId)) == null && await savePlayNext(result, { songId, songRequestId });
-        const outcome = await playWhenSynced(db, songId, controller.signal);
+        const { outcome, queued } = await playNowOrNext(db, result, { songId, songRequestId }, controller.signal);
         if (outcome === "played") {
             setRow(result.externalSongId, { busy: false, note: "Playing", isError: false });
-        } else if (waits) {
+        } else if (queued) {
             setRow(result.externalSongId, { busy: false, note: PLAY_NEXT_NOTE, isError: false, whilePlaysNext: true });
         } else {
             // The user moved on, or the intent couldn't be saved. If the screen is still open, the row stops waiting.
@@ -188,10 +179,10 @@ export default function SongRequestsScreen() {
         setRow(result.externalSongId, { busy: true });
         const owned = ownedSongIdFor(result);
         if (owned != null) {
-            const saved = await savePlayNext(result, { songId: owned, songRequestId: null });
-            setRow(result.externalSongId, saved
+            const error = await savePlayNext(result, { songId: owned, songRequestId: null });
+            setRow(result.externalSongId, error == null
                 ? { busy: false, note: PLAY_NEXT_NOTE, isError: false, whilePlaysNext: true }
-                : { busy: false, note: "Couldn't save that. Try again.", isError: true });
+                : { busy: false, note: `Couldn't save that: ${error}`, isError: true });
             return;
         }
         try {

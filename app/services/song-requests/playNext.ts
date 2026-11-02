@@ -10,6 +10,7 @@ import { SongRequestStatus } from "../../enums/SongRequestStatus";
 import { createSerialLock } from "../../tools/serialLock";
 import { showAlert } from "../../tools/dialog";
 import { combineMessages, decidePlayNext, needsRequestStatus, resolveIntent } from "../../tools/playNext";
+import { playWhenSynced, PlayWhenSyncedOutcome } from "./playRequested";
 import { currentSongRequests, refreshSongRequests } from "./useSongRequests";
 import { log } from "../../tools/log";
 
@@ -146,12 +147,17 @@ async function reconcile(s: Session, readRequests: boolean): Promise<void> {
 }
 
 /**
+ * A song an intent can name at the tap, so it waits on no request: one the user has (Shuffull#117, no request at all),
+ * or one whose request already completed.
+ */
+export type KnownPlayNextSong = { songId: string; songRequestId: string | null };
+
+/**
  * The tap on "Request & play next". Writes the intent and nothing else, so it is saved before the request is filed:
  * the caller files (or reuses) the request, then passes it to attachPlayNextRequest, or calls cancelPlayNext when
- * filing failed. `known` is for a song that needs no request, or whose request already completed: the user has it
- * (Shuffull#117), or a play-now couldn't wait for it to reach this device. The caller then reconciles.
+ * filing failed. With `known` there is nothing to file; savePlayNext is the one call for that case.
  */
-export function recordPlayNext(result: SongRequestSearchResult, known?: { songId: string; songRequestId: string | null }): Promise<void> {
+export function recordPlayNext(result: SongRequestSearchResult, known?: KnownPlayNextSong): Promise<void> {
     const s = session;
     if (s == null) {
         return Promise.reject(new Error("Not signed in."));
@@ -167,6 +173,43 @@ export function recordPlayNext(result: SongRequestSearchResult, known?: { songId
         });
         await reload(s);
     });
+}
+
+/**
+ * Saves the intent for a song that needs no request, then reconciles, so it is queued at once if this device has it.
+ * Returns why it couldn't be saved, or null.
+ */
+export async function savePlayNext(result: SongRequestSearchResult, known: KnownPlayNextSong): Promise<string | null> {
+    try {
+        await recordPlayNext(result, known);
+    } catch (error) {
+        return String(error);
+    }
+    await reconcilePlayNext({ readRequests: false });
+    return null;
+}
+
+/**
+ * "Play it now" for a song the server has linked to the user (Shuffull#117). If this device doesn't have it yet, the
+ * intent is saved before the wait, so the ask outlives the wait, the screen and the app: the song plays when it arrives
+ * if nothing else started meanwhile, and right after the current song otherwise. `queued` says that intent was saved.
+ */
+export async function playNowOrNext(
+    db: GenericDb,
+    result: SongRequestSearchResult,
+    known: KnownPlayNextSong,
+    signal: AbortSignal,
+): Promise<{ outcome: PlayWhenSyncedOutcome; queued: boolean }> {
+    let queued = false;
+    const onDevice = (await DbQueries.getSong(db, known.songId)) != null;
+    if (!onDevice) {
+        const error = await savePlayNext(result, known);
+        if (error != null) {
+            console.warn("[play-next] couldn't save the intent for a play-now", error);
+        }
+        queued = error == null;
+    }
+    return { outcome: await playWhenSynced(db, known.songId, signal), queued };
 }
 
 /** The request the intent waits on, once filed or found. Queues the song at once if it is already on this device. */
