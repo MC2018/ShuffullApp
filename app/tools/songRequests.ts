@@ -14,8 +14,10 @@ export const SEARCH_MIN_LENGTH = 2;
 export const SEARCH_MAX_LENGTH = 200;
 /** Results per search. The API allows 1 to 25. */
 export const SEARCH_LIMIT = 15;
-/** How often the request list re-reads its statuses while it is on screen and something is still open. */
+/** How often the request list re-reads its statuses while it is on screen and the producer is still working on one. */
 export const SONG_REQUEST_POLL_MS = 5_000;
+/** How often it tries again while its first read keeps failing. */
+export const SONG_REQUEST_RETRY_MS = 60_000;
 
 /** The text to search for, or null when there isn't enough of it yet. */
 export function searchQuery(text: string): string | null {
@@ -33,11 +35,26 @@ export function searchQuery(text: string): string | null {
  */
 export type SongRequestsCapability = "on" | "off" | "unknown";
 
+export interface CapabilityAnswer {
+    songRequests: SongRequestsCapability;
+    /** When the answer was last known; null while it never has been. */
+    askedAt: number | null;
+}
+
 export function songRequestsCapability(outcome: { capabilities: Capabilities } | { error: unknown }): SongRequestsCapability {
     if ("capabilities" in outcome) {
         return outcome.capabilities.songRequests ? "on" : "off";
     }
     return outcome.error instanceof ApiStatusFailureError && outcome.error.status === HttpStatusCode.NotFound ? "off" : "unknown";
+}
+
+/**
+ * The answer after one more ask. A known answer replaces the last one. A failed ask keeps the last known answer and its
+ * age, so a flaky connection doesn't hide the feature an hour in, and the next screen asks again.
+ */
+export function nextCapabilityAnswer(previous: CapabilityAnswer, outcome: { capabilities: Capabilities } | { error: unknown }, now: number): CapabilityAnswer {
+    const songRequests = songRequestsCapability(outcome);
+    return songRequests === "unknown" ? previous : { songRequests, askedAt: now };
 }
 
 /** How long a known answer stands before a screen asks again. The server's answer changes only with a redeploy. */
@@ -88,18 +105,31 @@ export function describeSongRequest(request: Pick<SongRequest, "status" | "failu
     }
 }
 
-/** Still alive on the server, so its status can change: the producer may move it on, and a late import completes even a Failed one. */
-export function isOpenSongRequest(status: number): boolean {
+/** The producer still has it, so its status will change on its own. */
+export function isInFlightSongRequest(status: number): boolean {
     return status === SongRequestStatus.Pending
         || status === SongRequestStatus.Accepted
         || status === SongRequestStatus.Downloading
-        || status === SongRequestStatus.Retrying
-        || status === SongRequestStatus.Failed;
+        || status === SongRequestStatus.Retrying;
 }
 
-/** Poll only while something can still change. Every change after that is this device's own, and refreshes the list itself. */
-export function shouldPollSongRequests(requests: readonly SongRequest[]): boolean {
-    return requests.some(r => isOpenSongRequest(r.status));
+/**
+ * Whether the list should read again, `sinceLastReadMs` after its last try (`requests` null while no read has worked).
+ * Every SONG_REQUEST_POLL_MS while the producer is working on a request, every SONG_REQUEST_RETRY_MS while the first read
+ * keeps failing, and otherwise not at all. That includes a Failed request: a late import can still complete it, but the
+ * normal sync brings its song in anyway, and the list re-reads each time the screen comes back into focus.
+ */
+export function shouldPollSongRequests(requests: readonly SongRequest[] | null, sinceLastReadMs: number): boolean {
+    if (requests == null) {
+        return sinceLastReadMs >= SONG_REQUEST_RETRY_MS;
+    }
+    return requests.some(r => isInFlightSongRequest(r.status)) && sinceLastReadMs >= SONG_REQUEST_POLL_MS;
+}
+
+/** A Completed request for this search result: the song the user can play without requesting it again. */
+export function completedRequestFor(requests: readonly SongRequest[] | null, externalSongId: string): (SongRequest & { songId: string }) | undefined {
+    return requests?.find((r): r is SongRequest & { songId: string } =>
+        r.externalSongId === externalSongId && r.status === SongRequestStatus.Completed && r.songId != null);
 }
 
 /**

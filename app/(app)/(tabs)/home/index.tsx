@@ -160,7 +160,7 @@ export default function HomeScreen() {
                             <View style={{ flex: 1, minWidth: 0 }}>
                                 <Text variant="bodyStrong">Request a song</Text>
                                 <Text variant="caption" color="textMuted">
-                                    {"Find one that isn't in your library yet."}
+                                    {"Find one the library doesn't have yet."}
                                 </Text>
                             </View>
                             <Ionicons name="chevron-forward" size={18} color={theme.color.textMuted} />

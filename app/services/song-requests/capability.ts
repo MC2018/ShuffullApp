@@ -3,7 +3,7 @@ import { useFocusEffect } from "expo-router";
 import { create } from "zustand";
 import type { ApiClient } from "../api/ApiClient";
 import { useApi } from "../api/ApiProvider";
-import { shouldAskCapabilities, songRequestsCapability, SongRequestsCapability } from "../../tools/songRequests";
+import { nextCapabilityAnswer, shouldAskCapabilities, SongRequestsCapability } from "../../tools/songRequests";
 
 // The server's answer to GET /capabilities, for the session's api client. A new session (another user or server) gets a
 // new client, which starts over at "unknown".
@@ -24,7 +24,7 @@ async function askCapabilities(api: ApiClient): Promise<void> {
     }
     useCapabilityStore.setState({ api, songRequests: current.songRequests, askedAt: current.askedAt, asking: true });
 
-    let outcome: Parameters<typeof songRequestsCapability>[0];
+    let outcome: Parameters<typeof nextCapabilityAnswer>[1];
     try {
         outcome = { capabilities: await api.capabilitiesGet() };
     } catch (error) {
@@ -33,21 +33,31 @@ async function askCapabilities(api: ApiClient): Promise<void> {
     if (useCapabilityStore.getState().api !== api) {
         return;
     }
-    const songRequests = songRequestsCapability(outcome);
-    useCapabilityStore.setState({ songRequests, askedAt: songRequests === "unknown" ? null : Date.now(), asking: false });
+    useCapabilityStore.setState({ ...nextCapabilityAnswer(current, outcome, Date.now()), asking: false });
+}
+
+export interface SongRequestsCapabilityView {
+    capability: SongRequestsCapability;
+    /** An ask is in flight. */
+    asking: boolean;
+    /** Ask now, unless the answer is known and fresh. */
+    ask: () => void;
 }
 
 /**
- * Whether to show song requests at all: only once this server has said `songRequests: true`. Asks when a screen using
- * it comes into focus and the answer is unknown or an hour old; until then the feature stays hidden.
+ * What this server has said about song requests, for this session. Asks when a screen using it comes into focus and
+ * the answer is unknown or an hour old.
  */
-export function useSongRequestsEnabled(): boolean {
+export function useSongRequestsCapability(): SongRequestsCapabilityView {
     const api = useApi();
-    const enabled = useCapabilityStore((state) => state.api === api && state.songRequests === "on");
-    useFocusEffect(
-        useCallback(() => {
-            void askCapabilities(api);
-        }, [api]),
-    );
-    return enabled;
+    const capability = useCapabilityStore((state) => (state.api === api ? state.songRequests : "unknown"));
+    const asking = useCapabilityStore((state) => state.api === api && state.asking);
+    const ask = useCallback(() => void askCapabilities(api), [api]);
+    useFocusEffect(ask);
+    return { capability, asking, ask };
+}
+
+/** Whether to show song requests at all: only once this server has said `songRequests: true`. */
+export function useSongRequestsEnabled(): boolean {
+    return useSongRequestsCapability().capability === "on";
 }

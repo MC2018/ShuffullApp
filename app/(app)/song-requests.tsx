@@ -8,11 +8,12 @@ import { useTheme } from "@/app/theme";
 import { useApi } from "@/app/services/api/ApiProvider";
 import { useDb } from "@/app/services/db/DbProvider";
 import { SongRequestSearchResult } from "@/app/services/api/models";
-import { useSongRequestsEnabled } from "@/app/services/song-requests/capability";
+import { useSongRequestsCapability } from "@/app/services/song-requests/capability";
 import { useSongRequests } from "@/app/services/song-requests/useSongRequests";
 import { playWhenSynced } from "@/app/services/song-requests/playRequested";
 import { SongRequestStatus } from "@/app/enums";
 import {
+    completedRequestFor,
     describeRequestFailure,
     describeSearchFailure,
     formatSongDuration,
@@ -32,6 +33,8 @@ type SearchState =
 /** What a result row is doing right now, or what its last action came to. */
 type RowState = { busy: true } | { busy: false; note: string; isError: boolean };
 
+const REQUESTED_NOTE = "Requested. Its status is below.";
+
 // Find a song the library doesn't have and request it (ShuffullApp#107). Reached from Home and now-playing, only when
 // the server offers song requests. Search waits for a pause in typing; each request is a direct call, so its outcome
 // shows at once and a failure can be retried by hand. The user's requests and their status sit below the results.
@@ -39,13 +42,16 @@ export default function SongRequestsScreen() {
     const theme = useTheme();
     const api = useApi();
     const db = useDb();
-    const enabled = useSongRequestsEnabled();
+    const { capability, asking, ask } = useSongRequestsCapability();
     const requests = useSongRequests();
     const [text, setText] = useState("");
     const [search, setSearch] = useState<SearchState>({ status: "idle" });
     const [rows, setRows] = useState<Record<string, RowState>>({});
     // Only the newest search may set the results: an older one answering late is dropped.
     const searchSeq = useRef(0);
+    // The play-now still waiting for its song. Aborted by the next one and when the screen closes.
+    const playing = useRef<AbortController | null>(null);
+    useEffect(() => () => playing.current?.abort(), []);
 
     const runSearch = useCallback(async (query: string) => {
         const seq = ++searchSeq.current;
@@ -78,50 +84,77 @@ export default function SongRequestsScreen() {
         return () => clearTimeout(timer);
     }, [query, lastQuery, runSearch]);
 
+    // Return searches at once, unless that exact search already ran and worked.
+    const submitSearch = () => {
+        if (query != null && (query !== lastQuery || search.status === "failed")) {
+            void runSearch(query);
+        }
+    };
+
     const updateResult = (externalSongId: string, change: Partial<SongRequestSearchResult>) =>
         setSearch((s) => s.status === "done"
             ? { ...s, results: s.results.map((r) => (r.externalSongId === externalSongId ? { ...r, ...change } : r)) }
             : s);
     const setRow = (externalSongId: string, state: RowState) => setRows((all) => ({ ...all, [externalSongId]: state }));
 
-    const request = async (result: SongRequestSearchResult) => {
-        setRow(result.externalSongId, { busy: true });
+    // Files the request and shows it in the list. A request that didn't complete at once leaves the result Requested.
+    // On a failure the row says why, and the list is re-read, since a refusal usually means the request moved on.
+    const fileRequest = async (result: SongRequestSearchResult) => {
         try {
             const created = await api.songRequestCreate(toCreateSongRequest(result));
             requests.apply(created);
-            const completed = created.status === SongRequestStatus.Completed;
-            updateResult(result.externalSongId, completed ? { inLibrary: true } : { alreadyRequested: true });
-            setRow(result.externalSongId, {
-                busy: false,
-                note: completed ? `Added to ${created.targetPlaylistName}` : "Requested. Its status is below.",
-                isError: false,
-            });
+            if (created.status !== SongRequestStatus.Completed) {
+                updateResult(result.externalSongId, { inLibrary: false, alreadyRequested: true });
+                setRow(result.externalSongId, { busy: false, note: REQUESTED_NOTE, isError: false });
+            }
+            return created;
         } catch (error) {
             setRow(result.externalSongId, { busy: false, note: describeRequestFailure(error), isError: true });
             void requests.refresh();
+            return null;
         }
     };
 
-    // The server has the song: requesting it completes at once and links it to the user, so it can play here.
-    const playNow = async (result: SongRequestSearchResult) => {
+    const request = async (result: SongRequestSearchResult) => {
         setRow(result.externalSongId, { busy: true });
-        try {
-            const created = await api.songRequestCreate(toCreateSongRequest(result));
-            requests.apply(created);
-            if (created.status !== SongRequestStatus.Completed || created.songId == null) {
-                updateResult(result.externalSongId, { inLibrary: false, alreadyRequested: true });
-                setRow(result.externalSongId, { busy: false, note: "Requested. Its status is below.", isError: false });
+        const created = await fileRequest(result);
+        if (created?.status === SongRequestStatus.Completed) {
+            updateResult(result.externalSongId, { inLibrary: true });
+            setRow(result.externalSongId, { busy: false, note: `Added to ${created.targetPlaylistName}`, isError: false });
+        }
+    };
+
+    // The server has the song. Requesting it completes at once and links it to the user, so it can play here. A song
+    // this user already requested to completion plays without another request, so replaying it files nothing.
+    const playNow = async (result: SongRequestSearchResult) => {
+        playing.current?.abort();
+        const controller = new AbortController();
+        playing.current = controller;
+        setRow(result.externalSongId, { busy: true });
+
+        let songId = completedRequestFor(requests.requests, result.externalSongId)?.songId;
+        if (songId == null) {
+            const created = await fileRequest(result);
+            if (created?.status !== SongRequestStatus.Completed) {
+                return; // fileRequest has said why on the row
+            }
+            if (created.songId == null) {
+                setRow(result.externalSongId, { busy: false, note: "In your library.", isError: false });
                 return;
             }
-            const played = await playWhenSynced(db, created.songId);
-            setRow(result.externalSongId, {
-                busy: false,
-                note: played ? "Playing" : "In your library. It plays here once the next sync brings it in.",
-                isError: false,
-            });
-        } catch (error) {
-            setRow(result.externalSongId, { busy: false, note: describeRequestFailure(error), isError: true });
+            songId = created.songId;
         }
+        const outcome = await playWhenSynced(db, songId, controller.signal);
+        if (outcome === "cancelled") {
+            // The user moved on. If the screen is still open, the row just stops waiting.
+            setRow(result.externalSongId, { busy: false, note: "In your library.", isError: false });
+            return;
+        }
+        setRow(result.externalSongId, {
+            busy: false,
+            note: outcome === "played" ? "Playing" : "In your library. It reaches this device with the next sync; tap play again then.",
+            isError: false,
+        });
     };
 
     return (
@@ -136,12 +169,8 @@ export default function SongRequestsScreen() {
                 </View>
             </View>
 
-            {!enabled ? (
-                <Card style={{ marginTop: theme.space.md }}>
-                    <Text variant="body" color="textMuted">
-                        {"Song requests aren't available on this server."}
-                    </Text>
-                </Card>
+            {capability !== "on" ? (
+                <Unavailable capability={capability} asking={asking} onRetry={ask} />
             ) : (
                 <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: theme.space.xxxl }}>
                     <TextField
@@ -152,7 +181,7 @@ export default function SongRequestsScreen() {
                         autoCorrect={false}
                         returnKeyType="search"
                         maxLength={SEARCH_MAX_LENGTH}
-                        onSubmitEditing={() => query != null && void runSearch(query)}
+                        onSubmitEditing={submitSearch}
                         accessibilityLabel="Search for a song to request"
                         style={{ marginTop: theme.space.sm }}
                     />
@@ -163,6 +192,31 @@ export default function SongRequestsScreen() {
                 </ScrollView>
             )}
         </Screen>
+    );
+}
+
+/** Why the screen can't offer requests: the server said no, or it couldn't be asked. */
+function Unavailable({ capability, asking, onRetry }: { capability: "off" | "unknown"; asking: boolean; onRetry: () => void }) {
+    const theme = useTheme();
+    if (asking) {
+        return <ActivityIndicator color={theme.color.accent} style={{ marginTop: theme.space.lg }} />;
+    }
+    if (capability === "off") {
+        return (
+            <Card style={{ marginTop: theme.space.md }}>
+                <Text variant="body" color="textMuted">
+                    {"Song requests aren't available on this server."}
+                </Text>
+            </Card>
+        );
+    }
+    return (
+        <Card style={{ marginTop: theme.space.md, gap: theme.space.md }}>
+            <Text variant="body" color="textMuted">
+                {"Can't check whether this server takes song requests right now. Try again when you're online."}
+            </Text>
+            <Button label="Try again" variant="ghost" onPress={onRetry} />
+        </Card>
     );
 }
 
@@ -250,22 +304,31 @@ function SearchResultRow({ result, row, onRequest, onPlay }: ResultRowProps) {
                     </Text>
                 ) : null}
             </View>
-            {busy ? (
-                <ActivityIndicator color={theme.color.accent} />
-            ) : result.inLibrary ? (
-                <Pressable onPress={onPlay} accessibilityRole="button" accessibilityLabel={`In library. Play ${result.title} now`} hitSlop={8}>
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-                        <Ionicons name="play" size={12} color={theme.color.positive} />
-                        <Badge label="In library" tone="positive" />
-                    </View>
-                </Pressable>
-            ) : result.alreadyRequested ? (
-                <Badge label="Requested" />
-            ) : (
-                <Button label="Request" onPress={onRequest} />
-            )}
+            <ResultAction result={result} busy={busy} onRequest={onRequest} onPlay={onPlay} />
         </View>
     );
+}
+
+/** The right side of a result: a spinner while busy, play for a song the library has, Requested, or Request. */
+function ResultAction({ result, busy, onRequest, onPlay }: { result: SongRequestSearchResult; busy: boolean; onRequest: () => void; onPlay: () => void }) {
+    const theme = useTheme();
+    if (busy) {
+        return <ActivityIndicator color={theme.color.accent} />;
+    }
+    if (result.inLibrary) {
+        return (
+            <Pressable onPress={onPlay} accessibilityRole="button" accessibilityLabel={`In the library. Play ${result.title} now`} hitSlop={8}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                    <Ionicons name="play" size={12} color={theme.color.positive} />
+                    <Badge label="In library" tone="positive" />
+                </View>
+            </Pressable>
+        );
+    }
+    if (result.alreadyRequested) {
+        return <Badge label="Requested" />;
+    }
+    return <Button label="Request" onPress={onRequest} />;
 }
 
 function Badge({ label, tone }: { label: string; tone?: "positive" }) {

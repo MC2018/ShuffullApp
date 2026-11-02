@@ -1,8 +1,9 @@
 import { useCallback, useRef, useState } from "react";
+import { AppState } from "react-native";
 import { useFocusEffect } from "expo-router";
 import { useApi } from "../api/ApiProvider";
 import { SongRequest } from "../api/models";
-import { useServerReachability } from "../connectivity/serverReachability";
+import { isServerUnreachable, useServerReachability } from "../connectivity/serverReachability";
 import { SongRequestStatus } from "../../enums/SongRequestStatus";
 import {
     describeRequestFailure,
@@ -28,9 +29,10 @@ export interface SongRequestsView {
 }
 
 /**
- * The caller's song requests, read when the screen comes into focus and every SONG_REQUEST_POLL_MS while it stays in
- * focus and any request is still open. A request seen reaching Completed syncs, so its song lands in the library and
- * this week's requests playlist.
+ * The caller's song requests, read when the screen comes into focus, and while it stays in focus as often as
+ * shouldPollSongRequests says: every SONG_REQUEST_POLL_MS while the producer is working on one. Not while the app is in
+ * the background or the server is unreachable: a focused tab stays focused then, and the music keeps JS running. A
+ * request seen reaching Completed syncs, so its song lands in the library and this week's requests playlist.
  */
 export function useSongRequests(): SongRequestsView {
     const api = useApi();
@@ -39,12 +41,14 @@ export function useSongRequests(): SongRequestsView {
     // The last list read or applied, for the poll decision and the Completed check. A ref, so the timer sees it.
     const lastRead = useRef<SongRequest[] | null>(null);
     const reading = useRef(false);
+    const lastTriedAt = useRef(0);
 
     const refresh = useCallback(async () => {
         if (reading.current) {
             return;
         }
         reading.current = true;
+        lastTriedAt.current = Date.now();
         try {
             const next = await api.songRequestListMine();
             const completed = newlyCompletedRequests(lastRead.current, next);
@@ -74,9 +78,11 @@ export function useSongRequests(): SongRequestsView {
     useFocusEffect(
         useCallback(() => {
             void refresh();
+            // Ticks at the fastest poll rate and decides each time, so a request this device files (apply) starts the
+            // polling again without restarting the timer.
             const timer = setInterval(() => {
-                // Nothing open means nothing the producer can still change; this device's own changes come in by apply.
-                if (lastRead.current == null || shouldPollSongRequests(lastRead.current)) {
+                if (AppState.currentState === "active" && !isServerUnreachable()
+                    && shouldPollSongRequests(lastRead.current, Date.now() - lastTriedAt.current)) {
                     void refresh();
                 }
             }, SONG_REQUEST_POLL_MS);

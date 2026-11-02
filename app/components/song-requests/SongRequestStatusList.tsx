@@ -3,7 +3,7 @@ import { ActivityIndicator, View } from "react-native";
 import { useApi } from "@/app/services/api/ApiProvider";
 import { SongRequest } from "@/app/services/api/models";
 import { SongRequestsView } from "@/app/services/song-requests/useSongRequests";
-import { describeRequestFailure, describeSongRequest, SongRequestTone, toCreateSongRequest, visibleSongRequests } from "@/app/tools/songRequests";
+import { describeRequestFailure, describeSongRequest, SongRequestTone, SongRequestView, toCreateSongRequest, visibleSongRequests } from "@/app/tools/songRequests";
 import { AlbumArt, Button, Text } from "@/app/components/ui";
 import { ColorToken, useTheme } from "@/app/theme";
 
@@ -109,13 +109,27 @@ function SongRequestRow({ request, onChanged, onFailed }: RowProps) {
                     </Text>
                 ) : null}
             </View>
-            {busy ? (
-                <ActivityIndicator color={theme.color.accent} />
-            ) : status.canRetry ? (
-                <Button label="Retry" variant="ghost" onPress={() => act(() => api.songRequestCreate(toCreateSongRequest(request)))} />
-            ) : status.canCancel ? (
-                <Button label="Cancel" variant="danger" onPress={() => act(() => api.songRequestCancel(request.songRequestId))} />
-            ) : null}
+            <RowAction
+                busy={busy}
+                status={status}
+                onRetry={() => act(() => api.songRequestCreate(toCreateSongRequest(request)))}
+                onCancel={() => act(() => api.songRequestCancel(request.songRequestId))}
+            />
         </View>
     );
+}
+
+/** The right side of a row: a spinner while busy, Retry once Failed, Cancel while Pending, otherwise nothing. */
+function RowAction({ busy, status, onRetry, onCancel }: { busy: boolean; status: SongRequestView; onRetry: () => void; onCancel: () => void }) {
+    const theme = useTheme();
+    if (busy) {
+        return <ActivityIndicator color={theme.color.accent} />;
+    }
+    if (status.canRetry) {
+        return <Button label="Retry" variant="ghost" onPress={onRetry} />;
+    }
+    if (status.canCancel) {
+        return <Button label="Cancel" variant="danger" onPress={onCancel} />;
+    }
+    return null;
 }

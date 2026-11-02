@@ -5,13 +5,17 @@ import { SongRequest } from "@/app/services/api/models";
 import { SongRequestStatus } from "@/app/enums";
 import {
     CAPABILITIES_REFRESH_MS,
+    completedRequestFor,
     describeRequestFailure,
     describeSearchFailure,
     describeSongRequest,
     formatSongDuration,
-    isOpenSongRequest,
+    isInFlightSongRequest,
     newlyCompletedRequests,
+    nextCapabilityAnswer,
     SEARCH_MAX_LENGTH,
+    SONG_REQUEST_POLL_MS,
+    SONG_REQUEST_RETRY_MS,
     searchQuery,
     shouldAskCapabilities,
     shouldPollSongRequests,
@@ -58,6 +62,18 @@ describe("capability gate", () => {
         expect(songRequestsCapability({ error: refused(500) })).toBe("unknown");
         expect(songRequestsCapability({ error: refused(503) })).toBe("unknown");
         expect(songRequestsCapability({ error: new Error("parse failure") })).toBe("unknown");
+    });
+
+    it("a failed ask keeps the last known answer and its age, so going offline doesn't hide the feature", () => {
+        const known = { songRequests: "on" as const, askedAt: 1000 };
+        expect(nextCapabilityAnswer(known, { error: noAnswer() }, 5000)).toEqual(known);
+        expect(nextCapabilityAnswer(known, { error: refused(500) }, 5000)).toEqual(known);
+        expect(nextCapabilityAnswer(known, { capabilities: { songRequests: false } }, 5000)).toEqual({ songRequests: "off", askedAt: 5000 });
+        expect(nextCapabilityAnswer(known, { error: refused(404) }, 5000)).toEqual({ songRequests: "off", askedAt: 5000 });
+
+        const never = { songRequests: "unknown" as const, askedAt: null };
+        expect(nextCapabilityAnswer(never, { error: noAnswer() }, 5000)).toEqual(never);
+        expect(nextCapabilityAnswer(never, { capabilities: { songRequests: true } }, 5000)).toEqual({ songRequests: "on", askedAt: 5000 });
     });
 
     it("asks while unknown, and again once a known answer is an hour old", () => {
@@ -107,24 +123,41 @@ describe("status mapping", () => {
             .toEqual({ label: "Unknown status", tone: "muted", canCancel: false, canRetry: false });
     });
 
-    it("open is the API's SongRequestRules.Open: everything up to and including Failed", () => {
-        const open = Object.values(SongRequestStatus).filter((v): v is number => typeof v === "number").filter(isOpenSongRequest);
-        expect(open).toEqual([
+    it("in flight is everything the producer can still move on by itself: Failed waits for the user", () => {
+        const inFlight = Object.values(SongRequestStatus).filter((v): v is number => typeof v === "number").filter(isInFlightSongRequest);
+        expect(inFlight).toEqual([
             SongRequestStatus.Pending,
             SongRequestStatus.Accepted,
             SongRequestStatus.Downloading,
             SongRequestStatus.Retrying,
-            SongRequestStatus.Failed,
         ]);
     });
 });
 
 describe("polling and Completed", () => {
-    it("polls while any request is open, a Failed one included (a late import can still complete it)", () => {
-        expect(shouldPollSongRequests([])).toBe(false);
-        expect(shouldPollSongRequests([request("a", SongRequestStatus.Completed), request("b", SongRequestStatus.Cancelled)])).toBe(false);
-        expect(shouldPollSongRequests([request("a", SongRequestStatus.Completed), request("b", SongRequestStatus.Downloading)])).toBe(true);
-        expect(shouldPollSongRequests([request("a", SongRequestStatus.Failed)])).toBe(true);
+    it("polls every 5 s while the producer is working on a request, and not at all otherwise", () => {
+        const working = [request("a", SongRequestStatus.Completed), request("b", SongRequestStatus.Downloading)];
+        expect(shouldPollSongRequests(working, SONG_REQUEST_POLL_MS)).toBe(true);
+        expect(shouldPollSongRequests(working, SONG_REQUEST_POLL_MS - 1)).toBe(false);
+
+        expect(shouldPollSongRequests([], SONG_REQUEST_RETRY_MS)).toBe(false);
+        expect(shouldPollSongRequests([request("a", SongRequestStatus.Completed), request("b", SongRequestStatus.Cancelled)], SONG_REQUEST_RETRY_MS)).toBe(false);
+        // A Failed request stays Failed until the user retries it, so it would keep the list polling forever.
+        expect(shouldPollSongRequests([request("a", SongRequestStatus.Failed)], SONG_REQUEST_RETRY_MS * 10)).toBe(false);
+    });
+
+    it("while the first read keeps failing, tries again once a minute", () => {
+        expect(shouldPollSongRequests(null, SONG_REQUEST_POLL_MS)).toBe(false);
+        expect(shouldPollSongRequests(null, SONG_REQUEST_RETRY_MS)).toBe(true);
+    });
+
+    it("play-now finds a request this user already completed for the result, so a replay files nothing", () => {
+        const done = request("done", SongRequestStatus.Completed);
+        const list = [request("open", SongRequestStatus.Pending), done];
+        expect(completedRequestFor(list, done.externalSongId)?.songId).toBe("song-done");
+        expect(completedRequestFor(list, "source-open")).toBeUndefined();
+        expect(completedRequestFor([{ ...done, songId: null }], done.externalSongId)).toBeUndefined();
+        expect(completedRequestFor(null, done.externalSongId)).toBeUndefined();
     });
 
     it("the first read syncs nothing: those requests completed before the screen opened", () => {
