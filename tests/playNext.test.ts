@@ -73,6 +73,13 @@ describe("resolving an intent against the request list", () => {
         expect(resolveIntent(intent(), [old]).request).toBeUndefined();
     });
 
+    it("nor a request that failed or was cancelled just before the tap", () => {
+        const justBefore = new Date(TAP.getTime() - MIN);
+        for (const status of [SongRequestStatus.Failed, SongRequestStatus.Cancelled]) {
+            expect(resolveIntent(intent(), [request(status, { updatedAt: justBefore })]).request).toBeUndefined();
+        }
+    });
+
     it("with no list read, keeps what the row already knows", () => {
         expect(resolveIntent(intent({ songRequestId: "r1", songId: "s1" }), null)).toMatchObject({ songRequestId: "r1", songId: "s1" });
     });
@@ -179,6 +186,11 @@ describe("the Up next label", () => {
         expect(describeUpNext([intent()], [])).toBe("Next, once it arrives: A song");
         expect(describeUpNext([intent({ songId: "s1" })], [])).toBe("Next, once it arrives: A song");
         expect(describeUpNext([intent({ songId: "s1" })], ["s1"])).toBe("Up next: A song");
+    });
+
+    it("names the song that is queued, even when an older one is still on its way", () => {
+        const waiting = intent({ externalSongId: "yt-0", title: "Older" });
+        expect(describeUpNext([waiting, intent({ songId: "s1" })], ["s1"])).toBe("Up next: A song (+1)");
     });
 
     it("counts the rest", () => {

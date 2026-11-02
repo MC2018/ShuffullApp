@@ -19,14 +19,13 @@ import { currentSongRequests, refreshSongRequests } from "./useSongRequests";
 // The row goes once the song starts playing, or when tools/playNext.ts says it is over.
 
 interface PlayNextState {
-    userId: string | null;
     /** Oldest first. */
     intents: PlayNextIntent[];
     /** The intents' songs this device has queued. */
     queuedSongIds: string[];
 }
 
-export const usePlayNext = create<PlayNextState>(() => ({ userId: null, intents: [], queuedSongIds: [] }));
+export const usePlayNext = create<PlayNextState>(() => ({ intents: [], queuedSongIds: [] }));
 
 interface Session {
     db: GenericDb;
@@ -54,7 +53,7 @@ async function reload(s: Session): Promise<PlayNextIntent[]> {
 export function startPlayNext(db: GenericDb, api: ApiClient, userId: string): () => void {
     const s: Session = { db, api, userId };
     session = s;
-    usePlayNext.setState({ userId, intents: [], queuedSongIds: [] });
+    usePlayNext.setState({ intents: [], queuedSongIds: [] });
     const unsubscribe = useActiveSong.subscribe((state, previous) => {
         if (state.songId != null && state.songId !== previous.songId
             && usePlayNext.getState().intents.some(i => i.songId === state.songId)) {
@@ -66,17 +65,20 @@ export function startPlayNext(db: GenericDb, api: ApiClient, userId: string): ()
         unsubscribe();
         if (session === s) {
             session = null;
-            usePlayNext.setState({ userId: null, intents: [], queuedSongIds: [] });
+            usePlayNext.setState({ intents: [], queuedSongIds: [] });
         }
     };
 }
 
+// Also takes the song off the queue: a reconcile that ran between skip taking it off the queue and the song starting
+// (loading a track takes a moment) will have put it back, and it would play again straight after itself.
 async function clearPlayed(s: Session, songId: string): Promise<void> {
     for (const intent of await DbQueries.getPlayNextIntents(s.db, s.userId)) {
         if (intent.songId === songId) {
             await DbQueries.deletePlayNextIntent(s.db, intent);
         }
     }
+    MediaManager.unqueue(songId);
     await reload(s);
 }
 

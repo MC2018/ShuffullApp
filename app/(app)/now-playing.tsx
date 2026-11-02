@@ -50,6 +50,8 @@ export default function NowPlayingScreen() {
     const { issue } = usePlaybackIssue();
     const songRequests = useSongRequestsEnabled();
     const upNext = usePlayNext((state) => describeUpNext(state.intents, state.queuedSongIds));
+    const headerLabel = issue ? PLAYBACK_ISSUE_LABEL[issue.kind] : upNext ?? "Now Playing";
+    const headerColor = issue ? "accent" : upNext ? "accentTint" : "textMuted";
     const [details, setDetails] = useState<SongDetails | null>(null);
     const [art, setArt] = useState<ArtSource>(defaultArt);
 
@@ -165,11 +167,11 @@ export default function NowPlayingScreen() {
                     below a playback issue. */}
                 <Text
                     variant="micro"
-                    color={issue ? "accent" : upNext ? "accentTint" : "textMuted"}
+                    color={headerColor}
                     numberOfLines={1}
                     style={{ flexShrink: 1, marginHorizontal: theme.space.sm }}
                 >
-                    {issue ? PLAYBACK_ISSUE_LABEL[issue.kind] : upNext ?? "Now Playing"}
+                    {headerLabel}
                 </Text>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: theme.space.sm }}>
                     {songRequests ? (

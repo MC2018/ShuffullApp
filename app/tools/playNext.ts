@@ -1,4 +1,5 @@
 import { SongRequestStatus } from "../enums/SongRequestStatus";
+import { isInFlightSongRequest } from "./songRequests";
 import type { SongRequest } from "../services/api/models";
 import type { PlayNextIntent } from "../services/db/models";
 
@@ -37,8 +38,10 @@ export interface ResolvedIntent {
 export function resolveIntent(intent: PlayNextIntent, requests: readonly SongRequest[] | null): ResolvedIntent {
     const request = intent.songRequestId != null
         ? requests?.find(r => r.songRequestId === intent.songRequestId)
-        // Filed, but the answer never came back: the newest request for the song the server touched since the tap.
+        // Filed, but the answer never came back: the newest request for the song the server touched since the tap. A
+        // create leaves a request open or Completed, so a Failed or Cancelled one is an earlier try, not this tap's.
         : requests?.find(r => r.externalSongId === intent.externalSongId
+            && (isInFlightSongRequest(r.status) || r.status === SongRequestStatus.Completed)
             && r.updatedAt.getTime() >= intent.createdAt.getTime() - ADOPT_SLACK_MS);
     const completedSongId = request?.status === SongRequestStatus.Completed ? request.songId : null;
     return {
@@ -126,13 +129,16 @@ export function withPlayNextFirst(queue: readonly string[], songIds: readonly st
     return next.length === queue.length && next.every((id, i) => id === queue[i]) ? queue : next;
 }
 
-/** What "Up next" says, for the oldest intent: queued, or still waiting for its song. Null with no intent. */
+/**
+ * What "Up next" says: the first intent whose song is queued, since that one plays next, or else the oldest one still
+ * waiting for its song. Null with no intent.
+ */
 export function describeUpNext(intents: readonly PlayNextIntent[], queuedSongIds: readonly string[]): string | null {
-    const first = intents[0];
-    if (first == null) {
+    const queued = intents.find(i => i.songId != null && queuedSongIds.includes(i.songId));
+    const shown = queued ?? intents[0];
+    if (shown == null) {
         return null;
     }
     const more = intents.length > 1 ? ` (+${intents.length - 1})` : "";
-    const queued = first.songId != null && queuedSongIds.includes(first.songId);
-    return `${queued ? "Up next" : "Next, once it arrives"}: ${first.title}${more}`;
+    return `${queued ? "Up next" : "Next, once it arrives"}: ${shown.title}${more}`;
 }

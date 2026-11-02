@@ -111,7 +111,7 @@ function SongRequestRow({ request, onChanged, onFailed }: RowProps) {
                 </Text>
                 {playsNext ? (
                     <Pressable
-                        onPress={() => void cancelPlayNext(request.externalSongId)}
+                        onPress={() => cancelPlayNext(request.externalSongId).catch((e) => setError(`Couldn't change that: ${String(e)}`))}
                         accessibilityRole="button"
                         accessibilityLabel={`${request.title} plays next. Don't play it next`}
                         hitSlop={8}
