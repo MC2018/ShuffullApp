@@ -15,6 +15,7 @@ import { launchJam } from "@/app/services/genre-jam";
 import PlayerBar, { totalPlayerBarHeight } from "@/app/components/music-control/organisms/PlayerBar";
 import { Button, Card, Chip, Divider, IconButton, Screen, SectionHeader, Text, TextField } from "@/app/components/ui";
 import { useTheme } from "@/app/theme";
+import { log } from "@/app/tools/log";
 
 type FilterStatus = "none" | "include" | "exclude";
 type Category = "genres" | "artists" | "timePeriods" | "languages" | "playlists";
@@ -125,7 +126,7 @@ export default function GenreJamEditor() {
                     setHeavinessStart(editing.heavinessMin);
                 }
             }
-        })();
+        })().catch((e) => log.warn("genre-jam", "Loading the jam builder's options failed.", e));
     }, [userId, editingId]);
 
     const cycleItem = (cat: Category, id: string) => {
@@ -203,7 +204,7 @@ export default function GenreJamEditor() {
 
                 <Card tint style={{ borderColor: theme.color.accentDeep, marginTop: theme.space.md }}>
                     <Text variant="body" color="textMuted">
-                        Plays your whole library — minus songs you've disliked, leaning toward what you love. Add filters below, or just start.
+                        Plays your whole library — minus songs you&apos;ve disliked, leaning toward what you love. Add filters below, or just start.
                     </Text>
                     <Button label="Start Jam" icon="play" full onPress={handleStart} style={{ marginTop: theme.space.md }} />
                 </Card>

@@ -1,4 +1,3 @@
-// @ts-ignore
 import argon2 from "@sphereon/react-native-argon2";
 import * as Crypto from "expo-crypto";
 

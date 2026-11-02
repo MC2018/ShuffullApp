@@ -7,6 +7,7 @@ import { generateId } from "@/app/tools/utils";
 import IconButton from "@/app/components/ui/IconButton";
 import { useTheme } from "@/app/theme";
 import { showAlert } from "@/app/tools/dialog";
+import { log } from "@/app/tools/log";
 
 // Per-song "flag for replacement" toggle. Queues a global per-song replacement request through the sync
 // pipeline (→ POST /api/v1/replacements) so a poor-quality song can be re-sourced. The flag is one-way from
@@ -28,7 +29,7 @@ export default function FlagForReplacementControl({ songId, size = 24 }: { songI
             if (!cancelled && pending) {
                 setFlagged(true);
             }
-        })();
+        })().catch((e) => log.warn("replacement", "Loading replacement requests failed.", e));
         return () => {
             cancelled = true;
         };

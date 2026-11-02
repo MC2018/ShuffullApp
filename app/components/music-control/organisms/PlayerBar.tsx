@@ -49,7 +49,8 @@ export default function PlayerBar({ floating = false }: { floating?: boolean }) 
     const [albumArt, setAlbumArt] = useState<ArtSource>(defaultArt);
 
     useEffect(() => {
-        (async () => {
+        // Never rejects: everything in it that can fail is caught inside.
+        void (async () => {
             if (songId == undefined) {
                 setSongInfo(null);
                 return;

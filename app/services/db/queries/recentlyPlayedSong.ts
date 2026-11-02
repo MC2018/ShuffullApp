@@ -112,7 +112,7 @@ export async function checkForRecentlyPlayedSong(db: GenericDb, next: boolean): 
         return undefined;
     }
 
-    let query = db
+    const query = db
         .select()
         .from(recentlyPlayedSongTable)
         .where(next ? gt(recentlyPlayedSongTable.lastPlayed, currentlyPlayingSong.lastPlayed) : lt(recentlyPlayedSongTable.lastPlayed, currentlyPlayingSong.lastPlayed));

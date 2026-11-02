@@ -9,6 +9,7 @@ import { SongDetails } from "@/app/services/db/types";
 import { MediaManager } from "@/app/services/media-manager";
 import { Screen, Text, TextField } from "@/app/components/ui";
 import { useTheme } from "@/app/theme";
+import { log } from "@/app/tools/log";
 
 export default function SongsScreen() {
     const theme = useTheme();
@@ -21,7 +22,7 @@ export default function SongsScreen() {
             const all = await DbQueries.getAllSongDetails(db);
             setSongs(all);
             setFilteredSongs(all);
-        })();
+        })().catch((e) => log.warn("songs", "Loading songs failed.", e));
     }, []);
 
     const handleSelectSong = async (songInfo: SongDetails) => {

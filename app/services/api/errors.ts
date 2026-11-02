@@ -1,7 +1,7 @@
 import axios, { HttpStatusCode } from "axios";
 
 export class ApiError extends Error {
-    constructor(endpoint: string, message: string, response?: any, error?: Error) {
+    constructor(endpoint: string, message: string, response?: unknown, error?: Error) {
         let stringBuilder = `Problem occurred in ${endpoint}: ${message}`;
 
         if (response) {

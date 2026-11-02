@@ -28,4 +28,4 @@ export const STORAGE_KEYS = {
     // JSON SavedRecap { recap, fetchedAt }: the last fetched December recap, keyed by `${RECAP_PREFIX}${userId}:${year}`
     // (recapCacheKey), so the recap screen can still show it offline.
     RECAP_PREFIX: "RECAP:",
-}
+};

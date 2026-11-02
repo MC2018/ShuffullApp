@@ -8,6 +8,7 @@ import { DownloadPriority } from "@/app/services/db/types";
 import { Song } from "@/app/services/db/models";
 import IconButton from "@/app/components/ui/IconButton";
 import { useTheme } from "@/app/theme";
+import { log } from "@/app/tools/log";
 
 type DownloadState = "none" | "queued" | "downloaded";
 
@@ -31,7 +32,7 @@ export default function SongDownloadControl({ song }: { song: Song }) {
             if (!cancelled) {
                 setState(exists ? "downloaded" : queued ? "queued" : "none");
             }
-        })();
+        })().catch((e) => log.warn("downloader", "Checking the song's download state failed.", e));
         return () => {
             cancelled = true;
         };

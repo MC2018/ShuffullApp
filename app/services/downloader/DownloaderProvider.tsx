@@ -16,7 +16,7 @@ export default function DownloaderProvider({ children }: DownloaderProviderProps
     const db = useDb();
     const downloader = useMemo(() => Downloader.shared(db), [db]);
 
-    return <DownloaderContext.Provider value={downloader}>{children}</DownloaderContext.Provider>
+    return <DownloaderContext.Provider value={downloader}>{children}</DownloaderContext.Provider>;
 };
 
 export function useDownloader(): Downloader | null {

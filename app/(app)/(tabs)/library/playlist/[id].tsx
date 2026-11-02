@@ -16,6 +16,7 @@ import { useTheme } from "@/app/theme";
 import { LikeStatus } from "@/app/enums";
 import { AuditionRowState, auditionProgress, deriveAuditionRowState } from "@/app/tools/audition";
 import { confirmDeletePlaylist } from "@/app/services/playlists/deletePlaylist";
+import { log } from "@/app/tools/log";
 
 export default function PlaylistScreen() {
     const theme = useTheme();
@@ -69,14 +70,14 @@ export default function PlaylistScreen() {
             setPlaylist(dbPlaylist);
             const dbSongs = await DbQueries.getSongDetailsByPlaylist(db, playlistId);
             setSongs(dbSongs);
-        })();
+        })().catch((e) => log.warn("playlist", "Loading the playlist failed.", e));
     }, [playlistId]);
 
     // Runs once the playlist loads and again on every revision, so "N/M evaluated" moves as songs play instead
     // of only when the screen is re-opened.
     useEffect(() => {
         if (playlist != undefined) {
-            loadSongStates(playlist);
+            loadSongStates(playlist).catch((e) => log.warn("playlist", "Loading song states failed.", e));
         }
     }, [playlist, songStateRevision, loadSongStates]);
 
@@ -93,7 +94,7 @@ export default function PlaylistScreen() {
                 if ((await DbQueries.getPlaylist(db, playlistId)) == undefined && !cancelled) {
                     router.back();
                 }
-            })();
+            })().catch((e) => log.warn("playlist", "Checking the playlist still exists failed.", e));
             return () => {
                 cancelled = true;
             };

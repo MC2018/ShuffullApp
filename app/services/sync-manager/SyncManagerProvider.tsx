@@ -62,7 +62,7 @@ export default function SyncManagerProvider({ userId }: SyncManagerProviderProps
         };
     }, [db, api, userId]);
 
-    return <SyncManagerContext.Provider value={syncManager} />
+    return <SyncManagerContext.Provider value={syncManager} />;
 };
 
 export function useSyncManager() {

@@ -29,7 +29,8 @@ export const DbProvider = ({ children }: DbProviderProps) => {
     useEffect(() => {
         let cancelled = false;
 
-        (async () => {
+        // Never rejects: everything in it that can fail is caught inside.
+        void (async () => {
             try {
                 // Migrates, and on failure rebuilds the schema carrying the outbox, dead letters and genre jams
                 // across inside the file (recovery.ts). The rest is a cache of the server and comes back on sync.

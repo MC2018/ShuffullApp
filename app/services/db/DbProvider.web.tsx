@@ -37,7 +37,7 @@ async function runMigrations(db: GenericDb) {
         created_at numeric
     )`);
 
-    const appliedRows = (await db.all(sql`SELECT hash FROM __drizzle_migrations`)) as any[];
+    const appliedRows = (await db.all(sql`SELECT hash FROM __drizzle_migrations`)) as (unknown[] | { hash: unknown })[];
     // sqlite-proxy hands rows back as arrays of values, so the hash is column 0.
     const done = new Set(appliedRows.map((r) => (Array.isArray(r) ? r[0] : r.hash)));
 
@@ -45,8 +45,11 @@ async function runMigrations(db: GenericDb) {
     // is an object keyed by index, and the journal's entries carry the ORDER and the identity (`tag`).
     // Iterating the object directly is what failed: it isn't iterable, and its key order is not the schema's
     // history.
-    const bundle = migrations as any;
-    const entries: { idx: number; tag: string }[] = bundle.journal?.entries ?? [];
+    const bundle = migrations as {
+        journal?: { entries?: { idx: number; tag: string }[] };
+        migrations?: Record<string, string | undefined>;
+    };
+    const entries = bundle.journal?.entries ?? [];
 
     for (const entry of [...entries].sort((a, b) => a.idx - b.idx)) {
         if (done.has(entry.tag)) {
@@ -78,7 +81,8 @@ export const DbProvider = ({ children }: DbProviderProps) => {
     useEffect(() => {
         let cancelled = false;
 
-        (async () => {
+        // Never rejects: everything in it that can fail is caught inside.
+        void (async () => {
             try {
                 // Same as native: migrate, and on failure rebuild the schema carrying the outbox, dead letters and
                 // genre jams across inside the file (recovery.ts, ShuffullApp#92).

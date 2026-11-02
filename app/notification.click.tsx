@@ -1,12 +1,12 @@
-import { useEffect } from 'react';
-import { useRouter } from 'expo-router';
+import { useEffect } from "react";
+import { useRouter } from "expo-router";
 
 export default function NotificationClickRedirect() {
-  const router = useRouter();
+    const router = useRouter();
 
-  useEffect(() => {
-    router.replace('/');
-  }, [router]);
+    useEffect(() => {
+        router.replace("/");
+    }, [router]);
 
-  return;
+    return;
 }

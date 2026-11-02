@@ -9,6 +9,7 @@ import { useLikeStatus } from "@/app/services/media-manager/mediaManager";
 import { LikeStatus } from "@/app/enums";
 import { useTheme } from "@/app/theme";
 import HeartBurst from "./HeartBurst";
+import { log } from "@/app/tools/log";
 
 // Compact two-icon rating with tactile micro-animations. AntDesign glyphs (like/dislike/heart) are solid and
 // minimal. The like button cycles Neutral → Like (👍, pop) → Love (♥, heartbeat + heart-burst) → Neutral; the
@@ -33,15 +34,16 @@ export default function RatingControl({ songId, gap, size = 24 }: { songId: stri
             if (!cancelled) {
                 setLikeStatus(songId, (userSong?.likeStatus as LikeStatus) ?? LikeStatus.Neutral);
             }
-        })();
+        })().catch((e) => log.warn("likes", "Loading the rating failed.", e));
         return () => {
             cancelled = true;
         };
     }, [db, userId, songId, setLikeStatus]);
 
-    const apply = async (next: LikeStatus) => {
+    const apply = (next: LikeStatus) => {
         setLikeStatus(songId, next); // optimistic
-        await MediaManager.applyLikeStatus(songId, next);
+        MediaManager.applyLikeStatus(songId, next)
+            .catch((e) => log.error("likes", `Applying rating ${LikeStatus[next]} to song ${songId} failed.`, e));
     };
 
     const popUp = () =>

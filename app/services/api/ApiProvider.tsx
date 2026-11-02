@@ -1,5 +1,5 @@
-import { createContext, ReactNode, useContext } from 'react';
-import { ApiClient } from './ApiClient';
+import { createContext, ReactNode, useContext } from "react";
+import { ApiClient } from "./ApiClient";
 
 const ApiContext = createContext<ApiClient | null>(null);
 
@@ -20,4 +20,4 @@ export const useApi = () => {
     }
 
     return context;
-}
+};

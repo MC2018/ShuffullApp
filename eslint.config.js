@@ -58,8 +58,9 @@ module.exports = defineConfig([{
             caughtErrorsIgnorePattern: "^_",
             ignoreRestSiblings: true,
         }],
-        // A warning until ShuffullApp#153 handles the existing call sites.
-        "@typescript-eslint/no-floating-promises": "warn",
+        // A dropped promise loses its rejection. `await` it, `.catch` and log it, or `void` it when nothing inside can
+        // reject (say why in a comment).
+        "@typescript-eslint/no-floating-promises": "error",
         "eol-last": ["error", "always"],
         // react-native-web's Alert.alert is an empty stub: on desktop it shows nothing and never runs a button.
         "no-restricted-imports": ["error", {

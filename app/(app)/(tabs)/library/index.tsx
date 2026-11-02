@@ -18,6 +18,7 @@ import { showAlert } from "@/app/tools/dialog";
 import { useSongRequestsEnabled } from "@/app/services/song-requests/capability";
 import { useSongRequests } from "@/app/services/song-requests/useSongRequests";
 import SongRequestStatusList from "@/app/components/song-requests/SongRequestStatusList";
+import { log } from "@/app/tools/log";
 
 export default function LibraryScreen() {
     const [playlists, setPlaylists] = React.useState<Playlist[]>([]);
@@ -36,7 +37,7 @@ export default function LibraryScreen() {
         setDownloadedCount(await DbQueries.countDownloadedSongs(db));
     }, [db]);
     React.useEffect(() => {
-        loadDownloadedCount();
+        loadDownloadedCount().catch((e) => log.warn("library", "Counting downloaded songs failed.", e));
     }, [loadDownloadedCount, downloadStatus.completedCount]);
 
     const loadPlaylists = useCallback(async () => {
@@ -76,11 +77,11 @@ export default function LibraryScreen() {
     // Reload playlists + jams on focus so a newly created/deleted one shows up immediately.
     useFocusEffect(
         useCallback(() => {
-            loadPlaylists();
-            loadJams();
-            loadRole();
-            loadDownloadedCount();
-            loadMaybeDrop();
+            loadPlaylists().catch((e) => log.warn("library", "Loading playlists failed.", e));
+            loadJams().catch((e) => log.warn("library", "Loading genre jams failed.", e));
+            loadRole().catch((e) => log.warn("library", "Loading the user's role failed.", e));
+            loadDownloadedCount().catch((e) => log.warn("library", "Counting downloaded songs failed.", e));
+            loadMaybeDrop().catch((e) => log.warn("library", "Loading maybe-drop songs failed.", e));
         }, [loadPlaylists, loadJams, loadRole, loadDownloadedCount, loadMaybeDrop]),
     );
 
@@ -92,7 +93,7 @@ export default function LibraryScreen() {
                 style: "destructive",
                 onPress: async () => {
                     await DbQueries.deleteGenreJam(db, jam.genreJamId);
-                    loadJams();
+                    loadJams().catch((e) => log.warn("library", "Loading genre jams failed.", e));
                 },
             },
         ]);

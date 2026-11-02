@@ -10,6 +10,7 @@ import { sampleRecap } from "@/app/services/recap/sampleRecap";
 import { RECAP_SECTIONS } from "@/app/components/recap/sections";
 import { Recap } from "@/app/services/api/models";
 import { deviceTimeZone, recapYear, savedCopyNote } from "@/app/tools/recap";
+import { log } from "@/app/tools/log";
 
 // The December recap (ShuffullApp#116), as one scrolling page of cards like Home and Settings. The sections don't know
 // they're on a page: each is a component in RECAP_SECTIONS, so a story-style container could replace this one alone.
@@ -33,7 +34,7 @@ export default function RecapScreen() {
     }, [api, userId, year, sample]);
 
     useEffect(() => {
-        fetchRecap();
+        fetchRecap().catch((e) => log.warn("Recap", "Loading the recap failed.", e));
     }, [fetchRecap]);
 
     return (

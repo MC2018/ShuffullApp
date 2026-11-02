@@ -7,6 +7,7 @@ import { MediaManager } from "@/app/services/media-manager";
 import { STORAGE_KEYS } from "@/app/constants/storageKeys";
 import { activeLineIndex, LrcLine, parseLrc } from "@/app/tools/lrc";
 import { useTheme } from "@/app/theme";
+import { log } from "@/app/tools/log";
 
 const NUDGE_STEP_MS = 250;
 // Poll playback often enough that line changes feel tight without thrashing render.
@@ -59,7 +60,7 @@ function SyncedLyrics({ song, lrc }: { song: Song; lrc: string }) {
             if (!cancelled) {
                 setManualOffsetMs(stored ? parseInt(stored, 10) || 0 : 0);
             }
-        })();
+        })().catch((e) => log.warn("lyrics", "Loading the lyrics offset failed.", e));
         return () => {
             cancelled = true;
         };

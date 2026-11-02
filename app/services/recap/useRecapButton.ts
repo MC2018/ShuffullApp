@@ -4,6 +4,7 @@ import { useApi } from "../api/ApiProvider";
 import { useCurrentUser } from "../auth/CurrentUserProvider";
 import { loadRecap, readSavedRecap } from "./recapLoader";
 import { deviceTimeZone, isRecapSeason, recapButtonVisible, recapYear, shouldAskForRecap } from "../../tools/recap";
+import { log } from "@/app/tools/log";
 
 // When this app session last asked the server, per user and year. A failed ask (offline, or an API without the
 // endpoint yet) isn't saved anywhere, so without this every visit to Home in December would ask again.
@@ -44,7 +45,7 @@ export function useRecapButton(): { visible: boolean; year: number } {
                 if (!cancelled && load.status === "ready") {
                     setPlays(load.recap.plays);
                 }
-            })();
+            })().catch((e) => log.warn("Recap", "Loading the recap failed.", e));
             return () => {
                 cancelled = true;
             };
