@@ -1,0 +1,194 @@
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import Database from "better-sqlite3";
+import { drizzle } from "drizzle-orm/better-sqlite3";
+import { migrate } from "drizzle-orm/better-sqlite3/migrator";
+import path from "path";
+import type { GenericDb } from "@/app/services/db/GenericDb";
+import type { ApiClient } from "@/app/services/api/ApiClient";
+import type { SongRequest, SongRequestSearchResult } from "@/app/services/api/models";
+import { songTable } from "@/app/services/db/schema";
+import { getPlayNextIntents } from "@/app/services/db/queries/playNext";
+import { SongRequestStatus } from "@/app/enums/SongRequestStatus";
+import { PLAY_NEXT_WAIT_MS } from "@/app/tools/playNext";
+
+// The play-next driver (ShuffullApp#108) end to end against the real schema: the tap's row, the reconcile after a
+// sync, the queue it builds, the alert when a request ends badly, and the row going once its song plays. The media
+// manager, the alert and React Native are stubbed; everything else is the real code.
+
+const { queueNext, unqueue, showAlert } = vi.hoisted(() => ({
+    queueNext: vi.fn((_songIds: string[]) => {}),
+    unqueue: vi.fn((_songId: string) => {}),
+    showAlert: vi.fn((_title: string, _message: string) => {}),
+}));
+
+vi.mock("@/app/tools", () => import("@/app/tools/pure"));
+vi.mock("@/app/services/media-manager/mediaManager", async () => {
+    const { create: createStore } = await import("zustand");
+    return { queueNext, unqueue, useActiveSong: createStore<{ songId: string | null }>(() => ({ songId: "playing" })) };
+});
+vi.mock("@/app/tools/dialog", () => ({ showAlert }));
+vi.mock("react-native", () => ({ AppState: { currentState: "active" } }));
+vi.mock("expo-router", () => ({ useFocusEffect: () => {} }));
+vi.mock("@/app/services/api/ApiProvider", () => ({ useApi: () => null }));
+
+const { useActiveSong: activeSong } = await import("@/app/services/media-manager/mediaManager");
+const { attachPlayNextRequest, cancelPlayNext, reconcilePlayNext, recordPlayNext, startPlayNext, usePlayNext } =
+    await import("@/app/services/song-requests/playNext");
+const { applySongRequest, currentSongRequests, refreshSongRequests } = await import("@/app/services/song-requests/useSongRequests");
+
+const USER = "u1";
+
+function makeDb(): GenericDb {
+    const db = drizzle(new Database(":memory:"));
+    migrate(db, { migrationsFolder: path.resolve(__dirname, "../app/services/db/drizzle") });
+    return db as unknown as GenericDb;
+}
+
+function result(change: Partial<SongRequestSearchResult> = {}): SongRequestSearchResult {
+    return {
+        externalSongId: "yt-1", title: "A song", artists: ["An artist"], album: null, durationSeconds: 200,
+        thumbnailUrl: null, isExplicit: false, inLibrary: false, alreadyRequested: false, ...change,
+    } as SongRequestSearchResult;
+}
+
+function request(status: SongRequestStatus, change: Partial<SongRequest> = {}): SongRequest {
+    const now = new Date();
+    return {
+        songRequestId: "r1", externalSongId: "yt-1", title: "A song", artists: ["An artist"], durationSeconds: 200,
+        thumbnailUrl: null, status, failureReason: null, songId: status === SongRequestStatus.Completed ? "s1" : null,
+        targetPlaylistName: "Requests", createdAt: now, updatedAt: now, ...change,
+    };
+}
+
+async function addSong(db: GenericDb, songId: string) {
+    await db.insert(songTable).values({
+        songId, fileExtension: ".mp3", fileHash: `hash-${songId}`, name: `Song ${songId}`,
+        syncedLyrics: null, plainLyrics: null, lyricsInstrumental: false, lyricsSource: null,
+        bpm: null, heaviness: null, exploratory: true, tagsStale: false, hookStartPercent: null,
+    });
+}
+
+let db: GenericDb;
+let api: ApiClient;
+let serverList: SongRequest[];
+let stop: () => void;
+
+beforeEach(async () => {
+    vi.clearAllMocks();
+    activeSong.setState({ songId: "playing" });
+    db = makeDb();
+    serverList = [];
+    api = { songRequestListMine: vi.fn(async () => serverList) } as unknown as ApiClient;
+    stop = startPlayNext(db, api, USER);
+    await reconcilePlayNext({ readRequests: false });
+});
+
+afterEach(() => {
+    stop();
+    vi.useRealTimers();
+});
+
+/** The tap, as the search screen does it: save the intent, file the request, attach it. */
+async function tap(filed: SongRequest) {
+    await recordPlayNext(result());
+    applySongRequest(api, filed);
+    await attachPlayNextRequest(filed);
+}
+
+describe("play-next driver", () => {
+    it("saves the intent at the tap, waits while the request is open, and queues the song once it is local", async () => {
+        await tap(request(SongRequestStatus.Pending));
+        expect(await getPlayNextIntents(db, USER)).toMatchObject([{ externalSongId: "yt-1", songRequestId: "r1", songId: null }]);
+        expect(queueNext).not.toHaveBeenCalledWith(expect.arrayContaining(["s1"]));
+
+        // The producer finishes; the next sync reads the list but hasn't brought the song down yet.
+        serverList = [request(SongRequestStatus.Completed)];
+        await reconcilePlayNext({ readRequests: true });
+        expect(await getPlayNextIntents(db, USER)).toMatchObject([{ songId: "s1" }]);
+        expect(queueNext).not.toHaveBeenCalledWith(["s1"]);
+
+        // The sync after that has it.
+        await addSong(db, "s1");
+        await reconcilePlayNext({ readRequests: true });
+        expect(queueNext).toHaveBeenLastCalledWith(["s1"]);
+        expect(usePlayNext.getState().queuedSongIds).toEqual(["s1"]);
+        expect(showAlert).not.toHaveBeenCalled();
+    });
+
+    it("drops the row once its song starts playing, and takes it off the queue", async () => {
+        await addSong(db, "s1");
+        await tap(request(SongRequestStatus.Completed));
+        expect(queueNext).toHaveBeenLastCalledWith(["s1"]);
+
+        activeSong.setState({ songId: "s1" });
+        await vi.waitFor(async () => expect(await getPlayNextIntents(db, USER)).toEqual([]));
+        expect(unqueue).toHaveBeenCalledWith("s1");
+        expect(usePlayNext.getState().intents).toEqual([]);
+    });
+
+    it("drops a failed request with one alert, however many syncs see it", async () => {
+        await tap(request(SongRequestStatus.Downloading));
+        serverList = [request(SongRequestStatus.Failed, { failureReason: "Video unavailable" })];
+        await reconcilePlayNext({ readRequests: true });
+        await reconcilePlayNext({ readRequests: true });
+
+        expect(await getPlayNextIntents(db, USER)).toEqual([]);
+        expect(showAlert).toHaveBeenCalledTimes(1);
+        expect(showAlert).toHaveBeenCalledWith("Not playing next", expect.stringContaining("Video unavailable"));
+    });
+
+    it("survives a restart: a new session reads the row back and queues the song once it arrives", async () => {
+        await tap(request(SongRequestStatus.Pending));
+        stop();
+
+        stop = startPlayNext(db, api, USER);
+        await reconcilePlayNext({ readRequests: false });
+        expect(usePlayNext.getState().intents).toMatchObject([{ externalSongId: "yt-1", songRequestId: "r1" }]);
+
+        serverList = [request(SongRequestStatus.Completed)];
+        await addSong(db, "s1");
+        await reconcilePlayNext({ readRequests: true });
+        expect(queueNext).toHaveBeenLastCalledWith(["s1"]);
+    });
+
+    it("gives up after the wait, with a message", async () => {
+        await tap(request(SongRequestStatus.Retrying));
+        serverList = [request(SongRequestStatus.Retrying)];
+        vi.useFakeTimers({ toFake: ["Date"], now: Date.now() + PLAY_NEXT_WAIT_MS + 1_000 });
+        await reconcilePlayNext({ readRequests: true });
+        expect(await getPlayNextIntents(db, USER)).toEqual([]);
+        expect(showAlert).toHaveBeenCalledWith("Not playing next", expect.stringContaining("took too long"));
+    });
+
+    it("cancel drops the row and unqueues its song", async () => {
+        await addSong(db, "s1");
+        await tap(request(SongRequestStatus.Completed));
+        await cancelPlayNext("yt-1");
+        expect(await getPlayNextIntents(db, USER)).toEqual([]);
+        expect(unqueue).toHaveBeenCalledWith("s1");
+        expect(showAlert).not.toHaveBeenCalled();
+    });
+
+    it("queues nothing for a session that has stopped", async () => {
+        await addSong(db, "s1");
+        await recordPlayNext(result());
+        stop();
+        queueNext.mockClear();
+        await attachPlayNextRequest(request(SongRequestStatus.Completed));
+        expect(queueNext).not.toHaveBeenCalled();
+        expect(usePlayNext.getState().intents).toEqual([]);
+    });
+});
+
+describe("the shared request list", () => {
+    it("a read for a session that has since been replaced is thrown away", async () => {
+        let answer!: (list: SongRequest[]) => void;
+        const slow = { songRequestListMine: vi.fn(() => new Promise<SongRequest[]>(resolve => { answer = resolve; })) } as unknown as ApiClient;
+        const read = refreshSongRequests(slow);
+        applySongRequest(api, request(SongRequestStatus.Pending));
+        answer([request(SongRequestStatus.Completed, { songRequestId: "other" })]);
+        await read;
+        expect(currentSongRequests(slow)).toBeNull();
+        expect(currentSongRequests(api)?.map(r => r.songRequestId)).toEqual(["r1"]);
+    });
+});

@@ -6,6 +6,7 @@ import { useApi } from "../api/ApiProvider";
 import { logout } from "../auth/auth";
 import { logoutUnlessReplaced } from "../auth/passwordChange";
 import { useServerReachability } from "../connectivity/serverReachability";
+import { reconcilePlayNext, startPlayNext } from "../song-requests/playNext";
 import { SyncManager } from "./SyncManager";
 
 interface SyncManagerProviderProps {
@@ -23,8 +24,11 @@ export default function SyncManagerProvider({ userId }: SyncManagerProviderProps
     const [syncManager, setSyncManager] = useState<SyncManager | null>(null);
 
     useEffect(() => {
+        // Play-next intents queue their song once a sync brings it down (ShuffullApp#108).
+        const stopPlayNext = startPlayNext(db, api, userId);
         // A 401 on a token a password change has just replaced isn't this session ending (see logoutUnlessReplaced).
-        const instance = new SyncManager(db, api, userId, () => logoutUnlessReplaced(api, logout));
+        const instance = new SyncManager(db, api, userId, () => logoutUnlessReplaced(api, logout),
+            () => void reconcilePlayNext({ readRequests: true }));
         setSyncManager(instance);
         const reachability = useServerReachability.getState();
         reachability.setCheckNow(() => instance.syncNow());
@@ -50,6 +54,7 @@ export default function SyncManagerProvider({ userId }: SyncManagerProviderProps
             network.remove();
             appState.remove();
             instance.dispose();
+            stopPlayNext();
             setSyncManager(null);
             // The next session (another user, another server) finds out for itself.
             reachability.setCheckNow(undefined);

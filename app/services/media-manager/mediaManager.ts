@@ -26,6 +26,7 @@ import {
 import { Platform } from "react-native";
 import { createSerialLock } from "../../tools/serialLock";
 import { auditionStartSeconds, AuditionStart } from "../../tools/auditionSession";
+import { withPlayNextFirst } from "../../tools/playNext";
 import { playerSetupOptions } from "../../tools/playerSetup";
 import { SongDetails } from "../db/types";
 import { ListenRecorder } from "../listens/listenRecorder";
@@ -939,6 +940,28 @@ export async function addToQueue(songId: string) {
     if (song) {
         queue.push(songId);
         // A queued song plays before any shuffle pick, so it takes a slot in the lookahead.
+        scheduleLookaheadRefresh();
+    }
+}
+
+/**
+ * Puts songs the user asked to hear next (ShuffullApp#108) at the front of the queue, in order, leaving the rest of it
+ * as it was. skip() takes the queue before forward history and any shuffle pick, so they play next in any scope, a genre
+ * jam included, whatever its filters. Idempotent: play-next calls it after every sync, since a new scope clears the
+ * queue. The caller has checked the songs are in the library.
+ */
+export function queueNext(songIds: readonly string[]) {
+    const next = withPlayNextFirst(queue, songIds, useActiveSong.getState().songId);
+    if (next !== queue) {
+        queue = [...next];
+        scheduleLookaheadRefresh();
+    }
+}
+
+/** Takes a play-next song back out of the queue: the user no longer wants it next. */
+export function unqueue(songId: string) {
+    if (queue.includes(songId)) {
+        queue = queue.filter(id => id !== songId);
         scheduleLookaheadRefresh();
     }
 }

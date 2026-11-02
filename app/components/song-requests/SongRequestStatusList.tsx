@@ -1,8 +1,10 @@
 import { useState } from "react";
-import { ActivityIndicator, View } from "react-native";
+import { ActivityIndicator, Pressable, View } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { useApi } from "@/app/services/api/ApiProvider";
 import { SongRequest } from "@/app/services/api/models";
 import { SongRequestsView } from "@/app/services/song-requests/useSongRequests";
+import { cancelPlayNext, usePlayNext } from "@/app/services/song-requests/playNext";
 import { describeRequestFailure, describeSongRequest, SongRequestTone, SongRequestView, toCreateSongRequest, visibleSongRequests } from "@/app/tools/songRequests";
 import { AlbumArt, Button, Text } from "@/app/components/ui";
 import { ColorToken, useTheme } from "@/app/theme";
@@ -23,7 +25,8 @@ interface Props {
 }
 
 // The caller's song requests with their status (ShuffullApp#107): cancel while Pending, retry once Failed. Each is a
-// direct call whose answer replaces the row, and a failure shows on the row, so the user can try again.
+// direct call whose answer replaces the row, and a failure shows on the row, so the user can try again. A request the
+// user asked to play next says so, and the user can take that back (ShuffullApp#108).
 export default function SongRequestStatusList({ view, limit, emptyText }: Props) {
     const theme = useTheme();
     const { requests, loadError } = view;
@@ -74,12 +77,15 @@ function SongRequestRow({ request, onChanged, onFailed }: RowProps) {
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const status = describeSongRequest(request);
+    const playsNext = usePlayNext((state) => state.intents.some((i) =>
+        i.songRequestId === request.songRequestId || (i.songRequestId == null && i.externalSongId === request.externalSongId)));
 
-    const act = async (call: () => Promise<SongRequest>) => {
+    const act = async (call: () => Promise<SongRequest>, after?: () => Promise<void>) => {
         setBusy(true);
         setError(null);
         try {
             onChanged(await call());
+            await after?.();
         } catch (e) {
             setError(describeRequestFailure(e));
             onFailed();
@@ -103,6 +109,20 @@ function SongRequestRow({ request, onChanged, onFailed }: RowProps) {
                 <Text variant="caption" color={TONE_COLOR[status.tone]} numberOfLines={2} style={{ marginTop: 2 }}>
                     {status.label}
                 </Text>
+                {playsNext ? (
+                    <Pressable
+                        onPress={() => cancelPlayNext(request.externalSongId).catch((e) => setError(`Couldn't change that: ${String(e)}`))}
+                        accessibilityRole="button"
+                        accessibilityLabel={`${request.title} plays next. Don't play it next`}
+                        hitSlop={8}
+                        style={{ flexDirection: "row", alignItems: "center", gap: 4, marginTop: 2, alignSelf: "flex-start" }}
+                    >
+                        <Text variant="caption" color="accentTint">
+                            Plays next
+                        </Text>
+                        <Ionicons name="close" size={12} color={theme.color.textFaint} />
+                    </Pressable>
+                ) : null}
                 {error ? (
                     <Text variant="caption" color="accent" numberOfLines={3} style={{ marginTop: 2 }}>
                         {error}
@@ -113,7 +133,8 @@ function SongRequestRow({ request, onChanged, onFailed }: RowProps) {
                 busy={busy}
                 status={status}
                 onRetry={() => act(() => api.songRequestCreate(toCreateSongRequest(request)))}
-                onCancel={() => act(() => api.songRequestCancel(request.songRequestId))}
+                // The user cancelled it, so its play-next goes quietly rather than with a "was cancelled" message.
+                onCancel={() => act(() => api.songRequestCancel(request.songRequestId), () => cancelPlayNext(request.externalSongId))}
             />
         </View>
     );

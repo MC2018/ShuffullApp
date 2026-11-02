@@ -1,6 +1,8 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback } from "react";
 import { AppState } from "react-native";
 import { useFocusEffect } from "expo-router";
+import { create } from "zustand";
+import type { ApiClient } from "../api/ApiClient";
 import { useApi } from "../api/ApiProvider";
 import { SongRequest } from "../api/models";
 import { isServerUnreachable, useServerReachability } from "../connectivity/serverReachability";
@@ -18,6 +20,73 @@ export function syncSoon(): void {
     useServerReachability.getState().checkNow?.();
 }
 
+// The caller's request list, one per session's api client, shared by every screen that shows it and by play-next
+// (ShuffullApp#108), which reads it after syncs. A new session (another user or server) starts over empty.
+interface SongRequestListState {
+    api: ApiClient | null;
+    /** Newest first; null until the first read. */
+    requests: SongRequest[] | null;
+    loadError: string | null;
+    reading: boolean;
+    lastTriedAt: number;
+}
+
+const EMPTY: Omit<SongRequestListState, "api"> = { requests: null, loadError: null, reading: false, lastTriedAt: 0 };
+const useSongRequestList = create<SongRequestListState>(() => ({ api: null, ...EMPTY }));
+
+/** The list as it stands for `api`'s session. */
+function listFor(api: ApiClient): Omit<SongRequestListState, "api"> {
+    const state = useSongRequestList.getState();
+    return state.api === api ? state : EMPTY;
+}
+
+/** The last list read or applied for this session, or null when none has been. */
+export function currentSongRequests(api: ApiClient): SongRequest[] | null {
+    return listFor(api).requests;
+}
+
+/**
+ * Reads the list again, unless a read is already running. A request seen reaching Completed syncs, so its song lands
+ * in the library and this week's requests playlist.
+ */
+export async function refreshSongRequests(api: ApiClient): Promise<void> {
+    const before = listFor(api);
+    if (before.reading) {
+        return;
+    }
+    useSongRequestList.setState({ api, ...before, reading: true, lastTriedAt: Date.now() });
+    try {
+        const next = await api.songRequestListMine();
+        if (useSongRequestList.getState().api !== api) {
+            return;
+        }
+        // The list as it is now, not as the read started: a request applied meanwhile counts as seen.
+        const completed = newlyCompletedRequests(listFor(api).requests, next);
+        useSongRequestList.setState({ requests: next, loadError: null });
+        if (completed.length > 0) {
+            syncSoon();
+        }
+    } catch (error) {
+        if (useSongRequestList.getState().api === api) {
+            useSongRequestList.setState({ loadError: describeRequestFailure(error) });
+        }
+    } finally {
+        if (useSongRequestList.getState().api === api) {
+            useSongRequestList.setState({ reading: false });
+        }
+    }
+}
+
+/** Puts a request the API just returned (create, retry, cancel) into the list at once. */
+export function applySongRequest(api: ApiClient, changed: SongRequest): void {
+    const current = listFor(api);
+    const wasCompleted = current.requests?.find(r => r.songRequestId === changed.songRequestId)?.status === SongRequestStatus.Completed;
+    useSongRequestList.setState({ api, ...current, requests: withSongRequest(current.requests ?? [], changed) });
+    if (changed.status === SongRequestStatus.Completed && !wasCompleted) {
+        syncSoon();
+    }
+}
+
 export interface SongRequestsView {
     /** The caller's requests, newest first; null until the first read. */
     requests: SongRequest[] | null;
@@ -31,49 +100,14 @@ export interface SongRequestsView {
 /**
  * The caller's song requests, read when the screen comes into focus, and while it stays in focus as often as
  * shouldPollSongRequests says: every SONG_REQUEST_POLL_MS while the producer is working on one. Not while the app is in
- * the background or the server is unreachable: a focused tab stays focused then, and the music keeps JS running. A
- * request seen reaching Completed syncs, so its song lands in the library and this week's requests playlist.
+ * the background or the server is unreachable: a focused tab stays focused then, and the music keeps JS running.
  */
 export function useSongRequests(): SongRequestsView {
     const api = useApi();
-    const [requests, setRequests] = useState<SongRequest[] | null>(null);
-    const [loadError, setLoadError] = useState<string | null>(null);
-    // The last list read or applied, for the poll decision and the Completed check. A ref, so the timer sees it.
-    const lastRead = useRef<SongRequest[] | null>(null);
-    const reading = useRef(false);
-    const lastTriedAt = useRef(0);
-
-    const refresh = useCallback(async () => {
-        if (reading.current) {
-            return;
-        }
-        reading.current = true;
-        lastTriedAt.current = Date.now();
-        try {
-            const next = await api.songRequestListMine();
-            const completed = newlyCompletedRequests(lastRead.current, next);
-            lastRead.current = next;
-            setRequests(next);
-            setLoadError(null);
-            if (completed.length > 0) {
-                syncSoon();
-            }
-        } catch (error) {
-            setLoadError(describeRequestFailure(error));
-        } finally {
-            reading.current = false;
-        }
-    }, [api]);
-
-    const apply = useCallback((changed: SongRequest) => {
-        const wasCompleted = lastRead.current?.find(r => r.songRequestId === changed.songRequestId)?.status === SongRequestStatus.Completed;
-        const next = withSongRequest(lastRead.current ?? [], changed);
-        lastRead.current = next;
-        setRequests(next);
-        if (changed.status === SongRequestStatus.Completed && !wasCompleted) {
-            syncSoon();
-        }
-    }, []);
+    const requests = useSongRequestList((state) => (state.api === api ? state.requests : null));
+    const loadError = useSongRequestList((state) => (state.api === api ? state.loadError : null));
+    const refresh = useCallback(() => refreshSongRequests(api), [api]);
+    const apply = useCallback((changed: SongRequest) => applySongRequest(api, changed), [api]);
 
     useFocusEffect(
         useCallback(() => {
@@ -81,13 +115,14 @@ export function useSongRequests(): SongRequestsView {
             // Ticks at the fastest poll rate and decides each time, so a request this device files (apply) starts the
             // polling again without restarting the timer.
             const timer = setInterval(() => {
+                const list = listFor(api);
                 if (AppState.currentState === "active" && !isServerUnreachable()
-                    && shouldPollSongRequests(lastRead.current, Date.now() - lastTriedAt.current)) {
+                    && shouldPollSongRequests(list.requests, Date.now() - list.lastTriedAt)) {
                     void refresh();
                 }
             }, SONG_REQUEST_POLL_MS);
             return () => clearInterval(timer);
-        }, [refresh]),
+        }, [api, refresh]),
     );
 
     return { requests, loadError, refresh, apply };

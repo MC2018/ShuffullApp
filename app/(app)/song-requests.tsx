@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, View } from "react-native";
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { useShallow } from "zustand/react/shallow";
 import { AlbumArt, Button, Card, IconButton, Screen, SectionHeader, Text, TextField } from "@/app/components/ui";
 import SongRequestStatusList from "@/app/components/song-requests/SongRequestStatusList";
 import { useTheme } from "@/app/theme";
@@ -11,9 +12,11 @@ import { SongRequest, SongRequestSearchResult } from "@/app/services/api/models"
 import { useSongRequestsCapability } from "@/app/services/song-requests/capability";
 import { useSongRequests } from "@/app/services/song-requests/useSongRequests";
 import { playWhenSynced } from "@/app/services/song-requests/playRequested";
+import { attachPlayNextRequest, cancelPlayNext, recordPlayNext, usePlayNext } from "@/app/services/song-requests/playNext";
 import { SongRequestStatus } from "@/app/enums";
 import {
     completedRequestFor,
+    openRequestFor,
     describeRequestFailure,
     describeSearchFailure,
     formatSongDuration,
@@ -31,10 +34,14 @@ type SearchState =
     | { status: "done"; query: string; results: SongRequestSearchResult[] }
     | { status: "failed"; query: string; message: string };
 
-/** What a result row is doing right now, or what its last action came to. `whileRequested` notes go once it isn't. */
-type RowState = { busy: true } | { busy: false; note: string; isError: boolean; whileRequested?: boolean };
+/**
+ * What a result row is doing right now, or what its last action came to. `whileRequested` notes go once it isn't, and
+ * `whilePlaysNext` notes once its play-next intent is gone.
+ */
+type RowState = { busy: true } | { busy: false; note: string; isError: boolean; whileRequested?: boolean; whilePlaysNext?: boolean };
 
 const REQUESTED_NOTE = "Requested. Its status is below.";
+const PLAY_NEXT_NOTE = "Plays next once it arrives.";
 
 // Find a song the library doesn't have and request it (ShuffullApp#107). Reached from Home and now-playing, only when
 // the server offers song requests. Search waits for a pause in typing; each request is a direct call, so its outcome
@@ -152,6 +159,28 @@ export default function SongRequestsScreen() {
         });
     };
 
+    // Plays the song right after the current one, once it is on this device (ShuffullApp#108). The intent is saved
+    // before the request is filed, so a restart, or the app dying mid-call, keeps it. A request already open or
+    // completed for the song is reused rather than filed again.
+    const playNext = async (result: SongRequestSearchResult) => {
+        setRow(result.externalSongId, { busy: true });
+        try {
+            await recordPlayNext(result);
+        } catch (error) {
+            setRow(result.externalSongId, { busy: false, note: `Couldn't save that: ${String(error)}`, isError: true });
+            return;
+        }
+        const request = completedRequestFor(requests.requests, result.externalSongId)
+            ?? openRequestFor(requests.requests, result.externalSongId)
+            ?? await fileRequest(result);
+        if (request == null) {
+            await cancelPlayNext(result.externalSongId); // fileRequest has said why on the row
+            return;
+        }
+        await attachPlayNextRequest(request);
+        setRow(result.externalSongId, { busy: false, note: PLAY_NEXT_NOTE, isError: false, whilePlaysNext: true });
+    };
+
     return (
         <Screen>
             <View style={{ flexDirection: "row", alignItems: "center", gap: theme.space.sm, marginTop: theme.space.md, marginBottom: theme.space.sm }}>
@@ -180,7 +209,7 @@ export default function SongRequestsScreen() {
                         accessibilityLabel="Search for a song to request"
                         style={{ marginTop: theme.space.sm }}
                     />
-                    <SearchResults search={search} rows={rows} requests={requests.requests} onRetry={runSearch} onRequest={request} onPlay={playNow} />
+                    <SearchResults search={search} rows={rows} requests={requests.requests} onRetry={runSearch} onRequest={request} onPlay={playNow} onPlayNext={playNext} />
 
                     <SectionHeader title="Your requests" />
                     <SongRequestStatusList view={requests} emptyText="Nothing requested yet. Search above to find a song." />
@@ -222,10 +251,13 @@ interface ResultsProps {
     onRetry: (query: string) => void;
     onRequest: (result: SongRequestSearchResult) => void;
     onPlay: (result: SongRequestSearchResult) => void;
+    onPlayNext: (result: SongRequestSearchResult) => void;
 }
 
-function SearchResults({ search, rows, requests, onRetry, onRequest, onPlay }: ResultsProps) {
+function SearchResults({ search, rows, requests, onRetry, onRequest, onPlay, onPlayNext }: ResultsProps) {
     const theme = useTheme();
+    const playNextIdList = usePlayNext(useShallow((state) => state.intents.map((i) => i.externalSongId)));
+    const playNextIds = useMemo(() => new Set(playNextIdList), [playNextIdList]);
     switch (search.status) {
         case "idle":
             return (
@@ -258,6 +290,8 @@ function SearchResults({ search, rows, requests, onRetry, onRequest, onPlay }: R
                             row={rows[result.externalSongId]}
                             onRequest={() => onRequest(result)}
                             onPlay={() => onPlay(result)}
+                            playsNext={playNextIds.has(result.externalSongId)}
+                            onPlayNext={() => onPlayNext(result)}
                         />
                     ))}
                 </View>
@@ -270,14 +304,17 @@ interface ResultRowProps {
     row: RowState | undefined;
     onRequest: () => void;
     onPlay: () => void;
+    /** A play-next intent is waiting on this song. */
+    playsNext: boolean;
+    onPlayNext: () => void;
 }
 
-function SearchResultRow({ result, row, onRequest, onPlay }: ResultRowProps) {
+function SearchResultRow({ result, row, onRequest, onPlay, playsNext, onPlayNext }: ResultRowProps) {
     const theme = useTheme();
     const duration = formatSongDuration(result.durationSeconds);
     const byline = [result.artists.join(", "), duration].filter(Boolean).join(" · ");
     const busy = row?.busy === true;
-    const note = row && !row.busy && (!row.whileRequested || result.alreadyRequested) ? row : null;
+    const note = row && !row.busy && (!row.whileRequested || result.alreadyRequested) && (!row.whilePlaysNext || playsNext) ? row : null;
 
     return (
         <View style={{ flexDirection: "row", alignItems: "center", gap: theme.space.md, paddingVertical: theme.space.sm }}>
@@ -299,9 +336,37 @@ function SearchResultRow({ result, row, onRequest, onPlay }: ResultRowProps) {
                         {note.note}
                     </Text>
                 ) : null}
+                {busy ? null : <PlayNextControl result={result} playsNext={playsNext} noted={note?.whilePlaysNext === true} onPlayNext={onPlayNext} />}
             </View>
             <ResultAction result={result} busy={busy} onRequest={onRequest} onPlay={onPlay} />
         </View>
+    );
+}
+
+/** Under a result: "Plays next" once asked (unless the row's note already says so), otherwise the action to ask. */
+function PlayNextControl({ result, playsNext, noted, onPlayNext }: { result: SongRequestSearchResult; playsNext: boolean; noted: boolean; onPlayNext: () => void }) {
+    const theme = useTheme();
+    if (playsNext) {
+        return noted ? null : (
+            <Text variant="caption" color="accentTint" style={{ marginTop: 2 }}>
+                Plays next
+            </Text>
+        );
+    }
+    const requested = result.inLibrary || result.alreadyRequested;
+    return (
+        <Pressable
+            onPress={onPlayNext}
+            accessibilityRole="button"
+            accessibilityLabel={`${requested ? "Play" : "Request and play"} ${result.title} next`}
+            hitSlop={8}
+            style={{ flexDirection: "row", alignItems: "center", gap: 4, marginTop: 4, alignSelf: "flex-start" }}
+        >
+            <Ionicons name="play-skip-forward" size={12} color={theme.color.accentTint} />
+            <Text variant="caption" color="accentTint">
+                {requested ? "Play next" : "Request & play next"}
+            </Text>
+        </Pressable>
     );
 }
 
