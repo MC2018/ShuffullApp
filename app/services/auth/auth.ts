@@ -8,6 +8,7 @@ import { ApiClient } from "../api/ApiClient";
 import { AuthenticateResponse } from "../api/models";
 import { MediaManager } from "../media-manager";
 import { useAuthStore } from "./authStore";
+import { sendPasswordChange } from "./passwordChange";
 
 // Imperative auth service. All session transitions funnel through here and end by mutating the auth
 // store, which the route guards observe. Pulling this out of a React component (the old index.tsx /
@@ -31,7 +32,7 @@ export async function restoreSession(): Promise<void> {
     useAuthStore.getState().setSession({ userId: localSessionData.userId, apiClient, hostAddress });
 }
 
-// Persist the session envelope returned by authenticate/create and flip the store to authenticated.
+// Persist the session envelope returned by authenticate/create/password change and flip the store to authenticated.
 async function bootstrapSession(authResponse: AuthenticateResponse, hostAddress: string): Promise<void> {
     const db = getDb();
 
@@ -71,6 +72,22 @@ export async function register(username: string, password: string, hostAddress: 
     const api = new ApiClient(hostAddress, "");
     const authResponse = await api.userCreate(username, userHash);
     await bootstrapSession(authResponse, hostAddress);
+}
+
+// Changes the signed-in user's password and keeps this device signed in on the session the server returns. Every
+// other device's token stops working, so each logs out on its next sync. Throws on failure (a wrong current password
+// is a 400) without touching the session.
+export async function changePassword(currentPassword: string, newPassword: string): Promise<void> {
+    const { userId, apiClient, hostAddress } = useAuthStore.getState();
+
+    if (userId == null || apiClient == null || hostAddress == null) {
+        throw Error("Not signed in.");
+    }
+
+    // The sync keeps the user row; fall back to asking the server on a device that hasn't synced it yet.
+    const username = (await DbQueries.getUser(getDb(), userId))?.username ?? (await apiClient.userGet()).username;
+    await sendPasswordChange(apiClient, Hasher.argon2Hash, session => bootstrapSession(session, hostAddress),
+        username, currentPassword, newPassword);
 }
 
 export async function logout(): Promise<void> {

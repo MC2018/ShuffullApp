@@ -9,9 +9,9 @@ import { PREFETCH_CACHE_CAP_BYTES } from "@/app/tools/prefetchCache";
 
 const CAP_MB = Math.round(PREFETCH_CACHE_CAP_BYTES / 1024 / 1024);
 
-// App settings. Right now: "Load upcoming songs ahead" (ShuffullApp#124), which fetches the next song or two while
-// the current one plays so a skip starts at once. Development builds also get a Developer section that opens the
-// December recap (ShuffullApp#116) at any time of year.
+// App settings: "Load upcoming songs ahead" (ShuffullApp#124), which fetches the next song or two while the current
+// one plays so a skip starts at once, and Change password (ShuffullApp#158). Development builds also get a Developer
+// section that opens the December recap (ShuffullApp#116) at any time of year.
 export default function SettingsScreen() {
     const theme = useTheme();
     const enabled = usePrefetchSetting((state) => state.enabled);
@@ -52,6 +52,13 @@ export default function SettingsScreen() {
                         Loading upcoming songs ahead is not available on this platform yet.
                     </Text>
                 )}
+
+                <Text variant="label" color="textMuted" style={{ marginTop: theme.space.lg }}>Account</Text>
+                <ListRow
+                    title="Change password"
+                    subtitle="Signs out your other devices."
+                    onPress={() => router.push("/change-password")}
+                />
 
                 {__DEV__ ? (
                     <>

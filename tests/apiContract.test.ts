@@ -317,6 +317,8 @@ describe("API contract: request bodies the app sends (shuffull-workspace#92)", (
             call: api => api.userAuthenticate("listener", "hash-abc"), response: "users-authenticate" },
         { request: "users-authenticate-request", method: "post", url: "/api/v1/users",
             call: api => api.userCreate("listener", "hash-abc"), response: "users-authenticate" },
+        { request: "users-me-password-request", method: "post", url: "/api/v1/users/me/password",
+            call: api => api.userChangePassword("hash-abc", "hash-def"), response: "users-authenticate" },
         { request: "songs-list-request", method: "post", url: "/api/v1/songs/list",
             call: api => api.songGetList(["song-full", "song-sparse"]), response: "songs-list" },
         { request: "playlists-list-request", method: "post", url: "/api/v1/playlists/list",
