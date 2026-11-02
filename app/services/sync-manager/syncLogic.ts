@@ -283,7 +283,8 @@ export function toRetagItems(requests: QueuedRetag[]): { songId: string; model: 
 /** One per-song outcome from POST /songs/retag, as the reporting rule needs it. */
 export interface RetagOutcomeRow {
     songId: string;
-    outcome: "enriched" | "skipped" | "failed";
+    // "enriched" | "skipped" | "failed" today; a string, so an outcome added server-side can't fail the parse.
+    outcome: string;
     error?: string | null;
 }
 
