@@ -21,6 +21,16 @@ interface RunResult {
     reason?: string;
 }
 
+/** The request types the outbox pushes. OverallSync is the pull, and nothing queues Authenticate. */
+type PushedRequestType = Exclude<RequestType, RequestType.OverallSync | RequestType.Authenticate>;
+
+/** Sends a batch's rows one call at a time, in queue order; the first failure stops the rest. */
+async function eachInOrder<T>(requests: T[], send: (request: T) => Promise<unknown>): Promise<void> {
+    for (const request of requests) {
+        await send(request);
+    }
+}
+
 export class SyncManager {
     db: GenericDb;
     api: ApiClient;
@@ -120,12 +130,8 @@ export class SyncManager {
 
             if (requestBatch[0]?.requestType == RequestType.DeletePlaylist) {
                 const { hold, statusCode } = await this.checkDeleteHold(requestBatch[0] as DbModels.DeletePlaylistRequest);
-                if (statusCode == HttpStatusCode.Unauthorized) {
-                    await this.logout();
-                    return { statusCode, loggedOut: true };
-                } else if (statusCode) {
-                    console.log(`Cannot access server. Status code: ${statusCode}`);
-                    return { statusCode };
+                if (statusCode) {
+                    return await this.stopSync(statusCode);
                 } else if (hold) {
                     console.warn(`[sync] Holding playlist delete ${requestBatch[0].playlistId}: ${hold}.`);
                     continue;
@@ -135,8 +141,7 @@ export class SyncManager {
             const { statusCode, reason } = await this.runRequests(requestBatch);
 
             if (statusCode == HttpStatusCode.Unauthorized) {
-                await this.logout();
-                return { statusCode, loggedOut: true };
+                return await this.stopSync(statusCode);
             } else if (200 <= statusCode && statusCode <= 299) {
                 // By id: a row replaced while this batch was in flight (enqueueSongRetag) has a new id and stays.
                 await DbQueries.deleteRequests(this.db, requestBatch.map(x => x.requestId));
@@ -159,8 +164,7 @@ export class SyncManager {
                 markRefused(keep, refused);
             } else if (500 <= statusCode) {
                 // Stops here, so nothing queued after this batch overtakes it.
-                console.log(`Cannot access server. Status code: ${statusCode}`);
-                return { statusCode };
+                return await this.stopSync(statusCode);
             }
         }
 
@@ -172,68 +176,67 @@ export class SyncManager {
             userId: this.userId
         };
         const { statusCode } = await this.runRequests([overallSyncRequest]);
-        if (statusCode == HttpStatusCode.Unauthorized) {
-            // The session is gone (revoked, expired, or the user deleted). The API answers 503, not 401, when it can't
-            // check the session because its database is down (Shuffull#108), so this doesn't log out on an outage.
-            await this.logout();
-            return { statusCode, loggedOut: true };
-        } else if (statusCode != HttpStatusCode.Ok) {
-            return { statusCode };
+        if (statusCode != HttpStatusCode.Ok) {
+            return await this.stopSync(statusCode, { quiet: true });
         }
         await this.reconcileSongs();
         await this.refreshListenStats(listensSent);
         return { statusCode: HttpStatusCode.Ok };
     }
 
-    private async runRequests(requests: DbModels.Request[]): Promise<RunResult> {
-        const singleRequest = requests[0];
-        const requestType = singleRequest.requestType as RequestType;
-
-        switch (requestType) {
-            case RequestType.UpdateSongLastPlayed:
-                return await this.attempt(() => this.api.userSongUpdateLastPlayed(requests as DbModels.UpdateSongLastPlayedRequest[]));
-            case RequestType.OverallSync:
-                return { statusCode: await this.overallSync() };
-            case RequestType.CreateUserSong:
-                return await this.attempt(() => this.api.userSongCreateMany((requests as DbModels.CreateUserSongRequest[]).map(x => x.songId)));
-            case RequestType.SetSongLikeStatus:
-                // Processed individually, so each batch is a single song; loop defensively all the same.
-                return await this.attempt(async () => {
-                    for (const request of requests as DbModels.SetSongLikeStatusRequest[]) {
-                        await this.api.userSongSetLikeStatus(request.songId, request.likeStatus);
-                    }
-                });
-            case RequestType.FlagSongForReplacement:
-                // Batched: one idempotent POST per flagged song (server skips songs already queued).
-                return await this.attempt(async () => {
-                    for (const request of requests as DbModels.FlagSongForReplacementRequest[]) {
-                        await this.api.flagSongForReplacement(request.songId);
-                    }
-                });
-            case RequestType.UpdateSongMetadata:
-                // Processed individually, so each batch is a single song; loop defensively all the same.
-                return await this.attempt(async () => {
-                    for (const request of requests as DbModels.UpdateSongMetadataRequest[]) {
-                        await this.api.songUpdate(request.songId, request.payload);
-                    }
-                });
-            case RequestType.SongRetag:
-                return await this.attempt(() => this.keepAndRetag(requests as DbModels.SongRetagRequest[]));
-            case RequestType.DeletePlaylist:
-                // Processed individually, so each batch is a single playlist; loop defensively all the same. The
-                // local rows were already removed optimistically when the user deleted; this just tells the server
-                // (which also purges the un-kept audition songs). sync() holds these while any Keep is unrecorded.
-                return await this.attempt(async () => {
-                    for (const request of requests as DbModels.DeletePlaylistRequest[]) {
-                        await this.api.playlistDelete(request.playlistId);
-                    }
-                });
-            case RequestType.RecordListen:
-                return await this.attempt(() => this.recordListens(requests as DbModels.RecordListenRequest[]));
-            default:
-                throw new Error("A request type has no method to call.");
+    // Ends this sync on a status that stops it. A 401 means the session is gone (revoked, expired, or the user deleted),
+    // so it logs out, through the guard SyncManagerProvider passes in (logoutUnlessReplaced). Anything else is the
+    // server being unreachable or failing, which sync() backs off from. The API answers 503, not 401, when it can't
+    // check the session because its database is down (Shuffull#108), so an outage never logs out.
+    private async stopSync(statusCode: number, { quiet = false } = {}): Promise<{ statusCode: number; loggedOut?: boolean }> {
+        if (statusCode == HttpStatusCode.Unauthorized) {
+            await this.logout();
+            return { statusCode, loggedOut: true };
         }
+        if (!quiet) {
+            console.log(`Cannot access server. Status code: ${statusCode}`);
+        }
+        return { statusCode };
     }
+
+    private async runRequests(requests: DbModels.Request[]): Promise<RunResult> {
+        const requestType = requests[0].requestType as RequestType;
+        if (requestType == RequestType.OverallSync) {
+            return { statusCode: await this.overallSync() };
+        }
+
+        const send = SyncManager.senders[requestType as PushedRequestType];
+        if (!send) {
+            throw new Error("A request type has no method to call.");
+        }
+        return await this.attempt(() => send(this, requests));
+    }
+
+    // What sends one batch of each queued request type. Every one runs inside attempt(), the one place a thrown error
+    // becomes the status sync() acts on, so a sender only calls the API and throws. Static, so a SyncManager built
+    // without its constructor (the tests) has it too.
+    private static readonly senders: Record<PushedRequestType, (sync: SyncManager, requests: DbModels.Request[]) => Promise<unknown>> = {
+        [RequestType.UpdateSongLastPlayed]: (sync, requests) =>
+            sync.api.userSongUpdateLastPlayed(requests as DbModels.UpdateSongLastPlayedRequest[]),
+        [RequestType.CreateUserSong]: (sync, requests) =>
+            sync.api.userSongCreateMany((requests as DbModels.CreateUserSongRequest[]).map(x => x.songId)),
+        // Processed individually, so each batch is a single song; loop defensively all the same.
+        [RequestType.SetSongLikeStatus]: (sync, requests) => eachInOrder(requests as DbModels.SetSongLikeStatusRequest[],
+            request => sync.api.userSongSetLikeStatus(request.songId, request.likeStatus)),
+        // Batched: one idempotent POST per flagged song (server skips songs already queued).
+        [RequestType.FlagSongForReplacement]: (sync, requests) => eachInOrder(requests as DbModels.FlagSongForReplacementRequest[],
+            request => sync.api.flagSongForReplacement(request.songId)),
+        // Processed individually, so each batch is a single song; loop defensively all the same.
+        [RequestType.UpdateSongMetadata]: (sync, requests) => eachInOrder(requests as DbModels.UpdateSongMetadataRequest[],
+            request => sync.api.songUpdate(request.songId, request.payload)),
+        [RequestType.SongRetag]: (sync, requests) => sync.keepAndRetag(requests as DbModels.SongRetagRequest[]),
+        // Processed individually, so each batch is a single playlist; loop defensively all the same. The local rows were
+        // already removed optimistically when the user deleted; this just tells the server (which also purges the
+        // un-kept audition songs). pushAndPull holds these while any Keep is unrecorded (checkDeleteHold).
+        [RequestType.DeletePlaylist]: (sync, requests) => eachInOrder(requests as DbModels.DeletePlaylistRequest[],
+            request => sync.api.playlistDelete(request.playlistId)),
+        [RequestType.RecordListen]: (sync, requests) => sync.recordListens(requests as DbModels.RecordListenRequest[]),
+    };
 
     // Runs one batch's calls and reports the status sync() acts on, plus the error text for the log and any
     // dead-letter row. statusOfFailure is the one place a thrown error becomes a status.

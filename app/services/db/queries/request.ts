@@ -123,5 +123,3 @@ export async function removeDeadLetteredKeeps(db: GenericDb, userId: string, son
             inArray(deadLetterRequestTable.songId, idChunk)));
     }
 }
-
-// TODO: move all requests from SyncManager to here

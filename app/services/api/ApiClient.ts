@@ -1,5 +1,5 @@
 import axios, { AxiosHeaders, AxiosInstance } from "axios";
-import { AuthenticateResponse, AuthenticateResponseSchema, Capabilities, CapabilitiesSchema, CreateSongRequestPayload, ChangedSongKeysSchema, ChangedSongPageSchema, CreatePlaylistResponseSchema, FeedCursor, KeepResponse, KeepResponseSchema, ListenStatsResponse, ListenStatsResponseSchema, Playlist, PlaylistListResponseSchema, Recap, RecapSchema, RecordListensResponse, RecordListensResponseSchema, RetagResponse, RetagStaleResponse, SongListResponseSchema, SongRequest, SongRequestListSchema, SongRequestSchema, SongRequestSearchResponseSchema, SongRequestSearchResult, SongRetagWireItem, Tag, TagListResponseSchema, UserResponseSchema, UserSongKeysSchema, UserSongPageSchema } from "./models";
+import { AuthenticateResponse, AuthenticateResponseSchema, Capabilities, CapabilitiesSchema, CreateSongRequestPayload, ChangedSongKeysSchema, ChangedSongPageSchema, CreatePlaylistResponseSchema, FeedCursor, KeepResponse, KeepResponseSchema, ListenStatsResponse, ListenStatsResponseSchema, Playlist, PlaylistListResponseSchema, Recap, RecapSchema, RecordListensResponse, RecordListensResponseSchema, RetagResponse, RetagResponseSchema, RetagStaleResponse, RetagStaleResponseSchema, SongListResponseSchema, SongRequest, SongRequestListSchema, SongRequestSchema, SongRequestSearchResponseSchema, SongRequestSearchResult, SongRetagWireItem, Tag, TagListResponseSchema, UserResponseSchema, UserSongKeysSchema, UserSongPageSchema } from "./models";
 import { ApiStatusFailureError } from "./errors";
 import { RecordListenPayload, UpdateSongLastPlayedRequest, UpdateSongMetadataPayload } from "../db/models";
 
@@ -44,649 +44,247 @@ export class ApiClient {
         this.client.defaults.headers.common["Authorization"] = `Bearer ${token}`;
     }
 
+    // In the body, never the URL: the hash is all it takes to log in, and URLs end up in proxy logs.
     public async userAuthenticate(username: string, userHash: string): Promise<AuthenticateResponse> {
-        const endpoint = "/api/v1/users/authenticate";
-        console.log(`[API] Calling endpoint: ${endpoint}`);
-        try {
-            // In the body, never the URL: the hash is all it takes to log in, and URLs end up in proxy logs.
-            const response = await this.client.post(endpoint, { username, userHash });
-
-            if (!isSuccessfulStatus(response.status)) {
-                console.log(`[API] Endpoint ${endpoint} failed with status: ${response.status}`);
-                throw new ApiStatusFailureError(endpoint, response);
-            }
-
-            console.log(`[API] Endpoint ${endpoint} succeeded`);
-            return AuthenticateResponseSchema.parse(response.data);
-        } catch (error) {
-            console.log(`[API] Endpoint ${endpoint} failed with error:`, error);
-            throw error;
-        }
+        return this.request("post", "/api/v1/users/authenticate", { body: { username, userHash }, schema: AuthenticateResponseSchema });
     }
 
+    // Create returns the same { user, token, expiration } envelope as authenticate, so a successful registration can
+    // log the user straight in. The hash goes in the body, as for authenticate.
     public async userCreate(username: string, userHash: string): Promise<AuthenticateResponse> {
-        const endpoint = "/api/v1/users";
-        console.log(`[API] Calling endpoint: ${endpoint}`);
-        try {
-            // In the body, never the URL: the hash is all it takes to log in, and URLs end up in proxy logs.
-            const response = await this.client.post(endpoint, { username, userHash });
-
-            if (!isSuccessfulStatus(response.status)) {
-                console.log(`[API] Endpoint ${endpoint} failed with status: ${response.status}`);
-                throw new ApiStatusFailureError(endpoint, response);
-            }
-
-            console.log(`[API] Endpoint ${endpoint} succeeded`);
-            // Create returns the same { user, token, expiration } envelope as authenticate, so a
-            // successful registration can log the user straight in.
-            return AuthenticateResponseSchema.parse(response.data);
-        } catch (error) {
-            console.log(`[API] Endpoint ${endpoint} failed with error:`, error);
-            throw error;
-        }
+        return this.request("post", "/api/v1/users", { body: { username, userHash }, schema: AuthenticateResponseSchema });
     }
 
     // Each hash is the same client argon2 of "username;password" that login sends. The server signs out every other
     // token the user holds and answers with a fresh session for this device. A wrong current password is a 400.
     public async userChangePassword(currentUserHash: string, newUserHash: string): Promise<AuthenticateResponse> {
-        const endpoint = "/api/v1/users/me/password";
-        console.log(`[API] Calling endpoint: ${endpoint}`);
-        try {
-            const response = await this.client.post(endpoint, { currentUserHash, newUserHash });
-
-            if (!isSuccessfulStatus(response.status)) {
-                console.log(`[API] Endpoint ${endpoint} failed with status: ${response.status}`);
-                throw new ApiStatusFailureError(endpoint, response);
-            }
-
-            console.log(`[API] Endpoint ${endpoint} succeeded`);
-            return AuthenticateResponseSchema.parse(response.data);
-        } catch (error) {
-            console.log(`[API] Endpoint ${endpoint} failed with error:`, error);
-            throw error;
-        }
-    }
-
-    public async tagGetAll(): Promise<Tag[]> {
-        const endpoint = "/api/v1/tags";
-        console.log(`[API] Calling endpoint: ${endpoint}`);
-        try {
-            const response = await this.client.get(endpoint, { timeout: BULK_TIMEOUT_MS });
-
-            if (!isSuccessfulStatus(response.status)) {
-                console.log(`[API] Endpoint ${endpoint} failed with status: ${response.status}`);
-                throw new ApiStatusFailureError(endpoint, response);
-            }
-
-            console.log(`[API] Endpoint ${endpoint} succeeded`);
-            return TagListResponseSchema.parse(response.data).tags;
-        } catch (error) {
-            console.log(`[API] Endpoint ${endpoint} failed with error:`, error);
-            throw error;
-        }
-    }
-
-    public async playlistGetAll() {
-        const endpoint = "/api/v1/playlists";
-        console.log(`[API] Calling endpoint: ${endpoint}`);
-        try {
-            const response = await this.client.get(endpoint, { timeout: BULK_TIMEOUT_MS });
-
-            if (!isSuccessfulStatus(response.status)) {
-                console.log(`[API] Endpoint ${endpoint} failed with status: ${response.status}`);
-                throw new ApiStatusFailureError(endpoint, response);
-            }
-
-            console.log(`[API] Endpoint ${endpoint} succeeded`);
-            return PlaylistListResponseSchema.parse(response.data).playlists;
-        } catch (error) {
-            console.log(`[API] Endpoint ${endpoint} failed with error:`, error);
-            throw error;
-        }
-    }
-
-    public async playlistGetList(playlistIds: string[]): Promise<Playlist[]> {
-        const endpoint = "/api/v1/playlists/list";
-        console.log(`[API] Calling endpoint: ${endpoint}`);
-        try {
-            const playlistIdsJson = JSON.stringify(playlistIds);
-            const response = await this.client.post(endpoint, playlistIdsJson, {
-                timeout: BULK_TIMEOUT_MS,
-                headers: {
-                    "Content-Type": "application/json"
-                }
-            });
-
-            if (!isSuccessfulStatus(response.status)) {
-                console.log(`[API] Endpoint ${endpoint} failed with status: ${response.status}`);
-                throw new ApiStatusFailureError(endpoint, response);
-            }
-
-            console.log(`[API] Endpoint ${endpoint} succeeded`);
-            return PlaylistListResponseSchema.parse(response.data).playlists;
-        } catch (error) {
-            console.log(`[API] Endpoint ${endpoint} failed with error:`, error);
-            throw error;
-        }
-    }
-
-    public async playlistCreate(name: string): Promise<Playlist> {
-        const endpoint = "/api/v1/playlists";
-        console.log(`[API] Calling endpoint: ${endpoint} (create)`);
-        try {
-            const response = await this.client.put(endpoint, null, { params: { name } });
-
-            if (!isSuccessfulStatus(response.status)) {
-                console.log(`[API] Endpoint ${endpoint} failed with status: ${response.status}`);
-                throw new ApiStatusFailureError(endpoint, response);
-            }
-
-            return CreatePlaylistResponseSchema.parse(response.data).playlist;
-        } catch (error) {
-            console.log(`[API] Endpoint ${endpoint} (create) failed with error:`, error);
-            throw error;
-        }
-    }
-
-    public async playlistAddSong(playlistId: string, songId: string): Promise<void> {
-        const endpoint = `/api/v1/playlists/${playlistId}/songs`;
-        console.log(`[API] Calling endpoint: ${endpoint} (add)`);
-        try {
-            const response = await this.client.post(endpoint, null, { params: { songId } });
-
-            if (!isSuccessfulStatus(response.status)) {
-                console.log(`[API] Endpoint ${endpoint} failed with status: ${response.status}`);
-                throw new ApiStatusFailureError(endpoint, response);
-            }
-        } catch (error) {
-            console.log(`[API] Endpoint ${endpoint} (add) failed with error:`, error);
-            throw error;
-        }
-    }
-
-    public async playlistRemoveSong(playlistId: string, songId: string): Promise<void> {
-        const endpoint = `/api/v1/playlists/${playlistId}/songs/${songId}`;
-        console.log(`[API] Calling endpoint: ${endpoint} (remove)`);
-        try {
-            const response = await this.client.delete(endpoint);
-
-            if (!isSuccessfulStatus(response.status)) {
-                console.log(`[API] Endpoint ${endpoint} failed with status: ${response.status}`);
-                throw new ApiStatusFailureError(endpoint, response);
-            }
-        } catch (error) {
-            console.log(`[API] Endpoint ${endpoint} (remove) failed with error:`, error);
-            throw error;
-        }
-    }
-
-    public async playlistDelete(playlistId: string): Promise<void> {
-        const endpoint = `/api/v1/playlists/${playlistId}`;
-        console.log(`[API] Calling endpoint: ${endpoint} (delete)`);
-        try {
-            const response = await this.client.delete(endpoint);
-
-            if (!isSuccessfulStatus(response.status)) {
-                console.log(`[API] Endpoint ${endpoint} failed with status: ${response.status}`);
-                throw new ApiStatusFailureError(endpoint, response);
-            }
-        } catch (error) {
-            console.log(`[API] Endpoint ${endpoint} (delete) failed with error:`, error);
-            throw error;
-        }
-    }
-
-    // One page of the caller's user songs after `cursor`. The cursor is sent exactly as given (see FeedCursor).
-    public async userSongGetAll(cursor: FeedCursor) {
-        const endpoint = "/api/v1/user-songs";
-        console.log(`[API] Calling endpoint: ${endpoint}`);
-        try {
-            const response = await this.client.get(endpoint, {
-                timeout: BULK_TIMEOUT_MS,
-                params: {
-                    afterDate: cursor.afterDate,
-                    afterId: cursor.afterId
-                }
-            });
-
-            if (!isSuccessfulStatus(response.status)) {
-                console.log(`[API] Endpoint ${endpoint} failed with status: ${response.status}`);
-                throw new ApiStatusFailureError(endpoint, response);
-            }
-
-            console.log(`[API] Endpoint ${endpoint} succeeded`);
-            // Keep the { items, endOfList } shape SyncManager consumes; the API key is `userSongs`.
-            const page = UserSongPageSchema.parse(response.data);
-            const keys = UserSongKeysSchema.parse(response.data).userSongs;
-            return { items: page.userSongs, keys, endOfList: page.endOfList };
-        } catch (error) {
-            console.log(`[API] Endpoint ${endpoint} failed with error:`, error);
-            throw error;
-        }
-    }
-
-    public async userSongCreateMany(songIds: string[]) {
-
-        const endpoint = "/api/v1/user-songs";
-        console.log(`[API] Calling endpoint: ${endpoint}`);
-        try {
-            const songIdsJson = JSON.stringify(songIds);
-            const response = await this.client.put(endpoint, songIdsJson, {
-                timeout: BULK_TIMEOUT_MS,
-                headers: {
-                    "Content-Type": "application/json"
-                }
-            });
-
-            if (!isSuccessfulStatus(response.status)) {
-                console.log(`[API] Endpoint ${endpoint} failed with status: ${response.status}`);
-                throw new ApiStatusFailureError(endpoint, response);
-            }
-
-            console.log(`[API] Endpoint ${endpoint} succeeded`);
-            return;
-        } catch (error) {
-            console.log(`[API] Endpoint ${endpoint} failed with error:`, error);
-            throw error;
-        }
-    }
-
-    public async userSongUpdateLastPlayed(requests: UpdateSongLastPlayedRequest[]) {
-        const endpoint = "/api/v1/user-songs/last-played";
-        console.log(`[API] Calling endpoint: ${endpoint}`);
-        try {
-            const requestsJson = JSON.stringify(requests);
-            const response = await this.client.post(endpoint, requestsJson, {
-                timeout: BULK_TIMEOUT_MS,
-                headers: {
-                    "Content-Type": "application/json"
-                }
-            });
-
-            if (!isSuccessfulStatus(response.status)) {
-                console.log(`[API] Endpoint ${endpoint} failed with status: ${response.status}`);
-                throw new ApiStatusFailureError(endpoint, response);
-            }
-
-            console.log(`[API] Endpoint ${endpoint} succeeded`);
-        } catch (error) {
-            console.log(`[API] Endpoint ${endpoint} failed with error:`, error);
-            throw error;
-        }
-    }
-
-    public async userSongSetLikeStatus(songId: string, likeStatus: number) {
-        const endpoint = `/api/v1/user-songs/${songId}/like`;
-        console.log(`[API] Calling endpoint: ${endpoint}`);
-        try {
-            // The endpoint takes the LikeStatus enum as a JSON-encoded int in the body.
-            const response = await this.client.post(endpoint, JSON.stringify(likeStatus), {
-                headers: {
-                    "Content-Type": "application/json"
-                }
-            });
-
-            if (!isSuccessfulStatus(response.status)) {
-                console.log(`[API] Endpoint ${endpoint} failed with status: ${response.status}`);
-                throw new ApiStatusFailureError(endpoint, response);
-            }
-
-            console.log(`[API] Endpoint ${endpoint} succeeded`);
-        } catch (error) {
-            console.log(`[API] Endpoint ${endpoint} failed with error:`, error);
-            throw error;
-        }
-    }
-
-    public async flagSongForReplacement(songId: string) {
-        const endpoint = "/api/v1/replacements";
-        console.log(`[API] Calling endpoint: ${endpoint}`);
-        try {
-            // Flags a song's audio as poor quality so it gets queued for re-sourcing (global per song).
-            const response = await this.client.post(endpoint, JSON.stringify({ songId }), {
-                headers: {
-                    "Content-Type": "application/json"
-                }
-            });
-
-            if (!isSuccessfulStatus(response.status)) {
-                console.log(`[API] Endpoint ${endpoint} failed with status: ${response.status}`);
-                throw new ApiStatusFailureError(endpoint, response);
-            }
-
-            console.log(`[API] Endpoint ${endpoint} succeeded`);
-        } catch (error) {
-            console.log(`[API] Endpoint ${endpoint} failed with error:`, error);
-            throw error;
-        }
-    }
-
-    // Curator-only metadata edit. The server gates this with the Curator role and bumps the song's version
-    // so every client re-syncs the corrected record. Body matches the site's UpdateSongRequest.
-    public async songUpdate(songId: string, payload: UpdateSongMetadataPayload) {
-        const endpoint = `/api/v1/songs/${songId}`;
-        console.log(`[API] Calling endpoint: ${endpoint}`);
-        try {
-            const response = await this.client.put(endpoint, JSON.stringify(payload), {
-                headers: {
-                    "Content-Type": "application/json"
-                }
-            });
-
-            if (!isSuccessfulStatus(response.status)) {
-                console.log(`[API] Endpoint ${endpoint} failed with status: ${response.status}`);
-                throw new ApiStatusFailureError(endpoint, response);
-            }
-
-            console.log(`[API] Endpoint ${endpoint} succeeded`);
-        } catch (error) {
-            console.log(`[API] Endpoint ${endpoint} failed with error:`, error);
-            throw error;
-        }
-    }
-
-    // Any user: record a Keep of audition songs in their library. Promotes them server-side (clears Exploratory) and
-    // runs no AI, so the decision is durable whatever happens to tagging. Returns a per-song outcome.
-    public async songKeep(songIds: string[]): Promise<KeepResponse> {
-        const endpoint = "/api/v1/songs/keep";
-        console.log(`[API] Calling endpoint: ${endpoint} (${songIds.length} songs)`);
-        try {
-            const response = await this.client.post(endpoint, JSON.stringify({ songIds }), {
-                timeout: BULK_TIMEOUT_MS,
-                headers: {
-                    "Content-Type": "application/json"
-                }
-            });
-            if (!isSuccessfulStatus(response.status)) {
-                console.log(`[API] Endpoint ${endpoint} failed with status: ${response.status}`);
-                throw new ApiStatusFailureError(endpoint, response);
-            }
-            console.log(`[API] Endpoint ${endpoint} succeeded`);
-            return KeepResponseSchema.parse(response.data);
-        } catch (error) {
-            console.log(`[API] Endpoint ${endpoint} failed with error:`, error);
-            throw error;
-        }
-    }
-
-    // Any user: log finished listens (at most 200 per call, the server's MaxBatch). Returns one outcome per listen;
-    // a resend of a stored listen comes back "duplicate".
-    public async listenRecord(listens: RecordListenPayload[]): Promise<RecordListensResponse> {
-        const endpoint = "/api/v1/listens";
-        console.log(`[API] Calling endpoint: ${endpoint} (${listens.length} listens)`);
-        try {
-            const response = await this.client.post(endpoint, JSON.stringify({ listens }), {
-                timeout: BULK_TIMEOUT_MS,
-                headers: {
-                    "Content-Type": "application/json"
-                }
-            });
-            if (!isSuccessfulStatus(response.status)) {
-                console.log(`[API] Endpoint ${endpoint} failed with status: ${response.status}`);
-                throw new ApiStatusFailureError(endpoint, response);
-            }
-            console.log(`[API] Endpoint ${endpoint} succeeded`);
-            return RecordListensResponseSchema.parse(response.data);
-        } catch (error) {
-            console.log(`[API] Endpoint ${endpoint} failed with error:`, error);
-            throw error;
-        }
-    }
-
-    // Any user: their own per-song listen stats and the "maybe drop this" flags (one row per song they ever played).
-    // A server from before Shuffull#61 answers 404; SyncManager.refreshListenStats keeps the last synced stats then.
-    public async listenStats(): Promise<ListenStatsResponse> {
-        const endpoint = "/api/v1/listens/stats";
-        console.log(`[API] Calling endpoint: ${endpoint}`);
-        try {
-            const response = await this.client.get(endpoint, { timeout: BULK_TIMEOUT_MS });
-            if (!isSuccessfulStatus(response.status)) {
-                console.log(`[API] Endpoint ${endpoint} failed with status: ${response.status}`);
-                throw new ApiStatusFailureError(endpoint, response);
-            }
-            console.log(`[API] Endpoint ${endpoint} succeeded`);
-            return ListenStatsResponseSchema.parse(response.data);
-        } catch (error) {
-            console.log(`[API] Endpoint ${endpoint} failed with error:`, error);
-            throw error;
-        }
-    }
-
-    // Any user: their recap of one year, computed on every call. timeZone is an IANA id or an offset like "+02:00".
-    // An API without the endpoint yet answers 404 (ApiStatusFailureError), which the recap screen reports quietly.
-    // BULK: the server adds up a whole year of listens before answering, and a timeout would read as being offline.
-    public async recapGet(year: number, timeZone: string): Promise<Recap> {
-        const endpoint = `/api/v1/recap/${year}`;
-        console.log(`[API] Calling endpoint: ${endpoint}`);
-        try {
-            const response = await this.client.get(endpoint, { params: { timeZone }, timeout: BULK_TIMEOUT_MS });
-            if (!isSuccessfulStatus(response.status)) {
-                console.log(`[API] Endpoint ${endpoint} failed with status: ${response.status}`);
-                throw new ApiStatusFailureError(endpoint, response);
-            }
-            console.log(`[API] Endpoint ${endpoint} succeeded`);
-            return RecapSchema.parse(response.data);
-        } catch (error) {
-            console.log(`[API] Endpoint ${endpoint} failed with error:`, error);
-            throw error;
-        }
-    }
-
-    // Curator-only: force re-tag a specific set of songs from their stored inputs with the current strong model
-    // (no re-download), regardless of staleness. Multi-id so the offline outbox can coalesce many queued
-    // re-tags into one call. Returns a per-song outcome so the caller can mark items done / retry only failures.
-    public async songRetag(items: SongRetagWireItem[]): Promise<RetagResponse> {
-        const endpoint = `/api/v1/songs/retag`;
-        console.log(`[API] Calling endpoint: ${endpoint} (${items.length} songs)`);
-        try {
-            // Per-item model tiers so one burst flushes a mixed weak/strong backlog; the server collapses
-            // duplicate ids stronger-wins.
-            const response = await this.client.post(endpoint, JSON.stringify({ items }), {
-                timeout: AI_TIMEOUT_MS,
-                headers: {
-                    "Content-Type": "application/json"
-                }
-            });
-            if (!isSuccessfulStatus(response.status)) {
-                console.log(`[API] Endpoint ${endpoint} failed with status: ${response.status}`);
-                throw new ApiStatusFailureError(endpoint, response);
-            }
-            console.log(`[API] Endpoint ${endpoint} succeeded`);
-            return response.data as RetagResponse;
-        } catch (error) {
-            console.log(`[API] Endpoint ${endpoint} failed with error:`, error);
-            throw error;
-        }
-    }
-
-    // Curator-only: re-tag up to `limit` stale songs (weaker/older model than the current strong one). Returns
-    // { enriched, failed, remaining, strongModel } so the caller can loop until remaining hits 0.
-    public async songRetagStale(limit: number): Promise<RetagStaleResponse> {
-        const endpoint = `/api/v1/songs/retag-stale`;
-        console.log(`[API] Calling endpoint: ${endpoint}?limit=${limit}`);
-        try {
-            const response = await this.client.post(endpoint, null, { params: { limit }, timeout: AI_TIMEOUT_MS });
-            if (!isSuccessfulStatus(response.status)) {
-                console.log(`[API] Endpoint ${endpoint} failed with status: ${response.status}`);
-                throw new ApiStatusFailureError(endpoint, response);
-            }
-            console.log(`[API] Endpoint ${endpoint} succeeded`);
-            return response.data as RetagStaleResponse;
-        } catch (error) {
-            console.log(`[API] Endpoint ${endpoint} failed with error:`, error);
-            throw error;
-        }
-    }
-
-    public async songGetList(songIds: string[]) {
-        const endpoint = "/api/v1/songs/list";
-        console.log(`[API] Calling endpoint: ${endpoint}`);
-        try {
-            const songIdsJson = JSON.stringify(songIds);
-            const response = await this.client.post(endpoint, songIdsJson, {
-                timeout: BULK_TIMEOUT_MS,
-                headers: {
-                    "Content-Type": "application/json"
-                }
-            });
-
-            if (!isSuccessfulStatus(response.status)) {
-                console.log(`[API] Endpoint ${endpoint} failed with status: ${response.status}`);
-                throw new ApiStatusFailureError(endpoint, response);
-            }
-
-            console.log(`[API] Endpoint ${endpoint} succeeded`);
-            return SongListResponseSchema.parse(response.data).songs;
-        } catch (error) {
-            console.log(`[API] Endpoint ${endpoint} failed with error:`, error);
-            throw error;
-        }
-    }
-
-    // Songs whose server-side Version is after `cursor`, one page at a time. Used to refresh already-synced songs in
-    // place — e.g. after a song is replaced with better-quality audio. The cursor is sent exactly as given.
-    public async songGetChanged(cursor: FeedCursor) {
-        const endpoint = "/api/v1/songs/changed";
-        console.log(`[API] Calling endpoint: ${endpoint}`);
-        try {
-            const response = await this.client.get(endpoint, {
-                timeout: BULK_TIMEOUT_MS,
-                params: {
-                    afterDate: cursor.afterDate,
-                    afterId: cursor.afterId
-                }
-            });
-
-            if (!isSuccessfulStatus(response.status)) {
-                console.log(`[API] Endpoint ${endpoint} failed with status: ${response.status}`);
-                throw new ApiStatusFailureError(endpoint, response);
-            }
-
-            console.log(`[API] Endpoint ${endpoint} succeeded`);
-            const page = ChangedSongPageSchema.parse(response.data);
-            const keys = ChangedSongKeysSchema.parse(response.data).songs;
-            return { items: page.songs, keys, endOfList: page.endOfList };
-        } catch (error) {
-            console.log(`[API] Endpoint ${endpoint} failed with error:`, error);
-            throw error;
-        }
+        return this.request("post", "/api/v1/users/me/password", { body: { currentUserHash, newUserHash }, schema: AuthenticateResponseSchema });
     }
 
     // Any user: which optional features this server has set up. An API from before Shuffull#58 answers 404.
     public async capabilitiesGet(): Promise<Capabilities> {
-        const endpoint = "/api/v1/capabilities";
-        console.log(`[API] Calling endpoint: ${endpoint}`);
-        try {
-            const response = await this.client.get(endpoint);
-            if (!isSuccessfulStatus(response.status)) {
-                console.log(`[API] Endpoint ${endpoint} failed with status: ${response.status}`);
-                throw new ApiStatusFailureError(endpoint, response);
-            }
-            console.log(`[API] Endpoint ${endpoint} succeeded`);
-            return CapabilitiesSchema.parse(response.data);
-        } catch (error) {
-            console.log(`[API] Endpoint ${endpoint} failed with error:`, error);
-            throw error;
-        }
+        return this.request("get", "/api/v1/capabilities", { schema: CapabilitiesSchema });
     }
 
     // Any user: songs to request, searched on the ingestion side. 503 when that side is down or slow, 429 past the
     // caller's search allowance, 400 for empty or overlong text (see describeSearchFailure).
     public async songRequestSearch(query: string, limit: number): Promise<SongRequestSearchResult[]> {
-        const endpoint = "/api/v1/song-requests/search";
-        console.log(`[API] Calling endpoint: ${endpoint}`);
-        try {
-            const response = await this.client.get(endpoint, { params: { q: query, limit }, timeout: SEARCH_TIMEOUT_MS });
-            if (!isSuccessfulStatus(response.status)) {
-                console.log(`[API] Endpoint ${endpoint} failed with status: ${response.status}`);
-                throw new ApiStatusFailureError(endpoint, response);
-            }
-            console.log(`[API] Endpoint ${endpoint} succeeded`);
-            return SongRequestSearchResponseSchema.parse(response.data);
-        } catch (error) {
-            console.log(`[API] Endpoint ${endpoint} failed with error:`, error);
-            throw error;
-        }
+        return this.request("get", "/api/v1/song-requests/search", {
+            params: { q: query, limit }, timeout: SEARCH_TIMEOUT_MS, schema: SongRequestSearchResponseSchema
+        });
     }
 
     // Any user: request a song by its source id. A direct call, not an outbox row: the user sees the outcome at once
     // and retries by hand. Requesting a song the server has completes at once; requesting a Failed one again retries
     // it. A 409 means it is already requested (or the user has too many open), with the reason in { error }.
     public async songRequestCreate(payload: CreateSongRequestPayload): Promise<SongRequest> {
-        const endpoint = "/api/v1/song-requests";
-        console.log(`[API] Calling endpoint: ${endpoint} (create)`);
-        try {
-            const response = await this.client.post(endpoint, JSON.stringify(payload), {
-                headers: {
-                    "Content-Type": "application/json"
-                }
-            });
-            if (!isSuccessfulStatus(response.status)) {
-                console.log(`[API] Endpoint ${endpoint} failed with status: ${response.status}`);
-                throw new ApiStatusFailureError(endpoint, response);
-            }
-            console.log(`[API] Endpoint ${endpoint} succeeded`);
-            return SongRequestSchema.parse(response.data);
-        } catch (error) {
-            console.log(`[API] Endpoint ${endpoint} (create) failed with error:`, error);
-            throw error;
-        }
+        return this.request("post", "/api/v1/song-requests", { body: payload, schema: SongRequestSchema, note: "create" });
     }
 
     // Any user: their most recent song requests (the API's last 50), newest first.
     public async songRequestListMine(): Promise<SongRequest[]> {
-        const endpoint = "/api/v1/song-requests";
-        console.log(`[API] Calling endpoint: ${endpoint}`);
-        try {
-            const response = await this.client.get(endpoint);
-            if (!isSuccessfulStatus(response.status)) {
-                console.log(`[API] Endpoint ${endpoint} failed with status: ${response.status}`);
-                throw new ApiStatusFailureError(endpoint, response);
-            }
-            console.log(`[API] Endpoint ${endpoint} succeeded`);
-            return SongRequestListSchema.parse(response.data);
-        } catch (error) {
-            console.log(`[API] Endpoint ${endpoint} failed with error:`, error);
-            throw error;
-        }
+        return this.request("get", "/api/v1/song-requests", { schema: SongRequestListSchema });
     }
 
     // Any user: withdraw a request the producer hasn't picked up yet (Pending only; anything later is a 409).
     public async songRequestCancel(songRequestId: string): Promise<SongRequest> {
-        const endpoint = `/api/v1/song-requests/${encodeURIComponent(songRequestId)}`;
-        console.log(`[API] Calling endpoint: ${endpoint} (cancel)`);
-        try {
-            const response = await this.client.delete(endpoint);
-            if (!isSuccessfulStatus(response.status)) {
-                console.log(`[API] Endpoint ${endpoint} failed with status: ${response.status}`);
-                throw new ApiStatusFailureError(endpoint, response);
-            }
-            console.log(`[API] Endpoint ${endpoint} succeeded`);
-            return SongRequestSchema.parse(response.data);
-        } catch (error) {
-            console.log(`[API] Endpoint ${endpoint} (cancel) failed with error:`, error);
-            throw error;
-        }
+        return this.request("delete", `/api/v1/song-requests/${encodeURIComponent(songRequestId)}`, { schema: SongRequestSchema, note: "cancel" });
     }
 
     public async userGet() {
-        const endpoint = "/api/v1/users/me";
-        console.log(`[API] Calling endpoint: ${endpoint}`);
+        return (await this.request("get", "/api/v1/users/me", { schema: UserResponseSchema })).user;
+    }
+
+    public async tagGetAll(): Promise<Tag[]> {
+        return (await this.request("get", "/api/v1/tags", { timeout: BULK_TIMEOUT_MS, schema: TagListResponseSchema })).tags;
+    }
+
+    public async playlistGetAll() {
+        return (await this.request("get", "/api/v1/playlists", { timeout: BULK_TIMEOUT_MS, schema: PlaylistListResponseSchema })).playlists;
+    }
+
+    public async playlistGetList(playlistIds: string[]): Promise<Playlist[]> {
+        return (await this.request("post", "/api/v1/playlists/list", {
+            body: playlistIds, timeout: BULK_TIMEOUT_MS, schema: PlaylistListResponseSchema
+        })).playlists;
+    }
+
+    public async playlistCreate(name: string): Promise<Playlist> {
+        return (await this.request("put", "/api/v1/playlists", { params: { name }, schema: CreatePlaylistResponseSchema, note: "create" })).playlist;
+    }
+
+    public async playlistAddSong(playlistId: string, songId: string): Promise<void> {
+        await this.request("post", `/api/v1/playlists/${playlistId}/songs`, { params: { songId }, note: "add" });
+    }
+
+    public async playlistRemoveSong(playlistId: string, songId: string): Promise<void> {
+        await this.request("delete", `/api/v1/playlists/${playlistId}/songs/${songId}`, { note: "remove" });
+    }
+
+    public async playlistDelete(playlistId: string): Promise<void> {
+        await this.request("delete", `/api/v1/playlists/${playlistId}`, { note: "delete" });
+    }
+
+    // One page of the caller's user songs after `cursor`. The cursor is sent exactly as given (see FeedCursor).
+    public async userSongGetAll(cursor: FeedCursor) {
+        return this.request("get", "/api/v1/user-songs", {
+            params: { afterDate: cursor.afterDate, afterId: cursor.afterId },
+            timeout: BULK_TIMEOUT_MS,
+            // Keep the { items, endOfList } shape SyncManager consumes; the API key is `userSongs`.
+            schema: { parse: data => {
+                const page = UserSongPageSchema.parse(data);
+                return { items: page.userSongs, keys: UserSongKeysSchema.parse(data).userSongs, endOfList: page.endOfList };
+            } },
+        });
+    }
+
+    public async userSongCreateMany(songIds: string[]): Promise<void> {
+        await this.request("put", "/api/v1/user-songs", { body: songIds, timeout: BULK_TIMEOUT_MS });
+    }
+
+    public async userSongUpdateLastPlayed(requests: UpdateSongLastPlayedRequest[]): Promise<void> {
+        await this.request("post", "/api/v1/user-songs/last-played", { body: requests, timeout: BULK_TIMEOUT_MS });
+    }
+
+    // The endpoint takes the LikeStatus enum as a JSON-encoded int in the body.
+    public async userSongSetLikeStatus(songId: string, likeStatus: number): Promise<void> {
+        await this.request("post", `/api/v1/user-songs/${songId}/like`, { body: likeStatus });
+    }
+
+    // Flags a song's audio as poor quality so it gets queued for re-sourcing (global per song).
+    public async flagSongForReplacement(songId: string): Promise<void> {
+        await this.request("post", "/api/v1/replacements", { body: { songId } });
+    }
+
+    // Curator-only metadata edit. The server gates this with the Curator role and bumps the song's version
+    // so every client re-syncs the corrected record. Body matches the site's UpdateSongRequest.
+    public async songUpdate(songId: string, payload: UpdateSongMetadataPayload): Promise<void> {
+        await this.request("put", `/api/v1/songs/${songId}`, { body: payload });
+    }
+
+    // Any user: record a Keep of audition songs in their library. Promotes them server-side (clears Exploratory) and
+    // runs no AI, so the decision is durable whatever happens to tagging. Returns a per-song outcome.
+    public async songKeep(songIds: string[]): Promise<KeepResponse> {
+        return this.request("post", "/api/v1/songs/keep", {
+            body: { songIds }, timeout: BULK_TIMEOUT_MS, schema: KeepResponseSchema, note: `${songIds.length} songs`
+        });
+    }
+
+    // Curator-only: force re-tag a specific set of songs from their stored inputs with the current strong model
+    // (no re-download), regardless of staleness. Multi-id so the offline outbox can coalesce many queued
+    // re-tags into one call. Returns a per-song outcome so the caller can mark items done / retry only failures.
+    // Per-item model tiers so one burst flushes a mixed weak/strong backlog; the server collapses duplicate ids
+    // stronger-wins.
+    public async songRetag(items: SongRetagWireItem[]): Promise<RetagResponse> {
+        return this.request("post", "/api/v1/songs/retag", {
+            body: { items }, timeout: AI_TIMEOUT_MS, schema: RetagResponseSchema, note: `${items.length} songs`
+        });
+    }
+
+    // Curator-only: re-tag up to `limit` stale songs (weaker/older model than the current strong one). Returns
+    // { enriched, failed, remaining, strongModel } so the caller can loop until remaining hits 0.
+    public async songRetagStale(limit: number): Promise<RetagStaleResponse> {
+        return this.request("post", "/api/v1/songs/retag-stale", {
+            params: { limit }, timeout: AI_TIMEOUT_MS, schema: RetagStaleResponseSchema, note: `limit ${limit}`
+        });
+    }
+
+    public async songGetList(songIds: string[]) {
+        return (await this.request("post", "/api/v1/songs/list", {
+            body: songIds, timeout: BULK_TIMEOUT_MS, schema: SongListResponseSchema
+        })).songs;
+    }
+
+    // Songs whose server-side Version is after `cursor`, one page at a time. Used to refresh already-synced songs in
+    // place — e.g. after a song is replaced with better-quality audio. The cursor is sent exactly as given.
+    public async songGetChanged(cursor: FeedCursor) {
+        return this.request("get", "/api/v1/songs/changed", {
+            params: { afterDate: cursor.afterDate, afterId: cursor.afterId },
+            timeout: BULK_TIMEOUT_MS,
+            schema: { parse: data => {
+                const page = ChangedSongPageSchema.parse(data);
+                return { items: page.songs, keys: ChangedSongKeysSchema.parse(data).songs, endOfList: page.endOfList };
+            } },
+        });
+    }
+
+    // Any user: log finished listens (at most 200 per call, the server's MaxBatch). Returns one outcome per listen;
+    // a resend of a stored listen comes back "duplicate".
+    public async listenRecord(listens: RecordListenPayload[]): Promise<RecordListensResponse> {
+        return this.request("post", "/api/v1/listens", {
+            body: { listens }, timeout: BULK_TIMEOUT_MS, schema: RecordListensResponseSchema, note: `${listens.length} listens`
+        });
+    }
+
+    // Any user: their own per-song listen stats and the "maybe drop this" flags (one row per song they ever played).
+    // A server from before Shuffull#61 answers 404; SyncManager.refreshListenStats keeps the last synced stats then.
+    public async listenStats(): Promise<ListenStatsResponse> {
+        return this.request("get", "/api/v1/listens/stats", { timeout: BULK_TIMEOUT_MS, schema: ListenStatsResponseSchema });
+    }
+
+    // Any user: their recap of one year, computed on every call. timeZone is an IANA id or an offset like "+02:00".
+    // An API without the endpoint yet answers 404 (ApiStatusFailureError), which the recap screen reports quietly.
+    // BULK: the server adds up a whole year of listens before answering, and a timeout would read as being offline.
+    public async recapGet(year: number, timeZone: string): Promise<Recap> {
+        return this.request("get", `/api/v1/recap/${year}`, { params: { timeZone }, timeout: BULK_TIMEOUT_MS, schema: RecapSchema });
+    }
+
+    /**
+     * Every call goes through here. It sends `body` as JSON, throws ApiStatusFailureError for any status outside 2xx
+     * (the client resolves them all, see the constructor), and parses the answer with `schema`. Without a schema the
+     * answer is ignored: a call that returns data must parse it, never cast it, so a 200 carrying some other body
+     * (a proxy page, a renamed field) fails the call rather than reach the caller as undefined fields.
+     *
+     * A call that gets no answer rejects with the AxiosError, its credentials already stripped (redactCredentials).
+     * Either way the error is logged and rethrown; statusOfFailure turns it into the status the outbox acts on.
+     */
+    private request<T>(method: HttpMethod, endpoint: string, options: RequestOptions & { schema: ResponseSchema<T> }): Promise<T>;
+    // Without a schema the answer is void, so a method that declares a return value can't skip the parse.
+    private request(method: HttpMethod, endpoint: string, options?: RequestOptions & { schema?: undefined }): Promise<void>;
+    private async request<T>(method: HttpMethod, endpoint: string, options: RequestOptions & { schema?: ResponseSchema<T> } = {}): Promise<T | void> {
+        const { body, params, timeout, schema, note } = options;
+        const label = note ? `${endpoint} (${note})` : endpoint;
+        console.log(`[API] Calling endpoint: ${label}`);
         try {
-            const response = await this.client.get(endpoint);
+            const response = await this.client.request({
+                method,
+                url: endpoint,
+                params,
+                timeout,
+                // Stringified, with the type set, so a bare number or array goes out as JSON too: [FromBody] binds JSON only.
+                ...(body === undefined ? {} : { data: JSON.stringify(body), headers: { "Content-Type": "application/json" } }),
+            });
 
             if (!isSuccessfulStatus(response.status)) {
-                console.log(`[API] Endpoint ${endpoint} failed with status: ${response.status}`);
+                console.log(`[API] Endpoint ${label} failed with status: ${response.status}`);
                 throw new ApiStatusFailureError(endpoint, response);
             }
 
-            console.log(`[API] Endpoint ${endpoint} succeeded`);
-            return UserResponseSchema.parse(response.data).user;
+            console.log(`[API] Endpoint ${label} succeeded`);
+            return schema?.parse(response.data);
         } catch (error) {
-            console.log(`[API] Endpoint ${endpoint} failed with error:`, error);
+            console.log(`[API] Endpoint ${label} failed with error:`, error);
             throw error;
         }
     }
+}
+
+type HttpMethod = "get" | "post" | "put" | "delete";
+
+/** Parses an answer: a zod schema, or `{ parse }` to reshape it. */
+interface ResponseSchema<T> {
+    parse(data: unknown): T;
+}
+
+interface RequestOptions {
+    /** Sent as the JSON body. Leave out for a call without one. */
+    body?: unknown;
+    /** Query string parameters. Never credentials: URLs end up in proxy logs. */
+    params?: Record<string, unknown>;
+    /** Defaults to DEFAULT_TIMEOUT_MS; see the timeouts at the top for which calls need more. */
+    timeout?: number;
+    /** Added to the log line, to tell calls on one endpoint apart. */
+    note?: string;
 }
 
 function isSuccessfulStatus(status: number) {

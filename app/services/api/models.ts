@@ -153,24 +153,27 @@ export const CreatePlaylistResponseSchema = z.object({
     playlist: PlaylistSchema
 });
 
-// POST /api/v1/songs/retag-stale?limit=N -> one bounded batch of the library re-tag.
-export interface RetagStaleResponse {
-    enriched: number;
-    failed: number;
-    remaining: number;
-    strongModel: string | null;
-}
+// POST /api/v1/songs/retag-stale?limit=N -> one bounded batch of the library re-tag. Parsed rather than cast: the
+// curator screen loops on `remaining`, and a renamed field would have arrived as undefined.
+export const RetagStaleResponseSchema = z.object({
+    enriched: z.number(),
+    failed: z.number(),
+    remaining: z.number(),
+    strongModel: z.string().nullable(),
+});
+export type RetagStaleResponse = z.infer<typeof RetagStaleResponseSchema>;
 
-// POST /api/v1/songs/retag  body: string[] (song ids) -> per-song outcome (targeted, multi-id).
-export type SongRetagOutcome = "enriched" | "skipped" | "failed";
-export interface SongRetagResult {
-    songId: string;
-    outcome: SongRetagOutcome;
-    error: string | null;
-}
-export interface RetagResponse {
-    results: SongRetagResult[];
-}
+// POST /api/v1/songs/retag  body: { items } -> per-song outcome (targeted, multi-id). Parsed rather than cast, like the
+// Keep response below. Outcome stays a string ("enriched" | "skipped" | "failed" today) so a new outcome can't fail the
+// parse; only "failed" is reported (summarizeRetagFailures).
+export const RetagResponseSchema = z.object({
+    results: z.array(z.object({
+        songId: z.string(),
+        outcome: z.string(),
+        error: z.string().nullish(),
+    })),
+});
+export type RetagResponse = z.infer<typeof RetagResponseSchema>;
 // POST /api/v1/songs/keep  body: { songIds } -> per-song outcome. Any signed-in user; records the Keep (clears
 // the server's Exploratory) with no AI. Parsed rather than cast: a 200 with some other body (a proxy page) must
 // fail the call and be retried, not read as "no song was kept". Outcome stays a string ("kept" | "failed" today)

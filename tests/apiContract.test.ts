@@ -16,8 +16,9 @@ import {
     PlaylistSchema,
     RecapSchema,
     RecordListensResponseSchema,
-    RetagResponse,
+    RetagResponseSchema,
     RetagStaleResponse,
+    RetagStaleResponseSchema,
     SongListResponseSchema,
     SongRequestListSchema,
     SongRequestSchema,
@@ -188,8 +189,8 @@ describe("API contract: keep and retag outcomes (shuffull-workspace#5)", () => {
     });
 
     it("POST /songs/retag: outcomes are the strings the app branches on, and failures carry their reason", () => {
-        // ApiClient.songRetag casts rather than parses, so the outcome strings are checked here.
-        const { results } = golden("songs-retag") as RetagResponse;
+        // ApiClient.songRetag parses with this schema, which keeps the outcome a plain string; the strings are checked here.
+        const { results } = RetagResponseSchema.parse(golden("songs-retag"));
 
         expect(results.map(r => r.outcome)).toEqual(["enriched", "skipped", "failed"]);
         expect(summarizeRetagFailures(results)).toEqual({
@@ -198,11 +199,12 @@ describe("API contract: keep and retag outcomes (shuffull-workspace#5)", () => {
         });
     });
 
-    it("POST /songs/retag-stale sends every field of the response the app casts to", () => {
-        // ApiClient.songRetagStale casts rather than parses, so a renamed field would arrive as undefined.
+    it("POST /songs/retag-stale sends every field of the response the app reads", () => {
+        const raw = golden("songs-retag-stale");
         const expected: RetagStaleResponse = { enriched: 3, failed: 1, remaining: 120, strongModel: "gpt-5.6-terra" };
 
-        expect(golden("songs-retag-stale")).toStrictEqual(expected);
+        expect(RetagStaleResponseSchema.parse(raw)).toStrictEqual(expected);
+        expect(raw).toStrictEqual(expected);
     });
 });
 
