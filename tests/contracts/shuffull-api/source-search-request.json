@@ -1,0 +1,7 @@
+{
+  "method": "GET",
+  "pathAndQuery": "/api/source-search?q=Everybody%20Wants%20You\u0026limit=10",
+  "headers": {
+    "X-Search-Key": "search-key"
+  }
+}

@@ -1,0 +1,22 @@
+[
+  {
+    "externalSongId": "dQw4w9WgXcQ",
+    "title": "Everybody Wants You",
+    "artists": [
+      "Billy Squier"
+    ],
+    "album": "Emotions in Motion",
+    "durationSeconds": 230,
+    "thumbnailUrl": "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg",
+    "isExplicit": false
+  },
+  {
+    "externalSongId": "kJQP7kiw5Fk",
+    "title": "Untitled",
+    "artists": [],
+    "album": null,
+    "durationSeconds": null,
+    "thumbnailUrl": null,
+    "isExplicit": false
+  }
+]
