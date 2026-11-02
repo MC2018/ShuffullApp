@@ -277,3 +277,56 @@ export interface SongRetagWireItem {
     songId: string;
     model: "weak" | "strong";
 }
+
+// GET /api/v1/capabilities -> the optional features this server has set up, read from its config. A flag an older
+// server doesn't send reads as false, so the feature stays hidden.
+export const CapabilitiesSchema = z.object({
+    songRequests: z.boolean().default(false),
+});
+export type Capabilities = z.infer<typeof CapabilitiesSchema>;
+
+// GET /api/v1/song-requests/search?q=&limit= -> songs the user can request (ShuffullApp#107). inLibrary: the server
+// already has it, so a request completes at once. alreadyRequested: the caller has an open request for it.
+export const SongRequestSearchResultSchema = z.object({
+    externalSongId: z.string(),
+    title: z.string(),
+    artists: z.array(z.string()),
+    album: z.string().nullable(),
+    durationSeconds: z.number().nullable(),
+    thumbnailUrl: z.string().nullable(),
+    isExplicit: z.boolean(),
+    inLibrary: z.boolean(),
+    alreadyRequested: z.boolean(),
+});
+export const SongRequestSearchResponseSchema = SongRequestSearchResultSchema.array();
+export type SongRequestSearchResult = z.infer<typeof SongRequestSearchResultSchema>;
+
+// One of the caller's song requests: GET /song-requests lists them newest first, and POST /song-requests and
+// DELETE /song-requests/{id} each answer with the one they changed. status is a SongRequestStatus int, kept as a plain
+// number so a status a newer server adds still parses (describeSongRequest shows it as unknown). songId is set once
+// it is Completed.
+export const SongRequestSchema = z.object({
+    songRequestId: z.string(),
+    externalSongId: z.string(),
+    title: z.string(),
+    artists: z.array(z.string()),
+    durationSeconds: z.number().nullable(),
+    thumbnailUrl: z.string().nullable(),
+    status: z.number().int(),
+    failureReason: z.string().nullable(),
+    songId: z.string().nullable(),
+    targetPlaylistName: z.string(),
+    createdAt: z.coerce.date(),
+    updatedAt: z.coerce.date(),
+});
+export const SongRequestListSchema = SongRequestSchema.array();
+export type SongRequest = z.infer<typeof SongRequestSchema>;
+
+/** The body of POST /api/v1/song-requests: the song's source id, plus what the user saw, for display. */
+export interface CreateSongRequestPayload {
+    externalSongId: string;
+    title: string;
+    artists: string[];
+    durationSeconds: number | null;
+    thumbnailUrl: string | null;
+}

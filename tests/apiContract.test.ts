@@ -6,6 +6,7 @@ import { z } from "zod";
 import { ApiClient } from "@/app/services/api/ApiClient";
 import {
     AuthenticateResponseSchema,
+    CapabilitiesSchema,
     ChangedSongKeysSchema,
     ChangedSongPageSchema,
     CreatePlaylistResponseSchema,
@@ -18,6 +19,10 @@ import {
     RetagResponse,
     RetagStaleResponse,
     SongListResponseSchema,
+    SongRequestListSchema,
+    SongRequestSchema,
+    SongRequestSearchResponseSchema,
+    SongRequestSearchResultSchema,
     TagListResponseSchema,
     TagSchema,
     UserResponseSchema,
@@ -26,11 +31,12 @@ import {
     UserSongPageSchema,
 } from "@/app/services/api/models";
 import { TagType } from "@/app/services/db/schema";
-import { LikeStatus, RequestType } from "@/app/enums";
+import { LikeStatus, RequestType, SongRequestStatus } from "@/app/enums";
 import { RecordListenPayload, UpdateSongLastPlayedRequest } from "@/app/services/db/models";
 import { failedKeeps, failedListens, summarizeRetagFailures } from "@/app/services/sync-manager/syncLogic";
 import { finishedListen } from "@/app/tools/listens";
 import { statsStartedLine } from "@/app/tools/recap";
+import { describeSongRequest, toCreateSongRequest } from "@/app/tools/songRequests";
 
 /**
  * The app's API parsing against what the Shuffull API actually sends. The files in tests/contracts/shuffull-api
@@ -344,6 +350,10 @@ describe("API contract: request bodies the app sends (shuffull-workspace#92)", (
         { request: "listens-request", method: "post", url: "/api/v1/listens",
             call: api => api.listenRecord((golden("listens-request") as { listens: RecordListenPayload[] }).listens),
             response: "listens" },
+        // The first search result is what the API's create golden was built from, so this is the search → Request path.
+        { request: "song-requests-create-request", method: "post", url: "/api/v1/song-requests",
+            call: api => api.songRequestCreate(toCreateSongRequest(SongRequestSearchResponseSchema.parse(golden("song-requests-search"))[0])),
+            response: "song-requests-create" },
     ];
 
     /** [FromBody] binds JSON only, and axios sets no content type for a body passed as a string, which most calls do. */
@@ -409,5 +419,77 @@ describe("API contract: listen stats (ShuffullApp#115)", () => {
             ["song-sparse", false, null],
         ]);
         expect(songs[0].lastPlayed.toISOString()).toBe("2026-10-01T12:34:56.123Z");
+    });
+});
+
+describe("API contract: song requests (ShuffullApp#107)", () => {
+    const originalAdapter = axios.defaults.adapter;
+    afterEach(() => { axios.defaults.adapter = originalAdapter; });
+
+    function stubbedClient(data: unknown) {
+        const sent: InternalAxiosRequestConfig[] = [];
+        axios.defaults.adapter = async (config) => {
+            sent.push(config);
+            return { data, status: 200, statusText: "OK", headers: {}, config };
+        };
+        return { api: new ApiClient("http://api", "t"), sent };
+    }
+
+    it("GET /capabilities: songRequests read as sent", async () => {
+        const raw = golden("capabilities") as object;
+        expect(unsentFields(CapabilitiesSchema, raw)).toEqual([]);
+
+        const { api, sent } = stubbedClient(raw);
+        expect(await api.capabilitiesGet()).toEqual({ songRequests: true });
+        expect([sent[0].method, sent[0].url]).toEqual(["get", "/api/v1/capabilities"]);
+    });
+
+    it("GET /song-requests/search: every field read, with the longer search timeout", async () => {
+        const raw = golden("song-requests-search") as object[];
+        for (const row of raw) {
+            expect(unsentFields(SongRequestSearchResultSchema, row)).toEqual([]);
+        }
+
+        const { api, sent } = stubbedClient(raw);
+        const results = await api.songRequestSearch("everybody", 15);
+
+        expect([sent[0].method, sent[0].url, sent[0].params]).toEqual(["get", "/api/v1/song-requests/search", { q: "everybody", limit: 15 }]);
+        expect(sent[0].timeout).toBeGreaterThan(10_000);
+        expect(results.map(r => [r.externalSongId, r.inLibrary, r.alreadyRequested, r.isExplicit])).toEqual([
+            ["dQw4w9WgXcQ", true, false, false],
+            ["9bZkp7q19f0", false, true, true],
+            ["kJQP7kiw5Fk", false, false, false],
+        ]);
+        expect(results[2]).toMatchObject({ artists: [], album: null, durationSeconds: null, thumbnailUrl: null });
+    });
+
+    it("GET /song-requests: every field read, the status and reason as the list shows them", async () => {
+        const raw = golden("song-requests") as object[];
+        for (const row of raw) {
+            expect(unsentFields(SongRequestSchema, row)).toEqual([]);
+        }
+
+        const { api, sent } = stubbedClient(raw);
+        const requests = await api.songRequestListMine();
+
+        expect([sent[0].method, sent[0].url]).toEqual(["get", "/api/v1/song-requests"]);
+        expect(requests.map(r => [r.songRequestId, r.status, describeSongRequest(r).label, r.songId])).toEqual([
+            ["request-2", SongRequestStatus.Failed, "Failed: Video unavailable", null],
+            ["request-1", SongRequestStatus.Completed, "Added", "song-full"],
+        ]);
+        expect(requests[1].targetPlaylistName).toBe("Requests · week of 2026-09-28");
+        expect(requests[1].createdAt.toISOString()).toBe("2026-10-01T12:34:56.123Z");
+        expect(SongRequestListSchema.parse(raw)).toEqual(requests);
+    });
+
+    it("POST /song-requests and DELETE /song-requests/{id} answer with the request they changed", async () => {
+        const raw = golden("song-requests-create") as object;
+        expect(unsentFields(SongRequestSchema, raw)).toEqual([]);
+
+        const { api, sent } = stubbedClient(raw);
+        const cancelled = await api.songRequestCancel("request-3");
+
+        expect([sent[0].method, sent[0].url]).toEqual(["delete", "/api/v1/song-requests/request-3"]);
+        expect(cancelled).toMatchObject({ songRequestId: "request-3", status: SongRequestStatus.Pending, artists: ["PSY"], durationSeconds: 252 });
     });
 });

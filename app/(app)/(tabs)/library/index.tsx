@@ -15,6 +15,9 @@ import { useDownloadStatusView } from "@/app/components/downloading/useDownloadS
 import { describeDownloadsRow } from "@/app/tools/downloadStatus";
 import { describeMaybeDropRow } from "@/app/tools/listenStats";
 import { showAlert } from "@/app/tools/dialog";
+import { useSongRequestsEnabled } from "@/app/services/song-requests/capability";
+import { useSongRequests } from "@/app/services/song-requests/useSongRequests";
+import SongRequestStatusList from "@/app/components/song-requests/SongRequestStatusList";
 
 export default function LibraryScreen() {
     const [playlists, setPlaylists] = React.useState<Playlist[]>([]);
@@ -24,6 +27,7 @@ export default function LibraryScreen() {
     const userId = useCurrentUser();
     const db = useDb();
     const theme = useTheme();
+    const songRequests = useSongRequestsEnabled();
     // The Downloads row doubles as the ambient "is anything downloading?" indicator, so it tracks the
     // Downloader live instead of saying "Saved offline" forever.
     const { status: downloadStatus, currentName: downloadingName } = useDownloadStatusView();
@@ -189,6 +193,8 @@ export default function LibraryScreen() {
                         ))
                     )}
 
+                    {songRequests ? <RequestsSection /> : null}
+
                     {(() => {
                         // Audition cohorts get their own section, newest first — the weekly triage inbox —
                         // each with an evaluated/total bubble that fills when the cohort is done (and thus
@@ -262,5 +268,19 @@ export default function LibraryScreen() {
             </View>
             <PlayerBar />
         </Screen>
+    );
+}
+
+// The user's latest song requests and their status (ShuffullApp#107), above the Audition section that holds the weekly
+// requests playlists they land in. Mounted only when the server offers song requests, so nothing polls otherwise.
+function RequestsSection() {
+    const theme = useTheme();
+    const requests = useSongRequests();
+    return (
+        <>
+            <Divider style={{ marginVertical: theme.space.sm }} />
+            <SectionHeader title="Requests" actionLabel="Find a song" onAction={() => router.push("/song-requests")} />
+            <SongRequestStatusList view={requests} limit={5} emptyText="Nothing requested yet." />
+        </>
     );
 }

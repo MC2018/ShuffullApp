@@ -17,6 +17,7 @@ import KeepControl from "@/app/components/likes/atoms/KeepControl";
 import SongDownloadControl from "@/app/components/downloading/atoms/SongDownloadControl";
 import { AlbumArt, IconButton, Screen, Text } from "@/app/components/ui";
 import { useTheme } from "@/app/theme";
+import { useSongRequestsEnabled } from "@/app/services/song-requests/capability";
 
 const defaultArt: ImageURISource = require("@/assets/images/default-album-art.jpg");
 
@@ -45,6 +46,7 @@ export default function NowPlayingScreen() {
     const artSize = Math.min(width - 96, 300);
     const { songId } = useActiveSong();
     const { issue } = usePlaybackIssue();
+    const songRequests = useSongRequestsEnabled();
     const [details, setDetails] = useState<SongDetails | null>(null);
     const [art, setArt] = useState<ArtSource>(defaultArt);
 
@@ -161,6 +163,15 @@ export default function NowPlayingScreen() {
                     {issue ? PLAYBACK_ISSUE_LABEL[issue.kind] : "Now Playing"}
                 </Text>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: theme.space.sm }}>
+                    {songRequests ? (
+                        <IconButton
+                            name="search"
+                            size={20}
+                            color={theme.color.textMuted}
+                            onPress={() => router.push("/song-requests")}
+                            accessibilityLabel="Request a song"
+                        />
+                    ) : null}
                     {details ? <SongDownloadControl song={details.song} /> : null}
                     <IconButton
                         name="information-circle-outline"
