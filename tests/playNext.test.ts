@@ -143,6 +143,17 @@ describe("deciding what to do with an intent", () => {
         expect(stale).toEqual({ kind: "drop", message: null });
     });
 
+    // Shuffull#117: a song the user already has needs no request, so the intent knows its song from the tap.
+    it("an intent for a song the user has needs no request: it waits for the song, then ends with the wait", () => {
+        const owned = intent({ songId: "s1" });
+        expect(needsRequestStatus(owned)).toBe(false);
+        expect(decide(owned, [], context({ local: ["s1"] }))).toEqual({ kind: "queue", songId: "s1" });
+        // No request to have "never reached the server".
+        expect(decide(owned, [], context({ now: TAP.getTime() + PLAY_NEXT_UNFILED_MS + 1 }))).toEqual({ kind: "wait" });
+        const late = decide(owned, [], context({ now: TAP.getTime() + PLAY_NEXT_WAIT_MS + 1 }));
+        expect(late).toMatchObject({ kind: "drop", message: expect.stringContaining("didn't reach this device") });
+    });
+
     it("a request that never reached the server is reported once the list has had time to show it", () => {
         expect(decide(intent(), [])).toEqual({ kind: "wait" });
         const after = context({ now: TAP.getTime() + PLAY_NEXT_UNFILED_MS + 1 });

@@ -19,8 +19,9 @@ export const PLAY_NEXT_WAIT_MS = 2 * 60 * 60_000;
  */
 export const PLAY_NEXT_MAX_AGE_MS = 24 * 60 * 60_000;
 /**
- * An intent with no request id is one whose create call never answered (the app died, the connection dropped). If the
- * request list still shows no request for the song after this long, the request never reached the server.
+ * An intent with no request id and no song is one whose create call never answered (the app died, the connection
+ * dropped). If the request list still shows no request for the song after this long, the request never reached the
+ * server. One with a song and no request id needed no request: the user already has the song (Shuffull#117).
  */
 export const PLAY_NEXT_UNFILED_MS = 2 * 60_000;
 /** A request counts as this tap's when the server last touched it no earlier than this before the tap (clock skew). */
@@ -100,9 +101,14 @@ export function decidePlayNext(resolved: ResolvedIntent, context: PlayNextContex
         return { kind: "drop", message: `${title} is in your library. Play it from there.` };
     }
     if (age > PLAY_NEXT_WAIT_MS) {
-        return { kind: "drop", message: `${title} took too long to arrive, so it won't play next. It will be in this week's requests playlist once it does.` };
+        return {
+            kind: "drop",
+            message: songRequestId == null && songId != null
+                ? `${title} didn't reach this device in time, so it won't play next. Play it from your library once it does.`
+                : `${title} took too long to arrive, so it won't play next. It will be in this week's requests playlist once it does.`,
+        };
     }
-    if (songRequestId == null && context.listRead && age > PLAY_NEXT_UNFILED_MS) {
+    if (songRequestId == null && songId == null && context.listRead && age > PLAY_NEXT_UNFILED_MS) {
         return { kind: "drop", message: `${title} won't play next: its request didn't reach the server. Request it again.` };
     }
     return { kind: "wait" };

@@ -8,15 +8,16 @@ import SongRequestStatusList from "@/app/components/song-requests/SongRequestSta
 import { useTheme } from "@/app/theme";
 import { useApi } from "@/app/services/api/ApiProvider";
 import { useDb } from "@/app/services/db/DbProvider";
+import DbQueries from "@/app/services/db/queries";
 import { SongRequest, SongRequestSearchResult } from "@/app/services/api/models";
 import { useSongRequestsCapability } from "@/app/services/song-requests/capability";
 import { useSongRequests } from "@/app/services/song-requests/useSongRequests";
 import { playWhenSynced } from "@/app/services/song-requests/playRequested";
-import { attachPlayNextRequest, cancelPlayNext, recordPlayNext, usePlayNext } from "@/app/services/song-requests/playNext";
+import { attachPlayNextRequest, cancelPlayNext, reconcilePlayNext, recordPlayNext, usePlayNext } from "@/app/services/song-requests/playNext";
 import { SongRequestStatus } from "@/app/enums";
 import {
-    completedRequestFor,
     openRequestFor,
+    ownedSongIdFor,
     describeRequestFailure,
     describeSearchFailure,
     formatSongDuration,
@@ -126,15 +127,32 @@ export default function SongRequestsScreen() {
         }
     };
 
-    // The server has the song. Requesting it completes at once and links it to the user, so it can play here. A song
-    // this user already requested to completion plays without another request, so replaying it files nothing.
+    // Saves a play-next intent for a song whose request needs no filing (or already completed), and queues it at once
+    // if it is on this device. False when it couldn't be saved; the caller then says so its own way.
+    const savePlayNext = async (result: SongRequestSearchResult, known: { songId: string; songRequestId: string | null }) => {
+        try {
+            await recordPlayNext(result, known);
+        } catch (error) {
+            console.warn("[song-requests] couldn't save a play-next intent", error);
+            return false;
+        }
+        await reconcilePlayNext({ readRequests: false });
+        return true;
+    };
+
+    // The server has the song. One the user already has plays with no request (Shuffull#117): requesting it would add it
+    // to this week's requests playlist and their auditions again. One they don't have is requested, which completes at
+    // once and links it to them. A song not on this device yet gets a play-next intent before the wait, so the ask
+    // outlives the wait, the screen and the app: it plays when it arrives if nothing else started meanwhile, and right
+    // after the current song otherwise.
     const playNow = async (result: SongRequestSearchResult) => {
         playing.current?.abort();
         const controller = new AbortController();
         playing.current = controller;
         setRow(result.externalSongId, { busy: true });
 
-        let songId = completedRequestFor(requests.requests, result.externalSongId)?.songId;
+        let songId = ownedSongIdFor(result);
+        let songRequestId: string | null = null;
         if (songId == null) {
             const created = await fileRequest(result);
             if (created?.status !== SongRequestStatus.Completed) {
@@ -145,34 +163,44 @@ export default function SongRequestsScreen() {
                 return;
             }
             songId = created.songId;
+            songRequestId = created.songRequestId;
         }
+        const waits = (await DbQueries.getSong(db, songId)) == null && await savePlayNext(result, { songId, songRequestId });
         const outcome = await playWhenSynced(db, songId, controller.signal);
-        if (outcome === "cancelled") {
-            // The user moved on. If the screen is still open, the row just stops waiting.
-            setRow(result.externalSongId, { busy: false, note: "In your library.", isError: false });
-            return;
+        if (outcome === "played") {
+            setRow(result.externalSongId, { busy: false, note: "Playing", isError: false });
+        } else if (waits) {
+            setRow(result.externalSongId, { busy: false, note: PLAY_NEXT_NOTE, isError: false, whilePlaysNext: true });
+        } else {
+            // The user moved on, or the intent couldn't be saved. If the screen is still open, the row stops waiting.
+            setRow(result.externalSongId, {
+                busy: false,
+                note: outcome === "cancelled" ? "In your library." : "In your library. It reaches this device with the next sync; tap play again then.",
+                isError: false,
+            });
         }
-        setRow(result.externalSongId, {
-            busy: false,
-            note: outcome === "played" ? "Playing" : "In your library. It reaches this device with the next sync; tap play again then.",
-            isError: false,
-        });
     };
 
-    // Plays the song right after the current one, once it is on this device (ShuffullApp#108). The intent is saved
-    // before the request is filed, so a restart, or the app dying mid-call, keeps it. A request already open or
-    // completed for the song is reused rather than filed again.
+    // Plays the song right after the current one, once it is on this device (ShuffullApp#108). A song the user has needs
+    // no request (Shuffull#117). Otherwise the intent is saved before the request is filed, so a restart, or the app
+    // dying mid-call, keeps it, and a request already open for the song is reused rather than filed again.
     const playNext = async (result: SongRequestSearchResult) => {
         setRow(result.externalSongId, { busy: true });
+        const owned = ownedSongIdFor(result);
+        if (owned != null) {
+            const saved = await savePlayNext(result, { songId: owned, songRequestId: null });
+            setRow(result.externalSongId, saved
+                ? { busy: false, note: PLAY_NEXT_NOTE, isError: false, whilePlaysNext: true }
+                : { busy: false, note: "Couldn't save that. Try again.", isError: true });
+            return;
+        }
         try {
             await recordPlayNext(result);
         } catch (error) {
             setRow(result.externalSongId, { busy: false, note: `Couldn't save that: ${String(error)}`, isError: true });
             return;
         }
-        const request = completedRequestFor(requests.requests, result.externalSongId)
-            ?? openRequestFor(requests.requests, result.externalSongId)
-            ?? await fileRequest(result);
+        const request = openRequestFor(requests.requests, result.externalSongId) ?? await fileRequest(result);
         if (request == null) {
             await cancelPlayNext(result.externalSongId); // fileRequest has said why on the row
             return;
@@ -370,18 +398,19 @@ function PlayNextControl({ result, playsNext, noted, onPlayNext }: { result: Son
     );
 }
 
-/** The right side of a result: a spinner while busy, play for a song the library has, Requested, or Request. */
+/** The right side of a result: a spinner while busy, play for a song the library has (or the user), Requested, or Request. */
 function ResultAction({ result, busy, onRequest, onPlay }: { result: SongRequestSearchResult; busy: boolean; onRequest: () => void; onPlay: () => void }) {
     const theme = useTheme();
     if (busy) {
         return <ActivityIndicator color={theme.color.accent} />;
     }
     if (result.inLibrary) {
+        const yours = ownedSongIdFor(result) != null;
         return (
-            <Pressable onPress={onPlay} accessibilityRole="button" accessibilityLabel={`In the library. Play ${result.title} now`} hitSlop={8}>
+            <Pressable onPress={onPlay} accessibilityRole="button" accessibilityLabel={`In ${yours ? "your" : "the"} library. Play ${result.title} now`} hitSlop={8}>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
                     <Ionicons name="play" size={12} color={theme.color.positive} />
-                    <Badge label="In library" tone="positive" />
+                    <Badge label={yours ? "In your library" : "In library"} tone="positive" />
                 </View>
             </Pressable>
         );

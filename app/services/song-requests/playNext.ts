@@ -148,9 +148,10 @@ async function reconcile(s: Session, readRequests: boolean): Promise<void> {
 /**
  * The tap on "Request & play next". Writes the intent and nothing else, so it is saved before the request is filed:
  * the caller files (or reuses) the request, then passes it to attachPlayNextRequest, or calls cancelPlayNext when
- * filing failed.
+ * filing failed. `known` is for a song that needs no request, or whose request already completed: the user has it
+ * (Shuffull#117), or a play-now couldn't wait for it to reach this device. The caller then reconciles.
  */
-export function recordPlayNext(result: SongRequestSearchResult): Promise<void> {
+export function recordPlayNext(result: SongRequestSearchResult, known?: { songId: string; songRequestId: string | null }): Promise<void> {
     const s = session;
     if (s == null) {
         return Promise.reject(new Error("Not signed in."));
@@ -159,9 +160,9 @@ export function recordPlayNext(result: SongRequestSearchResult): Promise<void> {
         await DbQueries.savePlayNextIntent(s.db, {
             userId: s.userId,
             externalSongId: result.externalSongId,
-            songRequestId: null,
+            songRequestId: known?.songRequestId ?? null,
             title: result.title,
-            songId: null,
+            songId: known?.songId ?? null,
             createdAt: new Date(),
         });
         await reload(s);

@@ -47,7 +47,7 @@ function makeDb(): GenericDb {
 function result(change: Partial<SongRequestSearchResult> = {}): SongRequestSearchResult {
     return {
         externalSongId: "yt-1", title: "A song", artists: ["An artist"], album: null, durationSeconds: 200,
-        thumbnailUrl: null, isExplicit: false, inLibrary: false, alreadyRequested: false, ...change,
+        thumbnailUrl: null, isExplicit: false, inLibrary: false, alreadyRequested: false, songId: null, inUserLibrary: false, ...change,
     } as SongRequestSearchResult;
 }
 
@@ -166,6 +166,21 @@ describe("play-next driver", () => {
         await cancelPlayNext("yt-1");
         expect(await getPlayNextIntents(db, USER)).toEqual([]);
         expect(unqueue).toHaveBeenCalledWith("s1");
+        expect(showAlert).not.toHaveBeenCalled();
+    });
+
+    // Shuffull#117: the search screen saves a song the user has with its id and files nothing.
+    it("a song the user has needs no request: never reads the list, and queues once a sync brings it down", async () => {
+        await recordPlayNext(result({ inLibrary: true, songId: "s1", inUserLibrary: true }), { songId: "s1", songRequestId: null });
+        await reconcilePlayNext({ readRequests: true });
+        expect(await getPlayNextIntents(db, USER)).toMatchObject([{ externalSongId: "yt-1", songRequestId: null, songId: "s1" }]);
+        expect(api.songRequestListMine).not.toHaveBeenCalled();
+        expect(queueNext).not.toHaveBeenCalledWith(["s1"]);
+
+        await addSong(db, "s1");
+        await reconcilePlayNext({ readRequests: true });
+        expect(queueNext).toHaveBeenLastCalledWith(["s1"]);
+        expect(api.songRequestListMine).not.toHaveBeenCalled();
         expect(showAlert).not.toHaveBeenCalled();
     });
 
