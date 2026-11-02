@@ -1,5 +1,5 @@
 import axios, { AxiosHeaders, AxiosInstance } from "axios";
-import { AuthenticateResponse, AuthenticateResponseSchema, ChangedSongKeysSchema, ChangedSongPageSchema, CreatePlaylistResponseSchema, FeedCursor, KeepResponse, KeepResponseSchema, ListenStatsResponse, ListenStatsResponseSchema, Playlist, PlaylistListResponseSchema, Recap, RecapSchema, RecordListensResponse, RecordListensResponseSchema, RetagResponse, RetagResponseSchema, RetagStaleResponse, RetagStaleResponseSchema, SongListResponseSchema, SongRetagWireItem, Tag, TagListResponseSchema, UserResponseSchema, UserSongKeysSchema, UserSongPageSchema } from "./models";
+import { AuthenticateResponse, AuthenticateResponseSchema, Capabilities, CapabilitiesSchema, CreateSongRequestPayload, ChangedSongKeysSchema, ChangedSongPageSchema, CreatePlaylistResponseSchema, FeedCursor, KeepResponse, KeepResponseSchema, ListenStatsResponse, ListenStatsResponseSchema, Playlist, PlaylistListResponseSchema, Recap, RecapSchema, RecordListensResponse, RecordListensResponseSchema, RetagResponse, RetagResponseSchema, RetagStaleResponse, RetagStaleResponseSchema, SongListResponseSchema, SongRequest, SongRequestListSchema, SongRequestSchema, SongRequestSearchResponseSchema, SongRequestSearchResult, SongRetagWireItem, Tag, TagListResponseSchema, UserResponseSchema, UserSongKeysSchema, UserSongPageSchema } from "./models";
 import { ApiStatusFailureError } from "./errors";
 import { RecordListenPayload, UpdateSongLastPlayedRequest, UpdateSongMetadataPayload } from "../db/models";
 
@@ -10,8 +10,11 @@ import { RecordListenPayload, UpdateSongLastPlayedRequest, UpdateSongMetadataPay
 // - Single-item calls and logins get DEFAULT.
 // - Calls that carry or return a whole list, page or batch (SONG_LIST_MAX_IDS, OUTBOX_MAX_BATCH_SIZE) get BULK.
 // - Re-tags run the AI on each song before answering, so they get AI.
+// - A song search is relayed to the ingestion side and waits for its answer, so it gets SEARCH. The API gives up on
+//   that hop after its own timeout (5 s by default) and answers 503, so this only has to outlast that plus the link.
 export const DEFAULT_TIMEOUT_MS = 10_000;
 export const BULK_TIMEOUT_MS = 30_000;
+export const SEARCH_TIMEOUT_MS = 20_000;
 export const AI_TIMEOUT_MS = 120_000;
 
 export class ApiClient {
@@ -56,6 +59,36 @@ export class ApiClient {
     // token the user holds and answers with a fresh session for this device. A wrong current password is a 400.
     public async userChangePassword(currentUserHash: string, newUserHash: string): Promise<AuthenticateResponse> {
         return this.request("post", "/api/v1/users/me/password", { body: { currentUserHash, newUserHash }, schema: AuthenticateResponseSchema });
+    }
+
+    // Any user: which optional features this server has set up. An API from before Shuffull#58 answers 404.
+    public async capabilitiesGet(): Promise<Capabilities> {
+        return this.request("get", "/api/v1/capabilities", { schema: CapabilitiesSchema });
+    }
+
+    // Any user: songs to request, searched on the ingestion side. 503 when that side is down or slow, 429 past the
+    // caller's search allowance, 400 for empty or overlong text (see describeSearchFailure).
+    public async songRequestSearch(query: string, limit: number): Promise<SongRequestSearchResult[]> {
+        return this.request("get", "/api/v1/song-requests/search", {
+            params: { q: query, limit }, timeout: SEARCH_TIMEOUT_MS, schema: SongRequestSearchResponseSchema
+        });
+    }
+
+    // Any user: request a song by its source id. A direct call, not an outbox row: the user sees the outcome at once
+    // and retries by hand. Requesting a song the server has completes at once; requesting a Failed one again retries
+    // it. A 409 means it is already requested (or the user has too many open), with the reason in { error }.
+    public async songRequestCreate(payload: CreateSongRequestPayload): Promise<SongRequest> {
+        return this.request("post", "/api/v1/song-requests", { body: payload, schema: SongRequestSchema, note: "create" });
+    }
+
+    // Any user: their most recent song requests (the API's last 50), newest first.
+    public async songRequestListMine(): Promise<SongRequest[]> {
+        return this.request("get", "/api/v1/song-requests", { schema: SongRequestListSchema });
+    }
+
+    // Any user: withdraw a request the producer hasn't picked up yet (Pending only; anything later is a 409).
+    public async songRequestCancel(songRequestId: string): Promise<SongRequest> {
+        return this.request("delete", `/api/v1/song-requests/${encodeURIComponent(songRequestId)}`, { schema: SongRequestSchema, note: "cancel" });
     }
 
     public async userGet() {

@@ -17,6 +17,7 @@ import AppVersion from "@/app/components/common/AppVersion";
 import OfflineBanner from "@/app/components/connectivity/molecules/OfflineBanner";
 import { useTheme } from "@/app/theme";
 import { useRecapButton } from "@/app/services/recap/useRecapButton";
+import { useSongRequestsEnabled } from "@/app/services/song-requests/capability";
 
 const defaultArt: ImageURISource = require("@/assets/images/default-album-art.jpg");
 type ArtSource = ImageURISource | { uri: string };
@@ -30,6 +31,7 @@ export default function HomeScreen() {
     const [art, setArt] = useState<ArtSource>(defaultArt);
     const [jams, setJams] = useState<GenreJam[]>([]);
     const recapButton = useRecapButton();
+    const songRequests = useSongRequestsEnabled();
 
     useEffect(() => {
         let cancelled = false;
@@ -150,6 +152,21 @@ export default function HomeScreen() {
                         </View>
                     </Card>
                 </Pressable>
+
+                {songRequests ? (
+                    <Pressable onPress={() => router.push("/song-requests")} style={{ marginTop: theme.space.md }} accessibilityRole="button">
+                        <Card style={{ flexDirection: "row", alignItems: "center", gap: theme.space.md }}>
+                            <Ionicons name="search" size={20} color={theme.color.accent} />
+                            <View style={{ flex: 1, minWidth: 0 }}>
+                                <Text variant="bodyStrong">Request a song</Text>
+                                <Text variant="caption" color="textMuted">
+                                    {"Find one the library doesn't have yet."}
+                                </Text>
+                            </View>
+                            <Ionicons name="chevron-forward" size={18} color={theme.color.textMuted} />
+                        </Card>
+                    </Pressable>
+                ) : null}
 
                 {jams.length > 0 ? (
                     <>
