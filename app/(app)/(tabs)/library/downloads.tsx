@@ -44,7 +44,7 @@ export default function LocalDownloadsScreen() {
         useCallback(() => {
             loadDownloaded().catch((e) => log.warn("downloader", "Loading downloaded songs failed.", e));
             loadQueue().catch((e) => log.warn("downloader", "Loading the download queue failed.", e));
-            downloader?.reconcileWithDisk().then(loadDownloaded).catch((e) => log.warn("downloader", "Matching downloads to the files on disk failed.", e));
+            downloader?.reconcileWithDisk().then(loadDownloaded).catch((e) => log.warn("downloader", "Matching downloads to the files on disk, or reloading the list after, failed.", e));
         }, [downloader, loadDownloaded, loadQueue]),
     );
     // ...the saved list again whenever a song finishes, and the queue whenever its size or head changes.
