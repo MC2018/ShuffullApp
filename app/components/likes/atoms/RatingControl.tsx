@@ -43,7 +43,7 @@ export default function RatingControl({ songId, gap, size = 24 }: { songId: stri
     const apply = (next: LikeStatus) => {
         setLikeStatus(songId, next); // optimistic
         MediaManager.applyLikeStatus(songId, next)
-            .catch((e) => log.error("likes", `Saving rating ${next} for song ${songId} failed.`, e));
+            .catch((e) => log.error("likes", `Applying rating ${LikeStatus[next]} to song ${songId} failed.`, e));
     };
 
     const popUp = () =>

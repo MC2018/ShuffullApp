@@ -34,7 +34,7 @@ export default function RecapScreen() {
     }, [api, userId, year, sample]);
 
     useEffect(() => {
-        fetchRecap().catch((e) => log.warn("recap", "Loading the recap failed.", e));
+        fetchRecap().catch((e) => log.warn("Recap", "Loading the recap failed.", e));
     }, [fetchRecap]);
 
     return (

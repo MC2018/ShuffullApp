@@ -45,7 +45,7 @@ export function useRecapButton(): { visible: boolean; year: number } {
                 if (!cancelled && load.status === "ready") {
                     setPlays(load.recap.plays);
                 }
-            })().catch((e) => log.warn("recap", "Loading the recap failed.", e));
+            })().catch((e) => log.warn("Recap", "Loading the recap failed.", e));
             return () => {
                 cancelled = true;
             };

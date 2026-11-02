@@ -48,7 +48,7 @@ export default function AddToPlaylistSheet({ songId, visible, onClose }: Props) 
 
     useEffect(() => {
         if (visible) {
-            load().catch((e) => log.warn("playlists", "Loading playlists failed.", e));
+            load().catch((e) => log.warn("playlist", "Loading playlists failed.", e));
         }
     }, [visible, load]);
 
