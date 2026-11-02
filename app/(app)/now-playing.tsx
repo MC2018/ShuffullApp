@@ -18,6 +18,8 @@ import SongDownloadControl from "@/app/components/downloading/atoms/SongDownload
 import { AlbumArt, IconButton, Screen, Text } from "@/app/components/ui";
 import { useTheme } from "@/app/theme";
 import { useSongRequestsEnabled } from "@/app/services/song-requests/capability";
+import { usePlayNext } from "@/app/services/song-requests/playNext";
+import { describeUpNext } from "@/app/tools/playNext";
 
 const defaultArt: ImageURISource = require("@/assets/images/default-album-art.jpg");
 
@@ -47,6 +49,7 @@ export default function NowPlayingScreen() {
     const { songId } = useActiveSong();
     const { issue } = usePlaybackIssue();
     const songRequests = useSongRequestsEnabled();
+    const upNext = usePlayNext((state) => describeUpNext(state.intents, state.queuedSongIds));
     const [details, setDetails] = useState<SongDetails | null>(null);
     const [art, setArt] = useState<ArtSource>(defaultArt);
 
@@ -158,9 +161,15 @@ export default function NowPlayingScreen() {
                 />
                 {/* Deliberately the SAME slot as "Now Playing" rather than a banner of its own: this screen
                     reserves layout instead of mounting and unmounting, so that anything appearing cannot
-                    shift the art and title. */}
-                <Text variant="micro" color={issue ? "accent" : "textMuted"}>
-                    {issue ? PLAYBACK_ISSUE_LABEL[issue.kind] : "Now Playing"}
+                    shift the art and title. A requested song set to play next (ShuffullApp#108) shows here too,
+                    below a playback issue. */}
+                <Text
+                    variant="micro"
+                    color={issue ? "accent" : upNext ? "accentTint" : "textMuted"}
+                    numberOfLines={1}
+                    style={{ flexShrink: 1, marginHorizontal: theme.space.sm }}
+                >
+                    {issue ? PLAYBACK_ISSUE_LABEL[issue.kind] : upNext ?? "Now Playing"}
                 </Text>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: theme.space.sm }}>
                     {songRequests ? (

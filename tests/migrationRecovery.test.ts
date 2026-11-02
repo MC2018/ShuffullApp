@@ -10,6 +10,7 @@ import type { GenericDb } from "@/app/services/db/GenericDb";
 import { addRequests, deadLetterRequests, getDeadLetterRequests, getRequests } from "@/app/services/db/queries/request";
 import { addGenreJam, getGenreJams } from "@/app/services/db/queries/genreJam";
 import { getOpenListens, saveOpenListen } from "@/app/services/db/queries/listen";
+import { getPlayNextIntents, savePlayNextIntent } from "@/app/services/db/queries/playNext";
 import { prepareDatabase, rebuildKeepingLocalData, restoreRescuedTables } from "@/app/services/db/recovery";
 import { RequestType } from "@/app/enums";
 
@@ -135,6 +136,16 @@ const openListen = {
     checkpointedAt: new Date("2026-10-01T00:00:43Z"),
 };
 
+// A "Request & play next" waiting for its song (ShuffullApp#108).
+const playNextIntent = {
+    userId: "u1",
+    externalSongId: "yt-1",
+    songRequestId: "r1",
+    title: "A song",
+    songId: null,
+    createdAt: new Date("2026-11-02T10:00:00Z"),
+};
+
 // A Keep written by hand on an older schema, which the app's queries can't write to.
 function insertOldKeep() {
     sqlite.prepare(`INSERT INTO requests (request_id, time_request, request_type, user_id, song_id, payload)
@@ -150,6 +161,7 @@ describe("a failed migration rebuilds the database and keeps the data only this 
         await deadLetterRequests(db, [{ request: { ...keep, requestId: "keep-2", songId: "s9" }, reason: "not in your library" }]);
         await addGenreJam(db, jam);
         await saveOpenListen(db, openListen);
+        await savePlayNextIntent(db, playNextIntent);
         sqlite.exec("INSERT INTO users (user_id, username, version) VALUES ('u1', 'max', 0)");
 
         const fresh = await rebuildKeepingLocalData(db, migrateLatest, deleteFile);
@@ -164,6 +176,7 @@ describe("a failed migration rebuilds the database and keeps the data only this 
         expect(dead[0].request).toMatchObject({ requestId: "keep-2", songId: "s9" });
         expect(await getGenreJams(fresh)).toEqual([expect.objectContaining(jam)]);
         expect(await getOpenListens(fresh)).toEqual([openListen]);
+        expect(await getPlayNextIntents(fresh, "u1")).toEqual([playNextIntent]);
         expect(rescued()).toEqual([]);
     });
 
@@ -246,6 +259,26 @@ describe("upgrading across the heaviness rename", () => {
     });
 });
 
+describe("upgrading to the play-next table", () => {
+    it("an install with data gets the empty table and keeps everything else", async () => {
+        // Migration 0035 only adds play_next_intents (ShuffullApp#108), so an existing install migrates in place.
+        const db = asDb(sqlite);
+        migrateTo(migrationsUpTo("0034_add_listen_stats"));
+        await addRequests(db, [keep]);
+        await addGenreJam(db, jam);
+        sqlite.prepare("INSERT INTO songs (song_id, file_extension, file_hash, name) VALUES ('s1', '.mp3', 'h', 'Song')").run();
+
+        await migrateLatest();
+
+        expect(await getRequests(db, "u1")).toEqual([expect.objectContaining(keep)]);
+        expect(await getGenreJams(db)).toEqual([expect.objectContaining(jam)]);
+        expect(sqlite.prepare("SELECT name FROM songs WHERE song_id = 's1'").get()).toEqual({ name: "Song" });
+        expect(await getPlayNextIntents(db, "u1")).toEqual([]);
+        await savePlayNextIntent(db, playNextIntent);
+        expect(await getPlayNextIntents(db, "u1")).toEqual([playNextIntent]);
+    });
+});
+
 describe("the preserved rows are never only in memory", () => {
     it("if the rebuild dies before restoring, the rows are still in the file, and the next start restores them", async () => {
         const db = asDb(sqlite);
@@ -255,7 +288,7 @@ describe("the preserved rows are never only in memory", () => {
 
         await expect(rebuildKeepingLocalData(db, async () => { throw new Error("killed mid-migration"); }, deleteFile))
             .rejects.toThrow("killed mid-migration");
-        expect(rescued()).toHaveLength(4); // requests, dead_letter_requests (empty), genre_jam and listens (empty)
+        expect(rescued()).toHaveLength(5); // requests and genre_jam, plus dead_letter_requests, listens and play_next_intents (empty)
 
         // Next launch: the provider migrates (now it works) and restores whatever is rescued.
         const next = restart();

@@ -8,6 +8,7 @@ import * as listen from "./listen";
 import * as listenStats from "./listenStats";
 import * as localSessionData from "./localSessionData";
 import * as playlist from "./playlist";
+import * as playNext from "./playNext";
 import * as recentlyPlayedSong from "./recentlyPlayedSong";
 import * as request from "./request";
 import * as song from "./song";
@@ -26,6 +27,7 @@ const DbQueries = {
     ...listenStats,
     ...localSessionData,
     ...playlist,
+    ...playNext,
     ...recentlyPlayedSong,
     ...request,
     ...song,

@@ -63,3 +63,4 @@ export type RetagModel = Schema.RetagModel;
 export type DownloadQueue = typeof Schema.downloadQueueTable.$inferSelect;
 export type DownloadedSong = typeof Schema.downloadedSongTable.$inferSelect;
 export type GenreJam = typeof Schema.genreJamTable.$inferSelect;
+export type PlayNextIntent = typeof Schema.playNextIntentTable.$inferSelect;

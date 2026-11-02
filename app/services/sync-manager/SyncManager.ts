@@ -46,12 +46,16 @@ export class SyncManager {
     ticksToSkip = 0;
     // The last time the listen stats were fetched (see refreshListenStats). In memory only: a restart fetches once.
     listenStatsAttempt: ListenStatsAttempt | null = null;
+    // Called after each sync that pulled, so what depends on the library (play-next) can see what just arrived. Optional:
+    // the tests build a SyncManager without its constructor.
+    onSynced?: () => void;
     
-    constructor(db: GenericDb, api: ApiClient, userId: string, logout: () => Promise<void>) {
+    constructor(db: GenericDb, api: ApiClient, userId: string, logout: () => Promise<void>, onSynced?: () => void) {
         this.db = db;
         this.api = api;
         this.userId = userId;
         this.logout = logout;
+        this.onSynced = onSynced;
         // sync() never rejects, so neither call can leave an unhandled rejection behind.
         this.timerId = setInterval(() => void this.sync(), SYNC_INTERVAL_MS);
         void this.sync();
@@ -181,6 +185,7 @@ export class SyncManager {
         }
         await this.reconcileSongs();
         await this.refreshListenStats(listensSent);
+        this.onSynced?.();
         return { statusCode: HttpStatusCode.Ok };
     }
 

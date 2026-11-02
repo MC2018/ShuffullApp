@@ -321,3 +321,27 @@ export const genreJamTable = sqliteTable("genre_jam", {
     heavinessMin: integer("heaviness_min"),
     heavinessMax: integer("heaviness_max"),
 });
+
+// "Play this next" on a song request (ShuffullApp#108). The user's decision, so it is written the moment they tap,
+// before the request is even filed, and lives here rather than in the in-memory play queue: it survives a restart,
+// and every sync puts the song back at the front of the queue until it plays. Keyed by the song's source id, since
+// the request id is the server's and only arrives with the create response; the API holds one open request per user
+// and source id. Cleared once the song plays, the request ends Failed or Cancelled, or it waits too long
+// (tools/playNext.ts). Nothing syncs it, so a recovery rebuild keeps it (db/recovery.ts).
+export const playNextIntentTable = sqliteTable("play_next_intents", {
+    userId: text("user_id").notNull(),
+    externalSongId: text("external_song_id").notNull(),
+    // Null until the create response arrives, or when the app died before it did.
+    songRequestId: text("song_request_id"),
+    // What "Up next" says while the song isn't on this device yet.
+    title: text("title").notNull(),
+    // Set once the request is Completed.
+    songId: text("song_id"),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+}, (table) => {
+    return {
+        pk: primaryKey({
+            columns: [table.userId, table.externalSongId]
+        }),
+    };
+});

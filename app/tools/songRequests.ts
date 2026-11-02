@@ -132,6 +132,11 @@ export function completedRequestFor(requests: readonly SongRequest[] | null, ext
         r.externalSongId === externalSongId && r.status === SongRequestStatus.Completed && r.songId != null);
 }
 
+/** A request for this search result the producer is still working on, so asking for it again needs no new one. */
+export function openRequestFor(requests: readonly SongRequest[] | null, externalSongId: string): SongRequest | undefined {
+    return requests?.find(r => r.externalSongId === externalSongId && isInFlightSongRequest(r.status));
+}
+
 /**
  * A search result as the user's requests now stand, so it follows the list below it: in the library once a request for
  * it completed, Requested while one is open (Failed included: the API refuses a second until it is cancelled), and
