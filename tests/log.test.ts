@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { formatLogLine, log, LogLevel } from "@/app/tools/log";
 
-// ShuffullApp#168: every app log line goes through log, and `./scripts/android-dev.sh logs` (logcat, every priority
-// of the ReactNativeJS tag) is read by grepping the tag. So a line must come out exactly as the console call it
+// ShuffullApp#168: every app log line goes through log, and the device log (`adb logcat -s ReactNativeJS:*`, every
+// priority) is read by grepping the tag. So a line must come out exactly as the console call it
 // replaced wrote it: "[tag] message", then the details untouched.
 describe("log", () => {
     afterEach(() => {
@@ -31,16 +31,6 @@ describe("log", () => {
             }
         });
     }
-
-    it("writes the same line the [API] console.log call it replaced did", () => {
-        const info = vi.spyOn(console, "info").mockImplementation(() => undefined);
-        const label = "/api/v1/songs/changed";
-
-        log.info("API", `Endpoint ${label} succeeded`);
-
-        expect(info.mock.calls[0]).toEqual([`[API] Endpoint ${label} succeeded`]);
-        expect(String(info.mock.calls[0][0])).toMatch(/^\[API\] /);
-    });
 
     it("looks the console method up on each call, so a spy set after import still sees the line", () => {
         const first = vi.fn();

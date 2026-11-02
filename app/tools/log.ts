@@ -11,9 +11,9 @@
  * - `info`: a normal event worth seeing in the log (a sync step, a song starting, an endpoint called).
  * - `debug`: detail only useful while working on that area.
  *
- * Every level reaches `./scripts/android-dev.sh logs`: on Android React Native writes all of them to logcat under
- * the `ReactNativeJS` tag (debug at D, info at I, warn at W, error at E), and that command reads every priority of
- * that tag. On desktop, Electron's main process forwards every renderer console level to the terminal.
+ * Every level reaches the device log: on Android React Native writes all of them to logcat under the `ReactNativeJS`
+ * tag (debug at D, info at I, warn at W, error at E), and `adb logcat -s ReactNativeJS:*` reads every priority of
+ * it. On desktop, Electron's main process forwards every renderer console level to the terminal.
  *
  * Each call looks the console method up when it runs, so a test's `vi.spyOn(console, "warn")` still sees it.
  */

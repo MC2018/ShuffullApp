@@ -40,11 +40,12 @@ argon2, background actions).
 
 ## Logging
 
-Log through `log` from `app/tools/log.ts`, not `console`; lint fails on a direct `console` call in `app/`.
+Log through `log` from `app/tools/log.ts`, not `console`; lint fails on a direct `console` call in any TypeScript
+file except that one and `tests/`.
 `log.warn("sync", "Holding 2 request(s).", e)` prints `[sync] Holding 2 request(s).` and then `e`. The tag names the
 area (`API`, `sync`, `player`, `downloader`, ...) and is what you grep the device log for, so keep it stable. The
-levels and when to use each are in that file. Every level shows in `./scripts/android-dev.sh logs` (in the hub) and
-in the desktop terminal.
+levels and when to use each are in that file. Every level shows in `adb logcat -s ReactNativeJS:*` and in the
+desktop terminal.
 
 ## Android: two apps on one phone
 
