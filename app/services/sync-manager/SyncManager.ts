@@ -14,6 +14,7 @@ import { STORAGE_KEYS } from "@/app/constants/storageKeys";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { ListenStatsAttempt, listenStatsDue } from "@/app/tools/listenStats";
 import { collectNewSongIds, FEED_START, failedKeeps, failedListens, groupRequestsIntoBatches, holdBehindRefused, keepsDueForRetry, markRefused, OUTBOX_MAX_BATCH_SIZE, pageFeed, partitionRejectedRequests, playlistDeleteHold, playlistsToFetch, pendingSongMisses, SONG_FIELDS_REVISION, SONG_LIST_MAX_IDS, songFeedStart, songReconcileDue, SongReconcileState, songsGoneFromServer, summarizeRetagFailures, SYNC_INTERVAL_MS, syncTicksToSkip, toRetagItems, withoutPendingDeletes } from "@/app/services/sync-manager/syncLogic";
+import { log } from "@/app/tools/log";
 
 /** What one outbox batch came back with: the status sync() acts on, and the error text when it failed. */
 interface RunResult {
@@ -78,7 +79,7 @@ export class SyncManager {
         try {
             await DbQueries.addRequests(this.db, requests);
         } catch (e) {
-            console.log(e);
+            log.error("sync", "Could not add requests to the outbox.", e);
         }
     }
 
@@ -101,13 +102,13 @@ export class SyncManager {
             this.failedSyncs = statusCode == HttpStatusCode.Ok || loggedOut ? 0 : this.failedSyncs + 1;
             useServerReachability.getState().setReachability(isUnreachableStatus(statusCode) ? "unreachable" : "reachable");
         } catch (e) {
-            console.error("[sync] Sync failed:", e);
+            log.error("sync", "Sync failed:", e);
             this.failedSyncs++;
         } finally {
             this.ticksToSkip = syncTicksToSkip(this.failedSyncs);
             if (this.ticksToSkip > 0) {
-                console.log(
-                    `[sync] ${this.failedSyncs} failed syncs in a row; ` +
+                log.info("sync",
+                    `${this.failedSyncs} failed syncs in a row; ` +
                     `next try in ${(this.ticksToSkip + 1) * SYNC_INTERVAL_MS / 1000}s.`);
             }
             this.syncing = false;
@@ -126,7 +127,7 @@ export class SyncManager {
         for (const queuedBatch of requestBatches) {
             const { ready: requestBatch, held } = holdBehindRefused(queuedBatch, refused);
             if (held.length) {
-                console.warn(`[sync] Holding ${held.length} request(s) behind a refused one for the same song or playlist.`);
+                log.warn("sync", `Holding ${held.length} request(s) behind a refused one for the same song or playlist.`);
             }
             if (!requestBatch.length) {
                 continue;
@@ -137,7 +138,7 @@ export class SyncManager {
                 if (statusCode) {
                     return await this.stopSync(statusCode);
                 } else if (hold) {
-                    console.warn(`[sync] Holding playlist delete ${requestBatch[0].playlistId}: ${hold}.`);
+                    log.warn("sync", `Holding playlist delete ${requestBatch[0].playlistId}: ${hold}.`);
                     continue;
                 }
             }
@@ -156,8 +157,8 @@ export class SyncManager {
                 // window so a transient cause (a stale token, a server-side fix) recovers by itself, then
                 // move them to the dead-letter table with the reason. Either way, say so out loud.
                 const { abandon, keep } = partitionRejectedRequests(requestBatch, new Date());
-                console.warn(
-                    `[sync] ${statusCode} on ${requestBatch.length} request(s) of type ` +
+                log.warn("sync",
+                    `${statusCode} on ${requestBatch.length} request(s) of type ` +
                     `${requestBatch[0]?.requestType}: retaining ${keep.length} for retry, ` +
                     `dead-lettering ${abandon.length} past the retry window. ${reason ?? ""}`);
                 await DbQueries.deadLetterRequests(this.db, abandon.map(request => ({
@@ -199,7 +200,7 @@ export class SyncManager {
             return { statusCode, loggedOut: true };
         }
         if (!quiet) {
-            console.log(`Cannot access server. Status code: ${statusCode}`);
+            log.info("sync", `Cannot access server. Status code: ${statusCode}`);
         }
         return { statusCode };
     }
@@ -279,7 +280,7 @@ export class SyncManager {
                 if (statusCode == HttpStatusCode.Unauthorized || statusCode >= 500) {
                     return { hold: hold.reason, statusCode };
                 }
-                console.warn(`[sync] Re-sending dead-lettered keeps was rejected with ${statusCode}.`, e);
+                log.warn("sync", `Re-sending dead-lettered keeps was rejected with ${statusCode}.`, e);
             }
             // Recorded only once the server answered, so an outage doesn't push the next try out by the interval.
             const now = Date.now();
@@ -304,8 +305,8 @@ export class SyncManager {
         // behind it re-sends it now and then instead (checkDeleteHold), in case that verdict changes.
         const failures = failedKeeps(requests, response?.results);
         if (failures.length) {
-            console.warn(
-                `[sync] ${failures.length}/${requests.length} keep(s) not recorded, dead-lettered: ` +
+            log.warn("sync",
+                `${failures.length}/${requests.length} keep(s) not recorded, dead-lettered: ` +
                 `${[...new Set(failures.map(x => x.reason))].join("; ")}`);
             await DbQueries.deadLetterRequests(this.db, failures);
         }
@@ -329,12 +330,12 @@ export class SyncManager {
             const retag = await this.api.songRetag(items);
             const { songIds: notEnriched, reasons } = summarizeRetagFailures(retag?.results);
             if (notEnriched.length) {
-                console.warn(
-                    `[sync] ${notEnriched.length}/${items.length} re-tag(s) did not enrich: ` +
+                log.warn("sync",
+                    `${notEnriched.length}/${items.length} re-tag(s) did not enrich: ` +
                     `${reasons.join("; ")}`);
             }
         } catch (e) {
-            console.warn(`[sync] Re-tag after keep failed with ${statusOfFailure(e)}; the keeps are recorded.`, e);
+            log.warn("sync", `Re-tag after keep failed with ${statusOfFailure(e)}; the keeps are recorded.`, e);
         }
     }
 
@@ -345,8 +346,8 @@ export class SyncManager {
         const response = await this.api.listenRecord(requests.map(x => x.payload));
         const failures = failedListens(requests, response.results);
         if (failures.length) {
-            console.warn(
-                `[sync] ${failures.length}/${requests.length} listen(s) not recorded, dead-lettered: ` +
+            log.warn("sync",
+                `${failures.length}/${requests.length} listen(s) not recorded, dead-lettered: ` +
                 `${[...new Set(failures.map(x => x.reason))].join("; ")}`);
             await DbQueries.deadLetterRequests(this.db, failures);
         }
@@ -400,16 +401,16 @@ export class SyncManager {
                 await Downloader.deleteLocalSongFiles(song);
             }
             if (implausible) {
-                console.warn(
-                    `[sync] The server has none of ${implausible}/${checkedSongIds.length} local songs. That looks like ` +
+                log.warn("sync",
+                    `The server has none of ${implausible}/${checkedSongIds.length} local songs. That looks like ` +
                     "a different or broken server, not deletions, so nothing was removed.");
             } else if (purged.length || misses.length) {
-                console.warn(
-                    `[sync] ${purged.length} local song(s) no longer exist on the server and were removed; ` +
+                log.warn("sync",
+                    `${purged.length} local song(s) no longer exist on the server and were removed; ` +
                     `${misses.length} more are missing and go in an hour if still gone.`);
             }
         } catch (e) {
-            console.warn(`[sync] Checking local songs against the server failed with ${statusOfFailure(e)}; nothing removed.`, e);
+            log.warn("sync", `Checking local songs against the server failed with ${statusOfFailure(e)}; nothing removed.`, e);
         }
     }
 
@@ -431,9 +432,9 @@ export class SyncManager {
             this.listenStatsAttempt = { at: now, ok: false };
             const statusCode = statusOfFailure(e);
             if (statusCode == HttpStatusCode.NotFound) {
-                console.log("[sync] This server has no listen stats yet (404); showing the last synced ones.");
+                log.info("sync", "This server has no listen stats yet (404); showing the last synced ones.");
             } else {
-                console.warn(`[sync] Refreshing listen stats failed with ${statusCode}; showing the last synced ones.`, e);
+                log.warn("sync", `Refreshing listen stats failed with ${statusCode}; showing the last synced ones.`, e);
             }
         }
     }
@@ -464,7 +465,7 @@ export class SyncManager {
                 { afterDate: oldUser != undefined ? oldUser.version.toISOString() : FEED_START },
                 cursor => this.api.userSongGetAll(cursor));
             if (userSongFeed.stalled) {
-                console.error("[sync] The user-songs feed repeated a page; stopped paging it, and the user version stays put.");
+                log.error("sync", "The user-songs feed repeated a page; stopped paging it, and the user version stays put.");
             }
 
             // Consecutive pages can OVERLAP, so the concatenation above can hold the same user song twice: the
@@ -502,7 +503,7 @@ export class SyncManager {
                 const localSongIdSet = new Set(localSongIds);
                 const songFeed = await pageFeed(songFeedFrom, cursor => this.api.songGetChanged(cursor));
                 if (songFeed.stalled) {
-                    console.error("[sync] The changed-songs feed repeated a page; stopped paging it for this sync.");
+                    log.error("sync", "The changed-songs feed repeated a page; stopped paging it for this sync.");
                 }
                 // Only refresh songs we hold locally; brand-new ones are handled by the fetch above.
                 fetchedChangedSongs.push(...songFeed.items.filter(changed => localSongIdSet.has(changed.songId)));
@@ -656,7 +657,7 @@ export class SyncManager {
             // logs as a status number, so the sync silently failed every 10s forever and the only symptom was
             // an empty library. Log the actual error — it is the difference between a diagnosable bug and a
             // mystery on every platform.
-            console.error("Overall sync failed:", e);
+            log.error("sync", "Overall sync failed:", e);
             return HttpStatusCode.InternalServerError;
         }
     }

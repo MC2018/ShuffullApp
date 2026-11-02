@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { log } from "../app/tools/log";
 
 /**
  * Web/desktop stand-in for `react-native-track-player`.
@@ -298,7 +299,7 @@ const TrackPlayer = {
     registerPlaybackService(factory: () => any) {
         Promise.resolve(factory())
             .then((service) => (typeof service === "function" ? service() : undefined))
-            .catch((e) => console.error("Playback service failed to start:", e));
+            .catch((e) => log.error("player", "Playback service failed to start:", e));
     },
 
     async add(tracks: Track | Track[], insertBeforeIndex?: number) {

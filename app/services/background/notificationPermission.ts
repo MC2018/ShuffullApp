@@ -1,4 +1,5 @@
 import { PermissionsAndroid, Platform } from "react-native";
+import { log } from "@/app/tools/log";
 
 let requested = false;
 
@@ -31,7 +32,7 @@ export async function ensureNotificationPermission(): Promise<boolean> {
         const result = await PermissionsAndroid.request(permission);
         return result === PermissionsAndroid.RESULTS.GRANTED;
     } catch (e) {
-        console.warn("[notifications] permission check failed", e);
+        log.warn("notifications", "permission check failed", e);
         return false;
     }
 }

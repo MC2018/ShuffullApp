@@ -1,6 +1,7 @@
 import { Song } from "../db/models";
 import { choosePrefetchEvictions, PREFETCH_CACHE_CAP_BYTES, PrefetchEntry } from "../../tools/prefetchCache";
 import { PrefetchedFiles, Prefetcher } from "./types";
+import { log } from "../../tools/log";
 
 /** One song's files as the store holds them, with the URIs the player loads them from. */
 export interface StoredSong {
@@ -74,7 +75,7 @@ export class StorePrefetcher implements Prefetcher {
     private idle: Promise<void> = Promise.resolve();
 
     constructor(private readonly store: PrefetchStore, private readonly capBytes = PREFETCH_CACHE_CAP_BYTES) {
-        this.ready = store.clear().catch(e => console.warn("[prefetch] could not empty the cache", e));
+        this.ready = store.clear().catch(e => log.warn("prefetch", "could not empty the cache", e));
     }
 
     want(songs: readonly Song[]): void {
@@ -138,7 +139,7 @@ export class StorePrefetcher implements Prefetcher {
             return;
         }
 
-        console.info(`[prefetch] cancelled ${job.song.songId}: ${reason}`);
+        log.info("prefetch", `cancelled ${job.song.songId}: ${reason}`);
         job.abort.abort();
     }
 
@@ -158,7 +159,7 @@ export class StorePrefetcher implements Prefetcher {
                     await this.fill();
                 } while (this.rerun);
             } catch (e) {
-                console.warn("[prefetch] fetch loop failed", e);
+                log.warn("prefetch", "fetch loop failed", e);
             } finally {
                 this.running = false;
             }
@@ -216,7 +217,7 @@ export class StorePrefetcher implements Prefetcher {
         this.inFlight = job;
 
         try {
-            console.info(`[prefetch] fetching ${song.songId} (${song.name})`);
+            log.info("prefetch", `fetching ${song.songId} (${song.name})`);
             const stored = await this.store.fetch(song, job.abort.signal);
 
             if (job.abort.signal.aborted) {
@@ -228,15 +229,15 @@ export class StorePrefetcher implements Prefetcher {
             }
 
             if ("error" in stored) {
-                console.warn(`[prefetch] fetching ${song.songId} failed (${stored.error}); it will stream`);
+                log.warn("prefetch", `fetching ${song.songId} failed (${stored.error}); it will stream`);
                 return;
             }
 
             this.cached.set(song.songId, { ...stored, song, songId: song.songId, fetchedAt: Date.now(), played: false });
-            console.info(`[prefetch] ready ${song.songId}: ${(stored.bytes / 1024 / 1024).toFixed(1)} MB in ${Date.now() - startedAt} ms`);
+            log.info("prefetch", `ready ${song.songId}: ${(stored.bytes / 1024 / 1024).toFixed(1)} MB in ${Date.now() - startedAt} ms`);
         } catch (e) {
             if (!job.abort.signal.aborted) {
-                console.warn(`[prefetch] fetching ${song.songId} failed; it will stream`, e);
+                log.warn("prefetch", `fetching ${song.songId} failed; it will stream`, e);
             }
         } finally {
             if (this.inFlight === job) {

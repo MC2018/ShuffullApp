@@ -8,6 +8,7 @@ import { MediaKind } from "../../tools/desktopMedia";
 import { foregroundService } from "../background/foregroundService";
 import { ensureNotificationPermission } from "../background/notificationPermission";
 import { DownloadAdapter } from "./DownloadQueueRunner";
+import { log } from "../../tools/log";
 
 if (FileSystem.documentDirectory == null) {
     throw new Error("documentDirectory is null");
@@ -66,7 +67,7 @@ export function createNativeDownloadAdapter(): DownloadAdapter {
             } finally {
                 // Whatever didn't get moved into place - an error body, a partial file, a bad hash - goes, so nothing
                 // half-written is left behind. A no-op once the file was moved.
-                await FileSystem.deleteAsync(tempPath, { idempotent: true }).catch((e) => console.warn("[downloader] failed to clean up", tempPath, e));
+                await FileSystem.deleteAsync(tempPath, { idempotent: true }).catch((e) => log.warn("downloader", "failed to clean up", tempPath, e));
             }
         },
 

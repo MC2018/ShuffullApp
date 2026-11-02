@@ -9,6 +9,7 @@ import { SongDetails } from "../types";
 import { deterministicId } from "@/app/tools/pure";
 import { chunkIds, chunkRows } from "./_chunk";
 import { namedRows } from "./_rawRow";
+import { log } from "@/app/tools/log";
 
 type FilteredSongs = {
     songId: string,
@@ -547,7 +548,7 @@ export async function fetchSongDetails(db: GenericDb, songId: string): Promise<S
 
     if (!song.length) {
         const errMsg = `Song ${songId} cannot be found in getSongDetails.`;
-        console.log(errMsg);
+        log.warn("db", errMsg);
         throw Error(errMsg);
     }
 

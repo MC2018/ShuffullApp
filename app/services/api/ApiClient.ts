@@ -2,6 +2,7 @@ import axios, { AxiosHeaders, AxiosInstance } from "axios";
 import { AuthenticateResponse, AuthenticateResponseSchema, Capabilities, CapabilitiesSchema, CreateSongRequestPayload, ChangedSongKeysSchema, ChangedSongPageSchema, CreatePlaylistResponseSchema, FeedCursor, KeepResponse, KeepResponseSchema, ListenStatsResponse, ListenStatsResponseSchema, Playlist, PlaylistListResponseSchema, Recap, RecapSchema, RecordListensResponse, RecordListensResponseSchema, RetagResponse, RetagResponseSchema, RetagStaleResponse, RetagStaleResponseSchema, SongListResponseSchema, SongRequest, SongRequestListSchema, SongRequestSchema, SongRequestSearchResponseSchema, SongRequestSearchResult, SongRetagWireItem, Tag, TagListResponseSchema, UserResponseSchema, UserSongKeysSchema, UserSongPageSchema } from "./models";
 import { ApiStatusFailureError } from "./errors";
 import { RecordListenPayload, UpdateSongLastPlayedRequest, UpdateSongMetadataPayload } from "../db/models";
+import { log } from "../../tools/log";
 
 // How long a call may take before it counts as no answer (a 503 to the sync, which then backs off and retries).
 // One 3 s limit for everything was too short for the big calls: a 500-id song list or a 200-song keep on a slow
@@ -244,7 +245,7 @@ export class ApiClient {
     private async request<T>(method: HttpMethod, endpoint: string, options: RequestOptions & { schema?: ResponseSchema<T> } = {}): Promise<T | void> {
         const { body, params, timeout, schema, note } = options;
         const label = note ? `${endpoint} (${note})` : endpoint;
-        console.log(`[API] Calling endpoint: ${label}`);
+        log.info("API", `Calling endpoint: ${label}`);
         try {
             const response = await this.client.request({
                 method,
@@ -256,14 +257,14 @@ export class ApiClient {
             });
 
             if (!isSuccessfulStatus(response.status)) {
-                console.log(`[API] Endpoint ${label} failed with status: ${response.status}`);
+                log.info("API", `Endpoint ${label} failed with status: ${response.status}`);
                 throw new ApiStatusFailureError(endpoint, response);
             }
 
-            console.log(`[API] Endpoint ${label} succeeded`);
+            log.info("API", `Endpoint ${label} succeeded`);
             return schema?.parse(response.data);
         } catch (error) {
-            console.log(`[API] Endpoint ${label} failed with error:`, error);
+            log.info("API", `Endpoint ${label} failed with error:`, error);
             throw error;
         }
     }

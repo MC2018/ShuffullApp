@@ -6,6 +6,7 @@ import { getDb, initDbAsync, resetDbAsync } from "./database.web";
 import { GenericDb } from "./GenericDb";
 import { prepareDatabase } from "./recovery";
 import { MediaManager } from "../media-manager";
+import { log } from "../../tools/log";
 
 const DbContext = createContext<GenericDb | null>(null);
 
@@ -83,7 +84,7 @@ export const DbProvider = ({ children }: DbProviderProps) => {
                 // genre jams across inside the file (recovery.ts, ShuffullApp#92).
                 await prepareDatabase(await initDbAsync(), runMigrations, resetDbAsync);
             } catch (fatal) {
-                console.error("Database unavailable.", fatal);
+                log.error("db", "Database unavailable.", fatal);
                 if (!cancelled) {
                     setFailure(String(fatal));
                 }
@@ -97,7 +98,7 @@ export const DbProvider = ({ children }: DbProviderProps) => {
             try {
                 await MediaManager.setup(getDb());
             } catch (e) {
-                console.error("MediaManager setup failed.", e);
+                log.error("player", "MediaManager setup failed.", e);
             }
             if (!cancelled) {
                 setReady(true);

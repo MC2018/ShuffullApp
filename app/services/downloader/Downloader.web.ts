@@ -6,6 +6,7 @@ import { localMediaUri, parseLocalMediaUri } from "../../tools/desktopMedia";
 import { desktopShell, DesktopMediaStore, pageOrigin } from "../desktopShell";
 import { albumArtFileName, DownloadQueueRunner, songFileName } from "./DownloadQueueRunner";
 import { createDesktopDownloadAdapter } from "./desktopDownloadAdapter";
+import { log } from "../../tools/log";
 
 /**
  * Web build of the Downloader. Metro picks this over `Downloader.ts` for the web platform, which covers two very
@@ -94,7 +95,7 @@ export class Downloader extends DownloadQueueRunner {
             await media.remove("music", Downloader.generateSongFileName(song));
             await media.remove("albumart", Downloader.generateAlbumArtFileName(song));
         } catch (e) {
-            console.warn(`Failed to delete local files for song ${song.songId}:`, e);
+            log.warn("downloader", `Failed to delete local files for song ${song.songId}:`, e);
         }
     }
 

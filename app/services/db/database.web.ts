@@ -1,6 +1,7 @@
 import * as SQLite from "expo-sqlite";
 import { drizzle } from "drizzle-orm/sqlite-proxy";
 import { GenericDb } from "./GenericDb";
+import { log } from "../../tools/log";
 
 /**
  * Web/desktop database handle. Metro picks this over `database.ts` for the web platform.
@@ -65,7 +66,8 @@ async function openAsync(): Promise<GenericDb> {
                 // Drizzle wraps driver failures in "Failed query: <the entire SQL>", which for a bulk insert is
                 // thousands of placeholders and buries the actual SQLite message. Log the real one, plus the
                 // parameter count, since exceeding the bind-variable limit is the failure this most often is.
-                console.error(
+                log.error(
+                    "db",
                     `SQLite ${method} failed (${params?.length ?? 0} params): ${(e as Error)?.message ?? e}`,
                 );
                 throw e;

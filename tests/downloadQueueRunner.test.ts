@@ -159,7 +159,7 @@ describe("DownloadQueueRunner", () => {
         vi.useFakeTimers({ toFake: ["Date"] });
         vi.spyOn(console, "warn").mockImplementation(() => {});
         vi.spyOn(console, "error").mockImplementation(() => {});
-        vi.spyOn(console, "log").mockImplementation(() => {});
+        vi.spyOn(console, "info").mockImplementation(() => {});
         useDownloadStatus.setState({ status: { phase: "idle", queuedCount: 0, completedCount: 0, skippedCount: 0 } });
         db = makeDb();
         await updateSongs(db, ["a", "b", "c", "d", "e", "f", "g", "h"].map(song));

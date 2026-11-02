@@ -7,6 +7,7 @@ import { useDownloadStatus } from "./downloadStatus";
 import { derivePhase, describeDownloadNotification, DownloadNotification, NetworkSnapshot, retryDelayMs, shouldHoldForegroundService } from "../../tools/downloadStatus";
 import { decideArtDownload, decideSongDownload } from "../../tools/downloadFailure";
 import { createDiskReconciler, ListSongFiles } from "./reconcileDownloads";
+import { log } from "../../tools/log";
 
 /**
  * What one fetch came back with, in the shape decideSongDownload reads. Undefined when there was no response at all
@@ -167,7 +168,7 @@ export class DownloadQueueRunner {
         try {
             await adapter.prepare?.();
         } catch (e) {
-            console.warn("[downloader] couldn't prepare the download folders", e);
+            log.warn("downloader", "couldn't prepare the download folders", e);
         }
 
         // Pause is a user decision, so it survives restarts (see CLAUDE.md "durability before enrichment"
@@ -356,7 +357,7 @@ export class DownloadQueueRunner {
             });
             this.syncBackgroundHold(adapter.background, queuedCount);
         } catch (e) {
-            console.warn("[downloader] failed to publish status", e);
+            log.warn("downloader", "failed to publish status", e);
         }
     }
 
@@ -442,12 +443,12 @@ export class DownloadQueueRunner {
                 const art = decideArtDownload(artResult);
 
                 if (art === "retry") {
-                    console.warn(`[downloader] will retry ${song.songId} (${song.name}): album art returned ${artResult?.status ?? "no result"}`);
+                    log.warn("downloader", `will retry ${song.songId} (${song.name}): album art returned ${artResult?.status ?? "no result"}`);
                     return "failed";
                 }
 
                 if (art === "without") {
-                    console.warn(`[downloader] no album art for ${song.songId} (status ${artResult?.status}); saving the song without it`);
+                    log.warn("downloader", `no album art for ${song.songId} (status ${artResult?.status}); saving the song without it`);
                 }
             }
 
@@ -459,7 +460,7 @@ export class DownloadQueueRunner {
 
             if (decision.action === "retry") {
                 this.hashMismatches.set(song.songId, decision.hashMismatches);
-                console.warn(`[downloader] will retry ${song.songId} (${song.name}): ${decision.reason}`);
+                log.warn("downloader", `will retry ${song.songId} (${song.name}): ${decision.reason}`);
                 return "failed";
             }
 
@@ -468,7 +469,7 @@ export class DownloadQueueRunner {
             if (decision.action === "defer") {
                 // Back off as for any failure, but from the back of the queue, so the songs behind this one get
                 // their turn - one of them downloading is what shows the server is fine and lets drops resume.
-                console.warn(`[downloader] deferring ${song.songId} (${song.name}) to the back of the download queue: ${decision.reason}`);
+                log.warn("downloader", `deferring ${song.songId} (${song.name}) to the back of the download queue: ${decision.reason}`);
                 await DbQueries.moveToBackOfDownloadQueue(this.db, song.songId);
                 return "failed";
             }
@@ -477,7 +478,7 @@ export class DownloadQueueRunner {
                 // Not marked downloaded: the song stays in the library and can be queued again. Art stored for it
                 // above is left in place on purpose: it is small, keyed by the same hash, reused if the song is
                 // queued again, and deleteLocalSongFiles removes it with the song.
-                console.warn(`[downloader] skipping ${song.songId} (${song.name}), removed from the download queue: ${decision.reason}`);
+                log.warn("downloader", `skipping ${song.songId} (${song.name}), removed from the download queue: ${decision.reason}`);
                 this.consecutiveDrops++;
                 await DbQueries.removeFromDownloadQueue(this.db, song.songId);
                 useDownloadStatus.getState().setStatus({ skippedCount: useDownloadStatus.getState().status.skippedCount + 1 });
@@ -489,7 +490,7 @@ export class DownloadQueueRunner {
             useDownloadStatus.getState().setStatus({ completedCount: useDownloadStatus.getState().status.completedCount + 1 });
             return "downloaded";
         } catch (e) {
-            console.error("[downloader] attempt failed", e);
+            log.error("downloader", "attempt failed", e);
             return "failed";
         } finally {
             this.downloading = false;

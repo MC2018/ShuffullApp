@@ -4,6 +4,7 @@ import DbQueries from "./db/queries";
 import { MediaManager } from "./media-manager";
 import { LikeStatus } from "../enums";
 import { desktopShell } from "./desktopShell";
+import { log } from "../tools/log";
 
 /**
  * Wires the desktop shell's GLOBAL rating shortcuts to the media manager.
@@ -70,7 +71,7 @@ export default function DesktopShortcuts() {
             } catch (e) {
                 // A global shortcut that throws would otherwise fail completely silently - the user is not
                 // looking at the app, and there is no UI to show an error in.
-                console.error("Rating shortcut failed:", e);
+                log.error("shortcuts", "Rating shortcut failed:", e);
                 shell.notify("Shuffull", "That didn't work — see the app for details.");
             }
         });
