@@ -11,7 +11,10 @@ import { SongRequestStatus } from "@/app/enums";
 import {
     combineMessages,
     decidePlayNext,
+    describeIntentWaiting,
     describeUpNext,
+    intentsWithoutRequestRow,
+    isIntentForRequest,
     needsRequestStatus,
     PLAY_NEXT_MAX_AGE_MS,
     PLAY_NEXT_UNFILED_MS,
@@ -20,7 +23,7 @@ import {
     resolveIntent,
     withPlayNextFirst,
 } from "@/app/tools/playNext";
-import { openRequestFor } from "@/app/tools/songRequests";
+import { openRequestFor, visibleSongRequests } from "@/app/tools/songRequests";
 
 // "Request & play next" (ShuffullApp#108): what happens to each intent after a sync, the queue it builds, the label it
 // shows, and the rows that hold it.
@@ -206,6 +209,48 @@ describe("the Up next label", () => {
 
     it("counts the rest", () => {
         expect(describeUpNext([intent(), intent({ externalSongId: "yt-2", title: "Other" })], [])).toBe("Next, once it arrives: A song (+1)");
+    });
+});
+
+describe("which intents get a row of their own (ShuffullApp#175)", () => {
+    const owned = intent({ externalSongId: "yt-owned", title: "Owned", songId: "s-owned" });
+    const rows = (...requests: SongRequest[]) => visibleSongRequests(requests);
+
+    it("a song the user already had, which needed no request, gets its own row", () => {
+        expect(intentsWithoutRequestRow([owned], rows(request(SongRequestStatus.Pending)))).toEqual([owned]);
+        expect(intentsWithoutRequestRow([owned], [])).toEqual([owned]);
+    });
+
+    it("an intent its request's row shows is not shown again, by request id or, before one is known, by song", () => {
+        const filed = intent({ songRequestId: "r1" });
+        const unanswered = intent({ externalSongId: "yt-2" });
+        const list = rows(request(SongRequestStatus.Downloading), request(SongRequestStatus.Pending, { songRequestId: "r2", externalSongId: "yt-2" }));
+        expect(intentsWithoutRequestRow([filed, unanswered, owned], list)).toEqual([owned]);
+        expect(isIntentForRequest(filed, list[0])).toBe(true);
+        expect(isIntentForRequest(unanswered, list[1])).toBe(true);
+    });
+
+    it("an intent whose request is another one than the row's for the same song keeps its own row", () => {
+        const filed = intent({ songRequestId: "r-new" });
+        expect(isIntentForRequest(filed, request(SongRequestStatus.Failed))).toBe(false);
+        expect(intentsWithoutRequestRow([filed], rows(request(SongRequestStatus.Failed)))).toEqual([filed]);
+    });
+
+    it("an intent whose request the list hides or no longer holds gets its own row", () => {
+        const filed = intent({ songRequestId: "r1" });
+        expect(intentsWithoutRequestRow([filed], rows(request(SongRequestStatus.Cancelled)))).toEqual([filed]);
+        expect(intentsWithoutRequestRow([filed], rows(request(SongRequestStatus.Pending, { songRequestId: "r9" })))).toEqual([filed]);
+    });
+
+    it("keeps the intents oldest first", () => {
+        const older = intent({ externalSongId: "yt-a", songId: "s-a" });
+        expect(intentsWithoutRequestRow([older, owned], [])).toEqual([older, owned]);
+    });
+
+    it("says whether its song is queued, or what it still waits for", () => {
+        expect(describeIntentWaiting(owned, ["s-owned"])).toBe("Queued to play next.");
+        expect(describeIntentWaiting(owned, [])).toBe("Plays once it reaches this device.");
+        expect(describeIntentWaiting(intent({ songRequestId: "r1" }), [])).toBe("Plays once its request is done and it reaches this device.");
     });
 });
 
