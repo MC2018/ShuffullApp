@@ -133,6 +133,23 @@ export function completedRequestFor(requests: readonly SongRequest[] | null, ext
 }
 
 /**
+ * A search result as the user's requests now stand, so it follows the list below it: in the library once a request for
+ * it completed, Requested while one is open (Failed included: the API refuses a second until it is cancelled), and
+ * requestable again once every request for it was cancelled. A result no request mentions keeps what the search said.
+ */
+export function resultWithRequests(result: SongRequestSearchResult, requests: readonly SongRequest[] | null): SongRequestSearchResult {
+    const mine = requests?.filter(r => r.externalSongId === result.externalSongId) ?? [];
+    if (mine.length === 0) {
+        return result;
+    }
+    if (mine.some(r => r.status === SongRequestStatus.Completed)) {
+        return { ...result, inLibrary: true, alreadyRequested: false };
+    }
+    const open = mine.some(r => isInFlightSongRequest(r.status) || r.status === SongRequestStatus.Failed);
+    return { ...result, alreadyRequested: open };
+}
+
+/**
  * The requests that reached Completed since the last read, so the app syncs the new song in. Nothing on the first read
  * (previous null): those completed before the screen opened, and an earlier sync already has them. A completed request
  * not seen before counts, since it completed between the two reads.

@@ -7,7 +7,7 @@ import SongRequestStatusList from "@/app/components/song-requests/SongRequestSta
 import { useTheme } from "@/app/theme";
 import { useApi } from "@/app/services/api/ApiProvider";
 import { useDb } from "@/app/services/db/DbProvider";
-import { SongRequestSearchResult } from "@/app/services/api/models";
+import { SongRequest, SongRequestSearchResult } from "@/app/services/api/models";
 import { useSongRequestsCapability } from "@/app/services/song-requests/capability";
 import { useSongRequests } from "@/app/services/song-requests/useSongRequests";
 import { playWhenSynced } from "@/app/services/song-requests/playRequested";
@@ -17,6 +17,7 @@ import {
     describeRequestFailure,
     describeSearchFailure,
     formatSongDuration,
+    resultWithRequests,
     SEARCH_DEBOUNCE_MS,
     SEARCH_LIMIT,
     SEARCH_MAX_LENGTH,
@@ -30,8 +31,8 @@ type SearchState =
     | { status: "done"; query: string; results: SongRequestSearchResult[] }
     | { status: "failed"; query: string; message: string };
 
-/** What a result row is doing right now, or what its last action came to. */
-type RowState = { busy: true } | { busy: false; note: string; isError: boolean };
+/** What a result row is doing right now, or what its last action came to. `whileRequested` notes go once it isn't. */
+type RowState = { busy: true } | { busy: false; note: string; isError: boolean; whileRequested?: boolean };
 
 const REQUESTED_NOTE = "Requested. Its status is below.";
 
@@ -91,21 +92,16 @@ export default function SongRequestsScreen() {
         }
     };
 
-    const updateResult = (externalSongId: string, change: Partial<SongRequestSearchResult>) =>
-        setSearch((s) => s.status === "done"
-            ? { ...s, results: s.results.map((r) => (r.externalSongId === externalSongId ? { ...r, ...change } : r)) }
-            : s);
     const setRow = (externalSongId: string, state: RowState) => setRows((all) => ({ ...all, [externalSongId]: state }));
 
-    // Files the request and shows it in the list. A request that didn't complete at once leaves the result Requested.
-    // On a failure the row says why, and the list is re-read, since a refusal usually means the request moved on.
+    // Files the request and shows it in the list, which the result's badge follows from then on. On a failure the row
+    // says why, and the list is re-read, since a refusal usually means the request moved on.
     const fileRequest = async (result: SongRequestSearchResult) => {
         try {
             const created = await api.songRequestCreate(toCreateSongRequest(result));
             requests.apply(created);
             if (created.status !== SongRequestStatus.Completed) {
-                updateResult(result.externalSongId, { inLibrary: false, alreadyRequested: true });
-                setRow(result.externalSongId, { busy: false, note: REQUESTED_NOTE, isError: false });
+                setRow(result.externalSongId, { busy: false, note: REQUESTED_NOTE, isError: false, whileRequested: true });
             }
             return created;
         } catch (error) {
@@ -119,7 +115,6 @@ export default function SongRequestsScreen() {
         setRow(result.externalSongId, { busy: true });
         const created = await fileRequest(result);
         if (created?.status === SongRequestStatus.Completed) {
-            updateResult(result.externalSongId, { inLibrary: true });
             setRow(result.externalSongId, { busy: false, note: `Added to ${created.targetPlaylistName}`, isError: false });
         }
     };
@@ -185,7 +180,7 @@ export default function SongRequestsScreen() {
                         accessibilityLabel="Search for a song to request"
                         style={{ marginTop: theme.space.sm }}
                     />
-                    <SearchResults search={search} rows={rows} onRetry={runSearch} onRequest={request} onPlay={playNow} />
+                    <SearchResults search={search} rows={rows} requests={requests.requests} onRetry={runSearch} onRequest={request} onPlay={playNow} />
 
                     <SectionHeader title="Your requests" />
                     <SongRequestStatusList view={requests} emptyText="Nothing requested yet. Search above to find a song." />
@@ -223,12 +218,13 @@ function Unavailable({ capability, asking, onRetry }: { capability: "off" | "unk
 interface ResultsProps {
     search: SearchState;
     rows: Record<string, RowState>;
+    requests: SongRequest[] | null;
     onRetry: (query: string) => void;
     onRequest: (result: SongRequestSearchResult) => void;
     onPlay: (result: SongRequestSearchResult) => void;
 }
 
-function SearchResults({ search, rows, onRetry, onRequest, onPlay }: ResultsProps) {
+function SearchResults({ search, rows, requests, onRetry, onRequest, onPlay }: ResultsProps) {
     const theme = useTheme();
     switch (search.status) {
         case "idle":
@@ -255,7 +251,7 @@ function SearchResults({ search, rows, onRetry, onRequest, onPlay }: ResultsProp
                 </Text>
             ) : (
                 <View style={{ marginTop: theme.space.sm }}>
-                    {search.results.map((result) => (
+                    {search.results.map((found) => resultWithRequests(found, requests)).map((result) => (
                         <SearchResultRow
                             key={result.externalSongId}
                             result={result}
@@ -281,7 +277,7 @@ function SearchResultRow({ result, row, onRequest, onPlay }: ResultRowProps) {
     const duration = formatSongDuration(result.durationSeconds);
     const byline = [result.artists.join(", "), duration].filter(Boolean).join(" · ");
     const busy = row?.busy === true;
-    const note = row && !row.busy ? row : null;
+    const note = row && !row.busy && (!row.whileRequested || result.alreadyRequested) ? row : null;
 
     return (
         <View style={{ flexDirection: "row", alignItems: "center", gap: theme.space.md, paddingVertical: theme.space.sm }}>

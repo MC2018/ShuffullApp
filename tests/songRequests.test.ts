@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { AxiosError } from "axios";
 import { ApiStatusFailureError } from "@/app/services/api/errors";
-import { SongRequest } from "@/app/services/api/models";
+import { SongRequest, SongRequestSearchResult } from "@/app/services/api/models";
 import { SongRequestStatus } from "@/app/enums";
 import {
     CAPABILITIES_REFRESH_MS,
@@ -13,6 +13,7 @@ import {
     isInFlightSongRequest,
     newlyCompletedRequests,
     nextCapabilityAnswer,
+    resultWithRequests,
     SEARCH_MAX_LENGTH,
     SONG_REQUEST_POLL_MS,
     SONG_REQUEST_RETRY_MS,
@@ -158,6 +159,26 @@ describe("polling and Completed", () => {
         expect(completedRequestFor(list, "source-open")).toBeUndefined();
         expect(completedRequestFor([{ ...done, songId: null }], done.externalSongId)).toBeUndefined();
         expect(completedRequestFor(null, done.externalSongId)).toBeUndefined();
+    });
+
+    it("a search result follows the user's requests: Requested while open, in the library once completed, requestable once cancelled", () => {
+        const found: SongRequestSearchResult = {
+            externalSongId: "source-a", title: "A song", artists: [], album: null, durationSeconds: null, thumbnailUrl: null,
+            isExplicit: false, inLibrary: false, alreadyRequested: false,
+        };
+        const badge = (requests: SongRequest[] | null, result = found) => {
+            const r = resultWithRequests(result, requests);
+            return [r.inLibrary, r.alreadyRequested];
+        };
+        expect(badge(null)).toEqual([false, false]);
+        expect(badge([request("b", SongRequestStatus.Pending)])).toEqual([false, false]);
+        expect(badge([request("a", SongRequestStatus.Downloading)])).toEqual([false, true]);
+        // The API refuses a second request while one is Failed, so it still reads Requested (its Retry is in the list).
+        expect(badge([request("a", SongRequestStatus.Failed)])).toEqual([false, true]);
+        expect(badge([request("a", SongRequestStatus.Completed)])).toEqual([true, false]);
+        expect(badge([request("a", SongRequestStatus.Cancelled)], { ...found, alreadyRequested: true })).toEqual([false, false]);
+        // A cancelled request doesn't hide one filed after it.
+        expect(badge([request("a", SongRequestStatus.Pending), { ...request("a", SongRequestStatus.Cancelled), songRequestId: "old" }])).toEqual([false, true]);
     });
 
     it("the first read syncs nothing: those requests completed before the screen opened", () => {
