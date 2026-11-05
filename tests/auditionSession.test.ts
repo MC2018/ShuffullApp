@@ -17,6 +17,7 @@ import {
     AuditionStart,
     auditionStartSeconds,
     heardThresholdSeconds,
+    parseQuickSkips,
 } from "@/app/tools/auditionSession";
 
 // Audition mode's deck (ShuffullApp#125). The deck runs against a fake player here, and in the last block against
@@ -44,6 +45,11 @@ class FakePort implements AuditionPort {
     async keep(songId: string) { this.calls.push({ kind: "keep", songId }); }
     async markHeard(songId: string) { this.calls.push({ kind: "markHeard", songId }); }
     prefetch() { }
+    /** Every quick-skip list handed over to be kept on the device, in order. Also kept out of `calls`. */
+    remembered: string[][] = [];
+    rememberQuickSkips(songIds: string[]) { this.remembered.push([...songIds]); }
+    /** The list the device would hold now. */
+    stored() { return this.remembered.at(-1) ?? []; }
 
     of(kind: Call["kind"]) {
         return this.calls.filter(c => c.kind === kind);
@@ -59,10 +65,10 @@ class FakePort implements AuditionPort {
 // A stamp is written after the tick that decided it, in the deck's write queue.
 const flush = () => new Promise(resolve => setTimeout(resolve, 0));
 
-function setup(songIds: string[]) {
+function setup(songIds: string[], quickSkipped: string[] = []) {
     let ms = 0;
     const port = new FakePort();
-    const session = new AuditionSession(songIds, port, () => ms);
+    const session = new AuditionSession(songIds, port, () => ms, quickSkipped);
     return {
         port,
         session,
@@ -392,6 +398,76 @@ describe("verdicts move the deck exactly once", () => {
     });
 });
 
+describe("quick skips survive leaving the deck (ShuffullApp#177)", () => {
+    it("remembers each quick skip, and forgets a song once it is heard", async () => {
+        const deck = setup(["a", "b", "c"]);
+        await deck.session.start();
+        expect(deck.port.stored()).toEqual([]);
+        await deck.play(3);
+        await deck.session.next(); // a: quick skip
+        expect(deck.port.stored()).toEqual(["a"]);
+        await deck.session.next(); // b: quick skip
+        expect(deck.port.stored()).toEqual(["a", "b"]);
+        await deck.session.previous(); // back to b, and this time it's heard
+        await deck.play(25);
+        expect(deck.port.stored()).toEqual(["a"]);
+        // Every change written once: the opening (empty) list, a, a+b, a.
+        expect(deck.port.remembered).toEqual([[], ["a"], ["a", "b"], ["a"]]);
+    });
+
+    it("deals a reopened deck's fresh songs first and the remembered ones last, from the top", async () => {
+        // First sitting: skip a and b quickly, hear c, leave.
+        const first = setup(["a", "b", "c", "d"]);
+        await first.session.start();
+        await first.session.next();
+        await first.session.next();
+        await first.play(25);
+        expect(first.port.heard()).toEqual(["c"]);
+
+        // The deck reopens over what is still unheard, with the list the device kept.
+        const again = setup(["a", "b", "d"], first.port.stored());
+        await again.session.start();
+        expect(again.session.snapshot()).toMatchObject({ songId: "d", lap: 1, position: 1, total: 1 });
+        await again.play(25);
+        await again.session.next(); // d heard: end of lap 1
+
+        expect(again.port.of("load")).toEqual([
+            { kind: "load", songId: "d", start: "startPoint" },
+            { kind: "load", songId: "a", start: "top" },
+        ]);
+        expect(again.session.snapshot()).toMatchObject({ songId: "a", lap: 2, total: 3, notice: { kind: "lap2", count: 2 } });
+    });
+
+    it("goes straight to lap 2 when only remembered songs are left, and a second quick skip counts as heard", async () => {
+        const deck = setup(["a", "b"], ["a", "b"]);
+        await deck.session.start();
+        expect(deck.session.snapshot()).toMatchObject({ songId: "a", lap: 2, position: 1, total: 2, notice: { kind: "lap2", count: 2 } });
+        expect(deck.port.of("load")).toEqual([{ kind: "load", songId: "a", start: "top" }]);
+
+        await deck.session.next(); // a: quick skip again
+        await deck.session.dislike(); // b: a verdict
+        await flush();
+        expect(deck.port.heard()).toEqual(["a", "b"]);
+        expect(deck.session.snapshot().finished).toBe(true);
+        expect(deck.port.stored()).toEqual([]);
+    });
+
+    it("drops remembered ids no longer in the deck the moment it opens", async () => {
+        const deck = setup(["a", "b"], ["gone", "b"]);
+        await deck.session.start();
+        expect(deck.port.remembered).toEqual([["b"]]);
+        expect(deck.session.snapshot()).toMatchObject({ songId: "a", lap: 1, total: 1 });
+    });
+
+    it("reads a missing or broken stored list as no list", () => {
+        expect(parseQuickSkips(null)).toEqual([]);
+        expect(parseQuickSkips("")).toEqual([]);
+        expect(parseQuickSkips("{not json")).toEqual([]);
+        expect(parseQuickSkips("{\"a\":1}")).toEqual([]);
+        expect(parseQuickSkips("[\"a\",2,\"b\"]")).toEqual(["a", "b"]);
+    });
+});
+
 describe("an empty deck", () => {
     it("is finished from the start and loads nothing", async () => {
         const deck = setup([]);
@@ -446,6 +522,7 @@ describe("against the real database", () => {
             keep: async songId => { await recordKeep(db, USER, songId); },
             markHeard: async songId => { await recordPlayed(db, USER, songId, new Date(stamp += 1000)); },
             prefetch: () => undefined,
+            rememberQuickSkips: () => undefined,
         };
     }
 
