@@ -39,6 +39,7 @@ const playerPort: Omit<AuditionPort, "rememberQuickSkips"> = {
     keep: songId => MediaManager.keepSong(songId),
     markHeard: songId => MediaManager.markAuditionHeard(songId),
     prefetch: songIds => void MediaManager.prefetchAudition(songIds).catch(e => console.warn("[audition] prefetch failed", e)),
+    inForeground: () => MediaManager.isAppInForeground(),
 };
 
 /** Deals out `playlistId`'s unheard songs and starts the first. Returns the session, or undefined if superseded. */

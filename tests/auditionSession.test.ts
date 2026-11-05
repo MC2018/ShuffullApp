@@ -45,6 +45,9 @@ class FakePort implements AuditionPort {
     async keep(songId: string) { this.calls.push({ kind: "keep", songId }); }
     async markHeard(songId: string) { this.calls.push({ kind: "markHeard", songId }); }
     prefetch() { }
+    /** Whether the app is on screen. Tests flip it to stand for home / the lock screen. */
+    foreground = true;
+    inForeground() { return this.foreground; }
     /** Every quick-skip list handed over to be kept on the device, in order. Also kept out of `calls`. */
     remembered: string[][] = [];
     rememberQuickSkips(songIds: string[]) { this.remembered.push([...songIds]); }
@@ -304,6 +307,38 @@ describe("laps", () => {
     });
 });
 
+describe("outside the app (ShuffullApp#179)", () => {
+    it("starts every song from the top while the app is off screen, and lap 1 at the start point again once back", async () => {
+        const deck = setup(["a", "b", "c"]);
+        await deck.session.start(); // a: on screen
+        deck.port.foreground = false;
+        await deck.play(200);
+        await deck.session.onEnded("a"); // b: started by the deck on the lock screen
+        await deck.play(25);
+        await deck.session.next(); // c: Next on the notification
+        deck.port.foreground = true;
+        await deck.session.previous(); // back to b, on screen
+
+        expect(deck.port.of("load")).toEqual([
+            { kind: "load", songId: "a", start: "startPoint" },
+            { kind: "load", songId: "b", start: "top" },
+            { kind: "load", songId: "c", start: "top" },
+            { kind: "load", songId: "b", start: "startPoint" },
+        ]);
+        // The heard rule is the same off screen: a played out and b got its 20 s.
+        expect(deck.port.heard()).toEqual(["a", "b"]);
+    });
+
+    it("never pauses the deck by itself", async () => {
+        const deck = setup(["a", "b"]);
+        await deck.session.start();
+        deck.port.foreground = false;
+        await deck.play(200);
+        await deck.session.onEnded("a");
+        expect(deck.port.of("pause")).toEqual([]);
+    });
+});
+
 describe("verdicts move the deck exactly once", () => {
     it("a Dislike rates once and advances once", async () => {
         const deck = setup(["a", "b", "c"]);
@@ -532,6 +567,7 @@ describe("against the real database", () => {
             keep: async songId => { await recordKeep(db, USER, songId); },
             markHeard: async songId => { await recordPlayed(db, USER, songId, new Date(stamp += 1000)); },
             prefetch: () => undefined,
+            inForeground: () => true,
             rememberQuickSkips: () => undefined,
         };
     }
