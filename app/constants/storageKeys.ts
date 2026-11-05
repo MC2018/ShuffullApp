@@ -28,4 +28,8 @@ export const STORAGE_KEYS = {
     // JSON SavedRecap { recap, fetchedAt }: the last fetched December recap, keyed by `${RECAP_PREFIX}${userId}:${year}`
     // (recapCacheKey), so the recap screen can still show it offline.
     RECAP_PREFIX: "RECAP:",
-}
+    // JSON string[]: an audition mix's songs quick-skipped on the deck's first pass and not yet heard, keyed by
+    // `${AUDITION_QUICK_SKIPS_PREFIX}${userId}:${playlistId}` (services/audition/quickSkipStore). Removed once the
+    // list is empty or the mix is deleted on this device. Never synced: a quick skip must not look like a listen.
+    AUDITION_QUICK_SKIPS_PREFIX: "AUDITION_QUICK_SKIPS:",
+};

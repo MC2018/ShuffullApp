@@ -1,11 +1,11 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import TrackPlayer, { State } from "react-native-track-player";
 import { create } from "zustand";
 import { GenericDb } from "../db/GenericDb";
 import DbQueries from "../db/queries";
 import { MediaManager } from "../media-manager";
 import { AuditionController, useActiveSong } from "../media-manager/mediaManager";
-import { AuditionPort, AuditionSession, AuditionSnapshot, parseQuickSkips } from "@/app/tools/auditionSession";
+import { loadQuickSkips, saveQuickSkips } from "./quickSkipStore";
+import { AuditionPort, AuditionSession, AuditionSnapshot } from "@/app/tools/auditionSession";
 
 // Audition mode's one live session (ShuffullApp#125), between the deck screen and the player. The rules live in
 // tools/auditionSession; this file only plugs the real player into them and keeps the screen's copy current.
@@ -41,29 +41,6 @@ const playerPort: Omit<AuditionPort, "rememberQuickSkips"> = {
     prefetch: songIds => void MediaManager.prefetchAudition(songIds).catch(e => console.warn("[audition] prefetch failed", e)),
 };
 
-// Each mix's quick-skipped songs live on the device, never in the DB (ShuffullApp#177), so leaving the deck and coming
-// back still deals them last. Per user, since one device can log in as several.
-const quickSkipsKey = (userId: string, playlistId: string) => `audition-quick-skips:${userId}:${playlistId}`;
-// The list's writes, in order, so a deck reopened at once reads what the last one left.
-let quickSkipWrites: Promise<void> = Promise.resolve();
-
-function saveQuickSkips(key: string, songIds: string[]) {
-    quickSkipWrites = quickSkipWrites
-        .then(() => songIds.length > 0 ? AsyncStorage.setItem(key, JSON.stringify(songIds)) : AsyncStorage.removeItem(key))
-        .catch(e => console.warn("[audition] could not save quick skips", e));
-}
-
-async function loadQuickSkips(key: string): Promise<string[]> {
-    await quickSkipWrites;
-    try {
-        return parseQuickSkips(await AsyncStorage.getItem(key));
-    } catch (e) {
-        // Without the list the skipped songs just come back in their old place.
-        console.warn("[audition] could not read quick skips", e);
-        return [];
-    }
-}
-
 /** Deals out `playlistId`'s unheard songs and starts the first. Returns the session, or undefined if superseded. */
 export async function startAuditionMode(db: GenericDb, playlistId: string): Promise<AuditionSession | undefined> {
     await stopAuditionMode();
@@ -73,16 +50,16 @@ export async function startAuditionMode(db: GenericDb, playlistId: string): Prom
     if (!sessionData || myGeneration !== generation) {
         return undefined;
     }
-    const key = quickSkipsKey(sessionData.userId, playlistId);
+    const { userId } = sessionData;
     const [songIds, quickSkipped] = await Promise.all([
-        DbQueries.getAuditionDeckSongIds(db, sessionData.userId, playlistId),
-        loadQuickSkips(key),
+        DbQueries.getAuditionDeckSongIds(db, userId, playlistId),
+        loadQuickSkips(userId, playlistId),
     ]);
     if (myGeneration !== generation) {
         return undefined;
     }
 
-    const port: AuditionPort = { ...playerPort, rememberQuickSkips: ids => saveQuickSkips(key, ids) };
+    const port: AuditionPort = { ...playerPort, rememberQuickSkips: ids => saveQuickSkips(userId, playlistId, ids) };
     const session = new AuditionSession(songIds, port, Date.now, quickSkipped);
     const controller: AuditionController = {
         resume: () => session.resume(),

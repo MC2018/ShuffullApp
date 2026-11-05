@@ -452,6 +452,16 @@ describe("quick skips survive leaving the deck (ShuffullApp#177)", () => {
         expect(deck.port.stored()).toEqual([]);
     });
 
+    it("puts a song back on the list when its heard stamp fails", async () => {
+        const deck = setup(["a"], ["a"]);
+        deck.port.markHeard = async () => { throw new Error("db busy"); };
+        await deck.session.start();
+        await deck.session.next(); // lap 2: a second quick skip, whose stamp fails
+        await flush();
+        // Not heard as far as the database knows, so the next deck must still deal it last.
+        expect(deck.port.remembered).toEqual([["a"], [], ["a"]]);
+    });
+
     it("drops remembered ids no longer in the deck the moment it opens", async () => {
         const deck = setup(["a", "b"], ["gone", "b"]);
         await deck.session.start();

@@ -2,6 +2,7 @@ import { GenericDb } from "../db/GenericDb";
 import DbQueries from "../db/queries";
 import { Playlist } from "../db/models";
 import { Downloader } from "../downloader/Downloader";
+import { forgetQuickSkips } from "../audition/quickSkipStore";
 import { RequestType } from "@/app/enums";
 import { generateId } from "@/app/tools";
 import { showAlert } from "@/app/tools/dialog";
@@ -35,6 +36,9 @@ async function deletePlaylist(db: GenericDb, playlist: Playlist): Promise<void> 
     const songIds = await DbQueries.getPlaylistSongIds(db, playlist.playlistId);
     // Purge locally (mirrors the server) and clean up any downloaded media for the removed songs.
     const purged = await DbQueries.deletePlaylistAndPurge(db, playlist.playlistId);
+    if (playlist.isExploratory) {
+        forgetQuickSkips(playlist.userId, playlist.playlistId);
+    }
     // Media is stored by hash: leave a file another local song still plays.
     const filesInUse = await DbQueries.fileHashesInUse(db, purged.map(x => x.fileHash));
     for (const song of purged.filter(x => !filesInUse.has(x.fileHash))) {
