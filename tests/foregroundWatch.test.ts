@@ -46,14 +46,14 @@ describe("watchForeground", () => {
         appState.change("background");
         await slept; // would hang forever without the wake
         appState.change("active");
-        expect(watch.left).toBe(true);
+        expect(watch.hasLeftForeground).toBe(true);
         watch.dispose();
         expect(appState.listening).toBe(0);
     });
 
     it("counts an app already in the background as left", async () => {
         const watch = watchForeground(new FakeAppState("background"), stalledTimer);
-        expect(watch.left).toBe(true);
+        expect(watch.hasLeftForeground).toBe(true);
         await watch.sleep(100); // returns at once
     });
 });

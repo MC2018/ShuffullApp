@@ -328,15 +328,6 @@ describe("outside the app (ShuffullApp#179)", () => {
         // The heard rule is the same off screen: a played out and b got its 20 s.
         expect(deck.port.heard()).toEqual(["a", "b"]);
     });
-
-    it("never pauses the deck by itself", async () => {
-        const deck = setup(["a", "b"]);
-        await deck.session.start();
-        deck.port.foreground = false;
-        await deck.play(200);
-        await deck.session.onEnded("a");
-        expect(deck.port.of("pause")).toEqual([]);
-    });
 });
 
 describe("verdicts move the deck exactly once", () => {

@@ -18,27 +18,27 @@ export function isBackground(state: string | null | undefined): boolean {
 
 export interface ForegroundWatch {
     /** The app has been in the background at some point since the watch began (or was there when it began). */
-    readonly left: boolean;
+    readonly hasLeftForeground: boolean;
     /** Sleeps `ms`, or less: it wakes the moment the app leaves, however stalled the timer is. */
     sleep(ms: number): Promise<void>;
     dispose(): void;
 }
 
 export function watchForeground(appState: AppStateSource, setTimer: (fn: () => void, ms: number) => unknown = setTimeout): ForegroundWatch {
-    let left = isBackground(appState.currentState);
+    let hasLeft = isBackground(appState.currentState);
     let wake: (() => void) | undefined;
     const subscription = appState.addEventListener("change", state => {
         if (isBackground(state)) {
-            left = true;
+            hasLeft = true;
             wake?.();
         }
     });
     return {
-        get left() {
-            return left;
+        get hasLeftForeground() {
+            return hasLeft;
         },
         sleep(ms: number) {
-            if (left) {
+            if (hasLeft) {
                 return Promise.resolve();
             }
             return new Promise<void>(resolve => {
@@ -65,11 +65,11 @@ export async function waitForDuration(
     pollMs = 100,
 ): Promise<number> {
     const deadline = now() + timeoutMs;
-    while (!watch.left) {
+    while (!watch.hasLeftForeground) {
         const duration = await getDuration();
         if (duration > 0) {
             // Left while the player was answering: still off screen, so still from the top.
-            return watch.left ? 0 : duration;
+            return watch.hasLeftForeground ? 0 : duration;
         }
         if (now() >= deadline) {
             return 0;

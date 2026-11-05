@@ -1150,7 +1150,7 @@ export function playAuditionSong(songId: string, start: AuditionStart): Promise<
                 const duration = await waitForDuration(async () => (await TrackPlayer.getProgress()).duration, watch, START_POINT_WAIT_MS);
                 if (duration > 0) {
                     await TrackPlayer.seekTo(auditionStartSeconds(duration, hookStartPercent));
-                } else if (!watch.left) {
+                } else if (!watch.hasLeftForeground) {
                     // The length isn't known yet (a slow stream): start it now and jump once it is, rather than hold
                     // every other control up behind the wait. Not once the app has left: off screen it plays from
                     // the top, like every song the deck starts there.
@@ -1183,7 +1183,7 @@ async function seekToStartPointLate(epoch: number, hookStartPercent: number | nu
         const deadline = Date.now() + START_POINT_LATE_SEEK_MS;
         while (Date.now() < deadline) {
             await watch.sleep(250);
-            if (epoch !== auditionLoadEpoch || watch.left) {
+            if (epoch !== auditionLoadEpoch || watch.hasLeftForeground) {
                 return;
             }
             const { duration, position } = await TrackPlayer.getProgress();
@@ -1191,7 +1191,7 @@ async function seekToStartPointLate(epoch: number, hookStartPercent: number | nu
                 // Only while the song is still near its top: past that, the user has scrubbed or chosen From the start.
                 if (position < 5) {
                     await transportLock.run(async () => {
-                        if (epoch === auditionLoadEpoch && !watch.left) {
+                        if (epoch === auditionLoadEpoch && !watch.hasLeftForeground) {
                             await TrackPlayer.seekTo(auditionStartSeconds(duration, hookStartPercent));
                         }
                     });
