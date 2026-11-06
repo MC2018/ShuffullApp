@@ -1,7 +1,7 @@
 import { generateId } from "@/app/tools/pure";
 import { GenericDb } from "../GenericDb";
 import { artistTable, downloadedSongTable, downloadQueueTable, songArtistTable, songTable } from "../schema";
-import { eq, desc, asc, count } from "drizzle-orm";
+import { eq, desc, asc, count, notInArray } from "drizzle-orm";
 import { DownloadQueue } from "../models";
 import { DownloadPriority, SongDetails } from "../types";
 import { chunkRows } from "./_chunk";
@@ -24,8 +24,13 @@ export async function addToDownloadQueue(db: GenericDb, songIds: string[], prior
     }
 }
 
-export async function getFromDownloadQueue(db: GenericDb): Promise<DownloadQueue | undefined> {
+/**
+ * The head of the queue, skipping `exclude`: the songs other download workers already hold (ShuffullApp#181). That
+ * list is at most the worker count, so it stays far below SQLite's bound-parameter limit.
+ */
+export async function getFromDownloadQueue(db: GenericDb, exclude: readonly string[] = []): Promise<DownloadQueue | undefined> {
     const result = await db.select().from(downloadQueueTable)
+        .where(exclude.length > 0 ? notInArray(downloadQueueTable.songId, [...exclude]) : undefined)
         .orderBy(desc(downloadQueueTable.priority), asc(downloadQueueTable.downloadQueueId))
         .limit(1);
 

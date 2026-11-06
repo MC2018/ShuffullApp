@@ -1,4 +1,4 @@
-import * as FileSystem from "expo-file-system/legacy";
+import { File } from "expo-file-system";
 import { shaHash } from "./hasher";
 
 // Dependency-free helpers live in ./pure so they can be unit-tested without this file's native imports.
@@ -14,17 +14,19 @@ function getFileNameFromUri(uri: string): string | null {
     return segments[segments.length - 1] || null;
 }
 
+/**
+ * SHA-256 of a local file, read straight into bytes for the native digest. It used to read the file as base64, decode
+ * it with atob and copy it into an array one character at a time: millions of JS calls per song, all blocking the JS
+ * thread (ShuffullApp#181).
+ */
 async function hashFile(uri: string) {
-    const fileData = await FileSystem.getInfoAsync(uri);
+    const file = new File(uri);
 
-    if (!fileData.exists) {
+    if (!file.exists) {
         return undefined;
     }
 
-    const base64Data = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
-    const binaryString = atob(base64Data);
-    const bytes = Uint8Array.from(binaryString, char => char.charCodeAt(0));
-    return await shaHash(bytes);
+    return await shaHash(await file.bytes());
 }
 
 export async function verifyFileIntegrity(uri: string) {

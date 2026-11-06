@@ -1,6 +1,7 @@
 import DbQueries from "../db/queries";
 import { GenericDb } from "../db/GenericDb";
 import { DownloadPriority } from "../db/types";
+import { DownloadQueue } from "../db/models";
 import { STORAGE_KEYS } from "../../constants/storageKeys";
 import { MediaKind } from "../../tools/desktopMedia";
 import { useDownloadStatus } from "./downloadStatus";
@@ -65,7 +66,15 @@ export interface DownloadQueueRunnerOptions {
     storage: KeyValueStorage;
     /** The backoff wait. Tests pass one that doesn't really wait. */
     sleep?: (ms: number) => Promise<void>;
+    /** How many songs may be in flight at once. Defaults to DOWNLOAD_CONCURRENCY. */
+    concurrency?: number;
 }
+
+/**
+ * Songs fetched at once (ShuffullApp#181). One at a time paid every request's round trip in series. Three overlap the
+ * waiting without hammering the API or splitting a phone's bandwidth so thin that no single song finishes soon.
+ */
+export const DOWNLOAD_CONCURRENCY = 3;
 
 // Safety net only. Every event that can create work (enqueue, resume, network change, app foregrounded)
 // kicks the loop directly; this just catches anything that slipped through.
@@ -82,22 +91,35 @@ export function albumArtFileName(song: { fileHash: string }): string {
 }
 
 /**
- * Outcome of one attempt at the head of the queue, which is what decides whether the loop keeps going:
+ * Outcome of one worker's attempt at the head of the queue, which is what decides whether that worker keeps going:
  *   downloaded – a song landed; go straight to the next one
  *   skipped    – the row was dropped: song gone locally, already on disk, or a failure that will never
  *                succeed (404, repeated hash mismatch - see tools/downloadFailure.ts); go on
- *   blocked    – nothing to do or not allowed to (empty, paused, no network, no host); stop and wait for an event
+ *   blocked    – nothing to do or not allowed to (empty, every row held by another worker, paused, no network,
+ *                no host); stop and wait for an event
  *   failed     – a failure that may clear up (5xx, interrupted, exception), or a drop deferred because too many
  *                came in a row; the row stays and the next try waits out a backoff
  */
 export type Attempt = "downloaded" | "skipped" | "blocked" | "failed";
 
+/** Where a failure that came before any row was claimed keeps its count (never a song id: those are ULIDs). */
+const UNCLAIMED = "";
+
+/** The row a worker's current attempt holds, filled in once it claims one. */
+type Claim = { songId: string | undefined };
+
 /**
  * Drains the download queue: the loop, the status it publishes, the progress throttle and the failure rules, shared
- * by the native and desktop Downloaders (each is this class plus its adapter). One instance per process, made by
- * `Downloader.shared`, never by a React component: on Android, swiping the app away unmounts the whole tree while
- * the foreground service keeps the process alive, so a loop owned by a component would silently stop under a
- * notification still claiming it was running.
+ * by the native and desktop Downloaders (each is this class plus its adapter).
+ *
+ * Up to `concurrency` workers drain it at once (ShuffullApp#181). Each claims a different row (`claimed`), and keeps
+ * the claim through its backoff after a failure, so a failing song is never retried by the next free worker at once.
+ * A kick starts one worker if the pool isn't full, and a worker that starts a download starts the next, so the pool
+ * grows only while there are songs to fetch and a kick on an empty queue costs one look, as it always did.
+ *
+ * One instance per process, made by `Downloader.shared`, never by a React component: on Android, swiping the app away
+ * unmounts the whole tree while the foreground service keeps the process alive, so a loop owned by a component would
+ * silently stop under a notification still claiming it was running.
  *
  * Background execution (native): while there is queued work the runner holds the adapter's background hold (the
  * shared foreground service), which keeps JS timers and the process alive after Home or swipe-away, and publishes
@@ -108,17 +130,24 @@ export class DownloadQueueRunner {
     private readonly adapter: DownloadAdapter | undefined;
     private readonly storage: KeyValueStorage;
     private readonly sleep: (ms: number) => Promise<void>;
-    // The drain loop while it runs (between songs included), so a kick cannot start a second loop.
-    private drainRun: Promise<void> | undefined;
-    // A kick arrived while drainRun was set. The loop may already be past its last queue read (publishing why it
-    // stopped), so it goes round once more rather than leave that work to the watchdog.
-    private kickRequested = false;
-    // True only while a song is in flight; drives the "downloading" phase and the pause-with-in-flight hold.
-    downloading = false;
+    private readonly concurrency: number;
+    // Workers running, between songs and during a backoff included.
+    private workers = 0;
+    // Bumped by every kick. A worker that found nothing to do looks once more if a kick landed while it was looking:
+    // that kick may have queued work after its query, and it started no worker of its own when the pool was full.
+    private kickCount = 0;
+    // Settles when the last worker stops; what kick() returns. Undefined while no worker runs.
+    private idle: { promise: Promise<void>; resolve: () => void } | undefined;
+    // Rows a worker holds: in flight, or backing off after a failure. Every other worker skips them.
+    private readonly claimed = new Set<string>();
+    // Songs being fetched right now, oldest first, with their progress. The oldest is the one the status shows.
+    private readonly inFlight = new Map<string, { name: string; progress: number }>();
     // Starts true so nothing can start before the persisted value is read (start() flips it).
     paused = true;
-    private songInFlight: { songId: string; name: string } | undefined;
-    private consecutiveFailures = 0;
+    // Failures in a row per song, which set that song's backoff; cleared when it lands or is dropped. Per song because
+    // other workers keep landing songs meanwhile: a shared count they reset would retry a song that keeps failing
+    // every couple of seconds. A failure before any row was claimed (reading the queue) counts under UNCLAIMED.
+    private readonly failures = new Map<string, number>();
     // Per-song count of 2xx downloads whose hash didn't match (see decideSongDownload). In memory on purpose:
     // a restart just grants a few more attempts.
     private hashMismatches = new Map<string, number>();
@@ -133,10 +162,16 @@ export class DownloadQueueRunner {
         this.adapter = options.adapter;
         this.storage = options.storage;
         this.sleep = options.sleep ?? defaultSleep;
+        this.concurrency = Math.max(1, options.concurrency ?? DOWNLOAD_CONCURRENCY);
         const adapter = this.adapter;
         this.reconcile = adapter == undefined
             ? async () => {}
             : createDiskReconciler(this.db, fileNames => adapter.listSongFiles(fileNames), songFileName);
+    }
+
+    /** True while any song is in flight; drives the "downloading" phase and the pause-with-in-flight hold. */
+    get downloading(): boolean {
+        return this.inFlight.size > 0;
     }
 
     /**
@@ -197,7 +232,7 @@ export class DownloadQueueRunner {
         return this.reconcile();
     }
 
-    /** Stops starting NEW downloads. A song already in flight is allowed to finish (they are single files). */
+    /** Stops starting NEW downloads. Songs already in flight are allowed to finish (they are single files). */
     public async pause() {
         if (this.adapter == undefined) {
             return;
@@ -283,54 +318,91 @@ export class DownloadQueueRunner {
     }
 
     /**
-     * Starts the drain loop if it isn't already running. Safe to call from anywhere, any number of times. Resolves
-     * when the running loop stops; callers in the app don't wait for that, tests do.
+     * Starts a worker if the pool isn't full. Safe to call from anywhere, any number of times. Resolves when the last
+     * worker stops; callers in the app don't wait for that, tests do.
      */
     public kick(): Promise<void> {
         if (this.adapter == undefined) {
             return Promise.resolve();
         }
-        this.kickRequested = true;
-        this.drainRun ??= (async () => {
-            try {
-                while (this.kickRequested) {
-                    this.kickRequested = false;
-                    await this.drain();
-                }
-            } finally {
-                this.drainRun = undefined;
-            }
-        })();
-        return this.drainRun;
+        this.kickCount++;
+        if (this.idle == undefined) {
+            let resolve: () => void = () => {};
+            const promise = new Promise<void>((r) => { resolve = r; });
+            this.idle = { promise, resolve };
+        }
+        const idle = this.idle.promise;
+        this.startWorker();
+        return idle;
+    }
+
+    private startWorker() {
+        if (this.workers >= this.concurrency) {
+            return;
+        }
+        this.workers++;
+        void this.work();
     }
 
     /**
-     * Runs songs back-to-back until there is nothing to do. One loop at a time (`drainRun`); every path out goes
-     * through publishStatus so the store and the notification reflect why it stopped.
+     * One worker: runs songs back-to-back until there is nothing it may do. Every path out of the last worker goes
+     * through publishStatus so the store and the notification reflect why the queue stopped.
      */
-    private async drain() {
+    private async work() {
         try {
             while (!this.paused) {
-                const attempt = await this.downloadNext();
+                const kicksBefore = this.kickCount;
+                const claim: Claim = { songId: undefined };
+                try {
+                    const attempt = await this.downloadNext(claim);
 
-                if (attempt === "blocked") {
-                    break;
-                }
+                    if (attempt === "blocked") {
+                        if (this.kickCount !== kicksBefore) {
+                            continue;
+                        }
+                        break;
+                    }
 
-                if (attempt === "failed") {
-                    this.consecutiveFailures++;
-                    await this.sleep(retryDelayMs(this.consecutiveFailures));
-                } else {
-                    this.consecutiveFailures = 0;
+                    const key = claim.songId ?? UNCLAIMED;
+                    if (attempt === "failed") {
+                        const failures = (this.failures.get(key) ?? 0) + 1;
+                        this.failures.set(key, failures);
+                        // Still claimed while it waits, so another worker doesn't retry the song straight away.
+                        await this.sleep(retryDelayMs(failures));
+                    } else {
+                        this.failures.delete(key);
+                        this.failures.delete(UNCLAIMED);
+                    }
+                } finally {
+                    if (claim.songId != undefined) {
+                        this.claimed.delete(claim.songId);
+                    }
                 }
             }
         } finally {
-            await this.publishStatus();
+            this.workers--;
+            if (this.workers === 0) {
+                await this.publishStatus();
+                // A kick during that publish may have started a worker; the queue is idle only once it stops too.
+                if (this.workers === 0 && this.idle != undefined) {
+                    const idle = this.idle;
+                    this.idle = undefined;
+                    idle.resolve();
+                }
+            }
         }
     }
 
+    /** The song the status and notification describe: the oldest one in flight. */
+    private shownInFlight(): { songId: string; name: string; progress: number } | undefined {
+        for (const [songId, entry] of this.inFlight) {
+            return { songId, ...entry };
+        }
+        return undefined;
+    }
+
     /**
-     * Recomputes the observable status from the queue, the loop's own flags and the last network state,
+     * Recomputes the observable status from the queue, the workers' own state and the last network state,
      * then mirrors it to the background hold. Cheap (one COUNT), and the only writer of the store apart from
      * the in-flight progress callback.
      */
@@ -348,12 +420,12 @@ export class DownloadQueueRunner {
                 network: await adapter.network(),
                 wifiOnly: adapter.wifiOnly,
             });
-            const current = useDownloadStatus.getState().status.current;
+            const shown = this.shownInFlight();
             useDownloadStatus.getState().setStatus({
                 phase,
                 queuedCount,
-                // Keep the progress the callback wrote; only clear it once nothing is in flight.
-                current: this.songInFlight ? (current?.songId === this.songInFlight.songId ? current : { songId: this.songInFlight.songId, progress: 0 }) : undefined,
+                current: shown && { songId: shown.songId, progress: shown.progress },
+                inFlightSongIds: [...this.inFlight.keys()],
             });
             this.syncBackgroundHold(adapter.background, queuedCount);
         } catch (e) {
@@ -369,10 +441,20 @@ export class DownloadQueueRunner {
             background.release();
             return;
         }
-        background.hold(describeDownloadNotification(useDownloadStatus.getState().status, this.songInFlight?.name));
+        background.hold(describeDownloadNotification(useDownloadStatus.getState().status, this.shownInFlight()?.name));
     }
 
     private publishProgress(songId: string, progress: number) {
+        const entry = this.inFlight.get(songId);
+        if (entry == undefined) {
+            return;
+        }
+        entry.progress = progress;
+        // Only the shown song drives the store and the notification; the others take over with their progress when
+        // it lands (publishStatus).
+        if (this.shownInFlight()?.songId !== songId) {
+            return;
+        }
         const current = useDownloadStatus.getState().status.current;
         // Throttle to whole-percent changes so a large file doesn't re-render the screen (or re-post the
         // notification) hundreds of times.
@@ -382,19 +464,42 @@ export class DownloadQueueRunner {
         useDownloadStatus.getState().setStatus({ current: { songId, progress } });
         const background = this.adapter?.background;
         if (background?.isHeld()) {
-            background.hold(describeDownloadNotification(useDownloadStatus.getState().status, this.songInFlight?.name));
+            background.hold(describeDownloadNotification(useDownloadStatus.getState().status, entry.name));
         }
     }
 
-    /** One attempt at the head of the queue. Only ever called by the drain loop. */
-    private async downloadNext(): Promise<Attempt> {
+    /**
+     * Takes the first row no other worker holds and records it in `claim` (and `claimed`), which the worker releases
+     * after any backoff. Two workers can read the same head at once, so the claim is made after the read, and a row
+     * another worker took meanwhile just means looking again without it.
+     */
+    private async claimNext(claim: Claim): Promise<DownloadQueue | undefined> {
+        for (;;) {
+            const next = await DbQueries.getFromDownloadQueue(this.db, [...this.claimed]);
+
+            if (next == undefined) {
+                return undefined;
+            }
+
+            if (!this.claimed.has(next.songId)) {
+                this.claimed.add(next.songId);
+                claim.songId = next.songId;
+                return next;
+            }
+        }
+    }
+
+    /** One worker's attempt at the first row no other worker holds. Only ever called by work(). */
+    private async downloadNext(claim: Claim): Promise<Attempt> {
         const adapter = this.adapter;
         if (this.paused || adapter == undefined) {
             return "blocked";
         }
 
+        let started: string | undefined;
+
         try {
-            const nextDownload = await DbQueries.getFromDownloadQueue(this.db);
+            const nextDownload = await this.claimNext(claim);
 
             if (!nextDownload) {
                 return "blocked";
@@ -426,8 +531,10 @@ export class DownloadQueueRunner {
                 return "skipped";
             }
 
-            this.downloading = true;
-            this.songInFlight = { songId: song.songId, name: song.name };
+            started = song.songId;
+            this.inFlight.set(song.songId, { name: song.name, progress: 0 });
+            // There is a song to fetch, so there may be more: let the next worker look while this one downloads.
+            this.startWorker();
             this.publishProgress(song.songId, 0);
             await this.publishStatus();
 
@@ -493,8 +600,9 @@ export class DownloadQueueRunner {
             log.error("downloader", "attempt failed", e);
             return "failed";
         } finally {
-            this.downloading = false;
-            this.songInFlight = undefined;
+            if (started != undefined) {
+                this.inFlight.delete(started);
+            }
             await this.publishStatus();
         }
     }

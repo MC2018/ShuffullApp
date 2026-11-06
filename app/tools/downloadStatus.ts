@@ -17,17 +17,22 @@ export function isDownloadNetwork(type: string | undefined): boolean {
 
 export type DownloadPhase =
     | "idle" // nothing queued
-    | "downloading" // a song is in flight, or one is about to start
-    | "paused" // the user paused; nothing new starts (an in-flight song is allowed to finish)
+    | "downloading" // songs are in flight, or one is about to start
+    | "paused" // the user paused; nothing new starts (songs in flight are allowed to finish)
     | "waiting-for-wifi" // queued, online, but not on an allowed network
     | "offline" // queued, no internet at all
     | "unsupported"; // plain browser build: no local store
 
 export interface DownloadStatus {
     phase: DownloadPhase;
-    /** Song currently being fetched (may linger briefly while paused, see "paused" above). */
+    /**
+     * The song the card and notification describe: the oldest of those in flight (may linger briefly while paused, see
+     * "paused" above).
+     */
     current?: { songId: string; progress: number };
-    /** Rows still in the queue, INCLUDING the in-flight one (it is only removed after it lands). */
+    /** Every song being fetched right now, oldest first; up to the runner's concurrency (ShuffullApp#181). */
+    inFlightSongIds?: string[];
+    /** Rows still in the queue, INCLUDING the ones in flight (each is only removed after it lands). */
     queuedCount: number;
     /** Bumped every time a song finishes downloading, so screens know to refresh their "downloaded" lists. */
     completedCount: number;
