@@ -41,7 +41,11 @@ export function auditionStartSeconds(durationSeconds: number, hookStartPercent: 
     return latest > 0 ? Math.min(durationSeconds * fraction, latest) : 0;
 }
 
-/** Where the deck starts a song: lap 1 at its start point (auditionStartSeconds), lap 2 from the top. */
+/**
+ * Where the deck starts a song: lap 1 at its start point (auditionStartSeconds), lap 2 from the top. Outside the app
+ * (home, lock screen) every song starts from the top (ShuffullApp#179): nobody is flicking through a deck there, they
+ * are listening to music, and a song that starts a third of the way in is just a song with its opening missing.
+ */
 export type AuditionStart = "startPoint" | "top";
 
 export interface AuditionPort {
@@ -59,6 +63,8 @@ export interface AuditionPort {
     /** Stamps the song as played. The only write that makes a song "heard" by time. */
     markHeard(songId: string): Promise<void>;
     prefetch(songIds: string[]): void;
+    /** Whether the app is on screen. Off screen (home, lock screen) the deck plays on, and starts songs from the top. */
+    inForeground(): boolean;
     /**
      * Keeps the mix's quick-skipped songs on the device (ShuffullApp#177), so the next deck deals them last instead
      * of first. Called with the whole list each time it changes; an empty list means nothing is left to replay. Never
@@ -537,7 +543,7 @@ export class AuditionSession {
         }
         this.emit();
         this.port.prefetch(this.entries.slice(this.index + 1, this.index + 1 + PREFETCH_AHEAD).map(e => e.songId));
-        await this.port.load(entry.songId, entry.lap === 1 ? "startPoint" : "top");
+        await this.port.load(entry.songId, entry.lap === 1 && this.port.inForeground() ? "startPoint" : "top");
     }
 
     private summary(): AuditionSummary {
