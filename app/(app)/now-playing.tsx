@@ -15,7 +15,7 @@ import { hasDisplayableLyrics } from "@/app/tools/lrc";
 import RatingControl from "@/app/components/likes/atoms/RatingControl";
 import KeepControl from "@/app/components/likes/atoms/KeepControl";
 import SongDownloadControl from "@/app/components/downloading/atoms/SongDownloadControl";
-import { AlbumArt, IconButton, Screen, Text } from "@/app/components/ui";
+import { AlbumArt, IconButton, MarqueeText, Screen, Text } from "@/app/components/ui";
 import { useTheme } from "@/app/theme";
 
 const defaultArt: ImageURISource = require("@/assets/images/default-album-art.jpg");
@@ -202,24 +202,24 @@ export default function NowPlayingScreen() {
                                 ) : null}
 
                                 <Animated.View pointerEvents="none" style={{ position: "absolute", left: 0, right: 0, top: bigMetaTop, alignItems: "center", opacity: bigMetaOpacity }}>
-                                    <Text variant="title" numberOfLines={1} style={{ textAlign: "center" }}>
+                                    <MarqueeText variant="title" center active={!showLyrics}>
                                         {details.song.name}
-                                    </Text>
-                                    <Text variant="body" color="textMuted" numberOfLines={1} style={{ textAlign: "center", marginTop: theme.space.xs }}>
+                                    </MarqueeText>
+                                    <MarqueeText variant="body" color="textMuted" center active={!showLyrics} style={{ marginTop: theme.space.xs }}>
                                         {artistText}
-                                    </Text>
+                                    </MarqueeText>
                                 </Animated.View>
 
                                 <Animated.View
                                     pointerEvents="none"
                                     style={{ position: "absolute", left: COMPACT_ART + theme.space.md, right: 0, top: 8, height: COMPACT_ART, justifyContent: "center", opacity: compactMetaOpacity }}
                                 >
-                                    <Text variant="bodyStrong" numberOfLines={1}>
+                                    <MarqueeText variant="bodyStrong" active={showLyrics}>
                                         {details.song.name}
-                                    </Text>
-                                    <Text variant="caption" color="textMuted" numberOfLines={1}>
+                                    </MarqueeText>
+                                    <MarqueeText variant="caption" color="textMuted" active={showLyrics}>
                                         {artistText}
-                                    </Text>
+                                    </MarqueeText>
                                 </Animated.View>
 
                                 <Animated.View pointerEvents="none" style={[{ position: "absolute", left: 0, top: 0, width: artSize, height: artSize }, artTransform]}>

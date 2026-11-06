@@ -16,7 +16,7 @@ import {
 import { startAuditionMode, stopAuditionMode, useAuditionMode } from "@/app/services/audition/auditionMode";
 import { confirmDeletePlaylist } from "@/app/services/playlists/deletePlaylist";
 import Skimmer from "@/app/components/music-control/atoms/Skimmer";
-import { AlbumArt, Button, Card, IconButton, Screen, Text } from "@/app/components/ui";
+import { AlbumArt, Button, Card, IconButton, MarqueeText, Screen, Text } from "@/app/components/ui";
 import { useTheme } from "@/app/theme";
 import { LikeStatus } from "@/app/enums";
 import { AuditionProgress, isAuditionComplete } from "@/app/tools/audition";
@@ -345,12 +345,12 @@ function Deck({ songId, session }: { songId: string; session: React.RefObject<Au
                         </View>
                     ) : null}
                 </View>
-                <Text variant="title" numberOfLines={2} style={{ marginTop: theme.space.lg, textAlign: "center" }}>
+                <MarqueeText variant="title" center staticLines={2} style={{ marginTop: theme.space.lg }}>
                     {details?.song.name ?? ""}
-                </Text>
-                <Text variant="body" color="textMuted" numberOfLines={1} style={{ marginTop: 2, textAlign: "center" }}>
+                </MarqueeText>
+                <MarqueeText variant="body" color="textMuted" center style={{ marginTop: 2 }}>
                     {artists}
-                </Text>
+                </MarqueeText>
                 {songIssue ? (
                     // "Reconnecting" counts as playing, so without this the card would look like it plays in silence.
                     <Text variant="caption" color="textFaint" style={{ marginTop: theme.space.sm, textAlign: "center" }}>

@@ -9,3 +9,4 @@ export { default as Chip } from "./Chip";
 export { default as ListRow } from "./ListRow";
 export { default as SectionHeader } from "./SectionHeader";
 export { default as Divider } from "./Divider";
+export { default as MarqueeText } from "./MarqueeText";
