@@ -47,13 +47,14 @@ export default function LocalDownloadsScreen() {
             downloader?.reconcileWithDisk().then(loadDownloaded).catch((e) => log.warn("downloader", "Matching downloads to the files on disk, or reloading the list after, failed.", e));
         }, [downloader, loadDownloaded, loadQueue]),
     );
-    // ...the saved list again whenever a song finishes, and the queue whenever its size or head changes.
+    // ...the saved list again whenever a song finishes, and the queue whenever its size or the songs in flight change.
+    const inFlightKey = status.inFlightSongIds?.join(",");
     useEffect(() => {
         loadDownloaded().catch((e) => log.warn("downloader", "Loading downloaded songs failed.", e));
     }, [status.completedCount, loadDownloaded]);
     useEffect(() => {
         loadQueue().catch((e) => log.warn("downloader", "Loading the download queue failed.", e));
-    }, [status.queuedCount, status.current?.songId, loadQueue]);
+    }, [status.queuedCount, inFlightKey, loadQueue]);
 
     const filteredSongs = useMemo(() => {
         if (search === "") {
@@ -81,7 +82,7 @@ export default function LocalDownloadsScreen() {
     };
 
     const hiddenQueued = Math.max(0, status.queuedCount - queued.length);
-    const inFlightId = status.phase === "downloading" ? status.current?.songId : undefined;
+    const inFlightIds = new Set(status.phase === "downloading" ? status.inFlightSongIds : undefined);
 
     const header = (
         <View>
@@ -94,7 +95,7 @@ export default function LocalDownloadsScreen() {
                 <>
                     <SectionHeader title={`Queued · ${status.queuedCount}`} actionLabel="Clear" onAction={confirmClearQueue} />
                     {queued.map((item) => {
-                        const inFlight = item.song.songId === inFlightId;
+                        const inFlight = inFlightIds.has(item.song.songId);
                         return (
                             <ListRow
                                 key={item.song.songId}

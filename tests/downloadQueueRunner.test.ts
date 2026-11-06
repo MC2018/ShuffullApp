@@ -78,6 +78,11 @@ class FakeAdapter implements DownloadAdapter {
     readonly responses = new Map<string, DownloadResult[]>();
     online = true;
     wifiOnly = true;
+    /** Downloads running right now, and the most that ever ran at once. */
+    active = 0;
+    maxActive = 0;
+    /** Runs inside every fetch before it answers, so a test can hold fetches open and see them overlap. */
+    delay: ((key: string) => Promise<void>) | undefined;
     background: (BackgroundHold & { held: boolean }) | undefined;
     watch: ((onChange: () => void) => void) | undefined;
 
@@ -89,6 +94,13 @@ class FakeAdapter implements DownloadAdapter {
         const key = `${kind}/${fileName}`;
         this.fetched.push(key);
         tick();
+        this.active++;
+        this.maxActive = Math.max(this.maxActive, this.active);
+        try {
+            await this.delay?.(key);
+        } finally {
+            this.active--;
+        }
         const scripted = this.responses.get(key);
         const result = scripted == undefined ? { status: 200, hashMatches: verify ? true : undefined } : scripted.length > 1 ? scripted.shift() : scripted[0];
         onProgress(0.5);
@@ -137,6 +149,24 @@ function tick() {
     vi.setSystemTime(now);
 }
 
+/** Lets every pending promise and timer callback run, a few rounds over, so other workers get their turn. */
+async function settle(rounds = 5) {
+    for (let i = 0; i < rounds; i++) {
+        await new Promise<void>((resolve) => setImmediate(resolve));
+    }
+}
+
+/** Waits (in real event-loop turns, never in time) until `done` holds, failing rather than hanging. */
+async function until(done: () => boolean | Promise<boolean>, what: string) {
+    for (let i = 0; i < 200; i++) {
+        if (await done()) {
+            return;
+        }
+        await settle(1);
+    }
+    throw new Error(`never happened: ${what}`);
+}
+
 async function queue(db: GenericDb, ids: string[]) {
     for (const id of ids) {
         tick();
@@ -175,15 +205,19 @@ describe("DownloadQueueRunner", () => {
         vi.restoreAllMocks();
     });
 
-    function makeRunner(options: { adapter?: DownloadAdapter | undefined; maxSleeps?: number } = {}) {
+    // One worker unless a test asks for more, so the tests about order and backoff read in sequence. The "parallel"
+    // block covers the pool itself.
+    function makeRunner(options: { adapter?: DownloadAdapter | undefined; maxSleeps?: number; concurrency?: number; onSleep?: () => Promise<void> } = {}) {
         const maxSleeps = options.maxSleeps ?? 20;
         const made: DownloadQueueRunner = new DownloadQueueRunner({
             db,
             adapter: "adapter" in options ? options.adapter : adapter,
             storage,
+            concurrency: options.concurrency ?? 1,
             // Never really waits. A test whose failure never clears stops the loop by pausing it.
             sleep: async (ms) => {
                 sleeps.push(ms);
+                await options.onSleep?.();
                 if (sleeps.length >= maxSleeps) {
                     await made.pause();
                 }
@@ -451,6 +485,121 @@ describe("DownloadQueueRunner", () => {
 
             expect((await getDownloadQueueDetails(db, 10)).map(x => x.song.songId)).toEqual(["f"]);
             expect(status().skippedCount).toBe(MAX_CONSECUTIVE_DROPS);
+        });
+    });
+
+    // ShuffullApp#181: up to `concurrency` songs at once.
+    describe("parallel", () => {
+        const musicFetches = (id: string) => adapter.fetched.filter(x => x === music(id)).length;
+
+        /** Holds every audio fetch open until release() is called; art goes straight through. */
+        function holdMusic() {
+            const waiting: (() => void)[] = [];
+            let released = false;
+            adapter.delay = (key) => key.startsWith("music/") && !released ? new Promise<void>((resolve) => waiting.push(resolve)) : Promise.resolve();
+            return {
+                release: () => {
+                    released = true;
+                    waiting.splice(0).forEach(resolve => resolve());
+                },
+            };
+        }
+
+        it("keeps three songs in flight and fetches each one once", async () => {
+            runner = makeRunner({ concurrency: 3 });
+            adapter.delay = () => settle(2);
+            const ids = ["a", "b", "c", "d", "e", "f", "g", "h"];
+            await queue(db, ids);
+
+            await run();
+
+            expect(await downloadedIds(db)).toEqual(ids);
+            expect(adapter.maxActive).toBe(3);
+            expect(ids.map(musicFetches)).toEqual(ids.map(() => 1));
+            expect(status()).toMatchObject({ phase: "idle", queuedCount: 0, completedCount: ids.length, current: undefined, inFlightSongIds: [] });
+        });
+
+        it("starts no more workers than there are songs", async () => {
+            runner = makeRunner({ concurrency: 3 });
+            adapter.delay = () => settle(2);
+            await queue(db, ["a", "b"]);
+
+            await run();
+
+            expect(await downloadedIds(db)).toEqual(["a", "b"]);
+            expect(adapter.maxActive).toBe(2);
+        });
+
+        it("doesn't let another worker retry a song that is backing off", async () => {
+            let fetchesDuringBackoff: number | undefined;
+            runner = makeRunner({
+                concurrency: 3,
+                // Give the other workers every chance to take the row while the failed one waits.
+                onSleep: async () => {
+                    await settle(10);
+                    fetchesDuringBackoff = musicFetches("a");
+                },
+            });
+            adapter.responses.set(music("a"), [{ status: 503 }, { status: 200, hashMatches: true }]);
+            await queue(db, ["a", "b", "c", "d"]);
+
+            await run();
+
+            expect(fetchesDuringBackoff).toBe(1);
+            expect(musicFetches("a")).toBe(2);
+            expect(sleeps).toEqual([RETRY_BASE_MS]);
+            expect(await downloadedIds(db)).toEqual(["a", "b", "c", "d"]);
+        });
+
+        it("fills the pool again when work is queued behind a song still in flight", async () => {
+            runner = makeRunner({ concurrency: 3 });
+            const held = holdMusic();
+            await queue(db, ["a"]);
+            const running = run();
+            await until(() => musicFetches("a") === 1, "a in flight");
+
+            // The worker on "a" is busy, and the others stopped on an empty queue: this kick must start them again.
+            await queue(db, ["b", "c"]);
+            void runner.kick();
+            await until(() => musicFetches("b") === 1 && musicFetches("c") === 1, "b and c in flight beside a");
+            expect(adapter.active).toBe(3);
+
+            held.release();
+            await running;
+            expect(await downloadedIds(db)).toEqual(["a", "b", "c"]);
+        });
+
+        it("shows the oldest song in flight and lists them all", async () => {
+            runner = makeRunner({ concurrency: 3 });
+            const held = holdMusic();
+            await queue(db, ["a", "b", "c", "d"]);
+            const running = run();
+            await until(() => adapter.active === 3, "three in flight");
+            await settle();
+
+            expect(status().phase).toBe("downloading");
+            expect(status().inFlightSongIds).toEqual(["a", "b", "c"]);
+            expect(status().current?.songId).toBe("a");
+
+            held.release();
+            await running;
+            expect(status()).toMatchObject({ current: undefined, inFlightSongIds: [] });
+        });
+
+        it("on pause, lets the songs in flight finish and starts nothing new", async () => {
+            runner = makeRunner({ concurrency: 3 });
+            const held = holdMusic();
+            await queue(db, ["a", "b", "c", "d", "e"]);
+            const running = run();
+            await until(() => adapter.active === 3, "three in flight");
+
+            await runner.pause();
+            held.release();
+            await running;
+
+            expect(await downloadedIds(db)).toEqual(["a", "b", "c"]);
+            expect(await countDownloadQueue(db)).toBe(2);
+            expect(status()).toMatchObject({ phase: "paused", queuedCount: 2 });
         });
     });
 
