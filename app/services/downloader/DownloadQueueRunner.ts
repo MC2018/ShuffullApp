@@ -102,6 +102,9 @@ export function albumArtFileName(song: { fileHash: string }): string {
  */
 export type Attempt = "downloaded" | "skipped" | "blocked" | "failed";
 
+/** Where a failure that came before any row was claimed keeps its count (never a song id: those are ULIDs). */
+const UNCLAIMED = "";
+
 /** The row a worker's current attempt holds, filled in once it claims one. */
 type Claim = { songId: string | undefined };
 
@@ -112,10 +115,11 @@ type Claim = { songId: string | undefined };
  * Up to `concurrency` workers drain it at once (ShuffullApp#181). Each claims a different row (`claimed`), and keeps
  * the claim through its backoff after a failure, so a failing song is never retried by the next free worker at once.
  * A kick starts one worker if the pool isn't full, and a worker that starts a download starts the next, so the pool
- * grows only while there are songs to fetch and a kick on an empty queue costs one look, as it always did. One instance per process, made by
- * `Downloader.shared`, never by a React component: on Android, swiping the app away unmounts the whole tree while
- * the foreground service keeps the process alive, so a loop owned by a component would silently stop under a
- * notification still claiming it was running.
+ * grows only while there are songs to fetch and a kick on an empty queue costs one look, as it always did.
+ *
+ * One instance per process, made by `Downloader.shared`, never by a React component: on Android, swiping the app away
+ * unmounts the whole tree while the foreground service keeps the process alive, so a loop owned by a component would
+ * silently stop under a notification still claiming it was running.
  *
  * Background execution (native): while there is queued work the runner holds the adapter's background hold (the
  * shared foreground service), which keeps JS timers and the process alive after Home or swipe-away, and publishes
@@ -140,8 +144,10 @@ export class DownloadQueueRunner {
     private readonly inFlight = new Map<string, { name: string; progress: number }>();
     // Starts true so nothing can start before the persisted value is read (start() flips it).
     paused = true;
-    // Shared by all workers: any song landing resets it, so a server that fails everything backs off sooner.
-    private consecutiveFailures = 0;
+    // Failures in a row per song, which set that song's backoff; cleared when it lands or is dropped. Per song because
+    // other workers keep landing songs meanwhile: a shared count they reset would retry a song that keeps failing
+    // every couple of seconds. A failure before any row was claimed (reading the queue) counts under UNCLAIMED.
+    private readonly failures = new Map<string, number>();
     // Per-song count of 2xx downloads whose hash didn't match (see decideSongDownload). In memory on purpose:
     // a restart just grants a few more attempts.
     private hashMismatches = new Map<string, number>();
@@ -357,12 +363,15 @@ export class DownloadQueueRunner {
                         break;
                     }
 
+                    const key = claim.songId ?? UNCLAIMED;
                     if (attempt === "failed") {
-                        this.consecutiveFailures++;
+                        const failures = (this.failures.get(key) ?? 0) + 1;
+                        this.failures.set(key, failures);
                         // Still claimed while it waits, so another worker doesn't retry the song straight away.
-                        await this.sleep(retryDelayMs(this.consecutiveFailures));
+                        await this.sleep(retryDelayMs(failures));
                     } else {
-                        this.consecutiveFailures = 0;
+                        this.failures.delete(key);
+                        this.failures.delete(UNCLAIMED);
                     }
                 } finally {
                     if (claim.songId != undefined) {

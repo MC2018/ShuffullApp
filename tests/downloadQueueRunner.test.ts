@@ -551,6 +551,23 @@ describe("DownloadQueueRunner", () => {
             expect(await downloadedIds(db)).toEqual(["a", "b", "c", "d"]);
         });
 
+        it("backs a failing song off further each time, though other songs land in between", async () => {
+            runner = makeRunner({
+                concurrency: 3,
+                // Let the other workers land songs during every wait.
+                onSleep: () => settle(10),
+            });
+            adapter.delay = () => settle(2);
+            adapter.responses.set(music("a"), [{ status: 503 }, { status: 503 }, { status: 503 }, { status: 200, hashMatches: true }]);
+            const ids = ["a", "b", "c", "d", "e", "f", "g", "h"];
+            await queue(db, ids);
+
+            await run();
+
+            expect(sleeps).toEqual([RETRY_BASE_MS, RETRY_BASE_MS * 2, RETRY_BASE_MS * 4]);
+            expect(await downloadedIds(db)).toEqual(ids);
+        });
+
         it("fills the pool again when work is queued behind a song still in flight", async () => {
             runner = makeRunner({ concurrency: 3 });
             const held = holdMusic();
