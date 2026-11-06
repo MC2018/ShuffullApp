@@ -352,7 +352,7 @@ function Deck({ songId, session }: { songId: string; session: React.RefObject<Au
                         </View>
                     ) : null}
                 </View>
-                <MarqueeText variant="title" center style={{ marginTop: theme.space.lg }}>
+                <MarqueeText variant="title" center staticLines={2} style={{ marginTop: theme.space.lg }}>
                     {details?.song.name ?? ""}
                 </MarqueeText>
                 <MarqueeText variant="body" color="textMuted" center style={{ marginTop: 2 }}>

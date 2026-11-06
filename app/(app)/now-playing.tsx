@@ -202,10 +202,10 @@ export default function NowPlayingScreen() {
                                 ) : null}
 
                                 <Animated.View pointerEvents="none" style={{ position: "absolute", left: 0, right: 0, top: bigMetaTop, alignItems: "center", opacity: bigMetaOpacity }}>
-                                    <MarqueeText variant="title" center>
+                                    <MarqueeText variant="title" center active={!showLyrics}>
                                         {details.song.name}
                                     </MarqueeText>
-                                    <MarqueeText variant="body" color="textMuted" center style={{ marginTop: theme.space.xs }}>
+                                    <MarqueeText variant="body" color="textMuted" center active={!showLyrics} style={{ marginTop: theme.space.xs }}>
                                         {artistText}
                                     </MarqueeText>
                                 </Animated.View>
@@ -214,10 +214,12 @@ export default function NowPlayingScreen() {
                                     pointerEvents="none"
                                     style={{ position: "absolute", left: COMPACT_ART + theme.space.md, right: 0, top: 8, height: COMPACT_ART, justifyContent: "center", opacity: compactMetaOpacity }}
                                 >
-                                    <MarqueeText variant="bodyStrong">{details.song.name}</MarqueeText>
-                                    <Text variant="caption" color="textMuted" numberOfLines={1}>
+                                    <MarqueeText variant="bodyStrong" active={showLyrics}>
+                                        {details.song.name}
+                                    </MarqueeText>
+                                    <MarqueeText variant="caption" color="textMuted" active={showLyrics}>
                                         {artistText}
-                                    </Text>
+                                    </MarqueeText>
                                 </Animated.View>
 
                                 <Animated.View pointerEvents="none" style={[{ position: "absolute", left: 0, top: 0, width: artSize, height: artSize }, artTransform]}>
