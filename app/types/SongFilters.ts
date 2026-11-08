@@ -60,9 +60,18 @@ export class SongFilters {
         return songFilters;
     }
 
+    /**
+     * Makes this the whole scope: one filter and nothing else. Callers build on the SAVED filters (a playlist's or
+     * an artist's Play button), so anything left standing here leaks from the last scope into this one. A Genre
+     * Jam's heaviness band and local-only used to: the band then excluded every song with no heaviness score, which
+     * left an audition mix (almost none scored) playing the same one song every time (ShuffullApp#185).
+     */
     public setSoleFilter(type: SongFilterType, ids: string[]) {
         this.whitelists = emptyWhitelist();
         this.blacklists = emptyWhitelist();
+        this.heavinessMin = null;
+        this.heavinessMax = null;
+        this.localOnly = false;
         this.unheardOnly = false;
         this.genreJam = false;
 

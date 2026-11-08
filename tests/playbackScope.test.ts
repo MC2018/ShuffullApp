@@ -25,6 +25,22 @@ describe("playback scopes", () => {
         expect(legacy.genreJam === true).toBe(false);
     });
 
+    it("setSoleFilter drops a genre jam's heaviness band and local-only, not just its tags", () => {
+        // A playlist's Play button builds on the saved filters. A band left standing excludes every song with no
+        // heaviness score, so an audition mix (almost none scored) played one song over and over (ShuffullApp#185).
+        const scope = SongFilters.fromGenreJam({
+            genreJamId: "jam-1", name: "Jam", whitelists: { genreIds: ["g1"] }, blacklists: {}, heavinessMin: 7, heavinessMax: 10,
+        } as unknown as GenreJam, true);
+
+        scope.setSoleFilter(SongFilterType.Playlist, ["playlist-1"]);
+
+        expect(scope.heavinessMin).toBeNull();
+        expect(scope.heavinessMax).toBeNull();
+        expect(scope.localOnly).toBe(false);
+        expect(scope.whitelists.genreIds).toEqual([]);
+        expect(scope.whitelists.playlistIds).toEqual(["playlist-1"]);
+    });
+
     it("a playlist scope filters to that playlist and nothing else", () => {
         const scope = new SongFilters();
         scope.setSoleFilter(SongFilterType.Playlist, ["playlist-1"]);
