@@ -25,20 +25,39 @@ describe("playback scopes", () => {
         expect(legacy.genreJam === true).toBe(false);
     });
 
-    it("setSoleFilter drops a genre jam's heaviness band and local-only, not just its tags", () => {
+    it("setSoleFilter drops a genre jam's heaviness band and the downloads scope's local-only", () => {
         // A playlist's Play button builds on the saved filters. A band left standing excludes every song with no
         // heaviness score, so an audition mix (almost none scored) played one song over and over (ShuffullApp#185).
         const scope = SongFilters.fromGenreJam({
             genreJamId: "jam-1", name: "Jam", whitelists: { genreIds: ["g1"] }, blacklists: {}, heavinessMin: 7, heavinessMax: 10,
-        } as unknown as GenreJam, true);
+        } as unknown as GenreJam, false);
+        scope.localOnly = true;
+        scope.unheardOnly = true;
 
         scope.setSoleFilter(SongFilterType.Playlist, ["playlist-1"]);
 
         expect(scope.heavinessMin).toBeNull();
         expect(scope.heavinessMax).toBeNull();
         expect(scope.localOnly).toBe(false);
+        expect(scope.unheardOnly).toBe(false);
+        expect(scope.genreJam).toBe(false);
         expect(scope.whitelists.genreIds).toEqual([]);
         expect(scope.whitelists.playlistIds).toEqual(["playlist-1"]);
+    });
+
+    it("setSoleFilter works on filters read back from storage, which lack fields added since", () => {
+        // getSongFilters puts the stored JSON on the prototype with no initialisers run, so old saves miss fields.
+        const stored = Object.setPrototypeOf(
+            JSON.parse(JSON.stringify({ localOnly: true, heavinessMin: 8, whitelists: { genreIds: ["g1"] } })),
+            SongFilters.prototype,
+        ) as SongFilters;
+
+        stored.setSoleFilter(SongFilterType.Artist, ["artist-1"]);
+
+        expect(stored.localOnly).toBe(false);
+        expect(stored.heavinessMin).toBeNull();
+        expect(stored.whitelists.artistIds).toEqual(["artist-1"]);
+        expect(stored.whitelists.moodIds).toEqual([]);
     });
 
     it("a playlist scope filters to that playlist and nothing else", () => {
