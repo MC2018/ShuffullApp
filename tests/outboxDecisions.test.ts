@@ -104,6 +104,14 @@ describe("recordLikeStatus / recordKeep / recordPlayed: the decision and its out
         expect(await song(db, "s1")).toMatchObject({ exploratory: true, tagsStale: false });
     });
 
+    it("a Keep of a song that isn't an audition song writes nothing", async () => {
+        await addSong(db, "s1");
+
+        expect(await recordKeep(db, USER, "s1")).toBe(false);
+
+        expect(await getRequests(db, USER)).toEqual([]);
+    });
+
     // The server's last-played creates its own play record (Shuffull#2), so a first play queues no CreateUserSong.
     it("a first play saves the play record locally and queues only the last-played stamp", async () => {
         await addSong(db, "s1");
@@ -116,13 +124,5 @@ describe("recordLikeStatus / recordKeep / recordPlayed: the decision and its out
         expect((await getRequests(db, USER)).map(x => [x.requestType, x.songId])).toEqual([
             [RequestType.UpdateSongLastPlayed, "s1"],
         ]);
-    });
-
-    it("a Keep of a song that isn't an audition song writes nothing", async () => {
-        await addSong(db, "s1");
-
-        expect(await recordKeep(db, USER, "s1")).toBe(false);
-
-        expect(await getRequests(db, USER)).toEqual([]);
     });
 });
