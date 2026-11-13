@@ -31,7 +31,7 @@ export default function ArtistScreen() {
             setArtist((await DbQueries.getArtist(db, artistId)) ?? null);
             setSongs(await DbQueries.getSongDetailsByArtist(db, artistId));
         })().catch((e) => log.warn("artist", "Loading the artist failed.", e));
-    }, [artistId]);
+    }, [db, artistId]);
 
     const q = query.trim().toLowerCase();
     const filteredSongs = q === "" ? songs : songs.filter((x) => x.song.name.toLowerCase().includes(q));

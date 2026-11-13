@@ -71,7 +71,7 @@ export default function PlaylistScreen() {
             const dbSongs = await DbQueries.getSongDetailsByPlaylist(db, playlistId);
             setSongs(dbSongs);
         })().catch((e) => log.warn("playlist", "Loading the playlist failed.", e));
-    }, [playlistId]);
+    }, [db, playlistId]);
 
     // Runs once the playlist loads and again on every revision, so "N/M evaluated" moves as songs play instead
     // of only when the screen is re-opened.

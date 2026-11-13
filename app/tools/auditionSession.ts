@@ -475,7 +475,7 @@ export class AuditionSession {
         // quick skips toward "maybe drop this". A Dislike is the skip it looks like.
         await this.port.endListen(reason === "ended" ? "finished"
             : reason === "verdict" && progress.likeStatus !== LikeStatus.Dislike ? "stopped"
-                : "skipped");
+            : "skipped");
 
         if (reason === "skip" && !progress.heard) {
             if (entry.lap === 1) {

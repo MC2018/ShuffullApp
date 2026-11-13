@@ -17,9 +17,9 @@ export default function PlayPauseButton() {
 
     return (
         <>
-        <Button onPress={handlePlay} title="Play" />
-        <Button onPress={handleSkip} title="Skip" />
-        <Button onPress={handlePrevious} title="Previous" />
+            <Button onPress={handlePlay} title="Play" />
+            <Button onPress={handleSkip} title="Skip" />
+            <Button onPress={handlePrevious} title="Previous" />
         </>
     );
 }

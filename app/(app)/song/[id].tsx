@@ -107,7 +107,7 @@ export default function SongScreen() {
         return () => {
             cancelled = true;
         };
-    }, [songId, userId]);
+    }, [db, songId, userId]);
 
     const tagNames = (type: TagType) => tags.filter((t) => t.type === type).map((t) => t.name);
     const genres = tagNames(TagType.Genre);

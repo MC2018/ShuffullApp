@@ -12,7 +12,7 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "test": "vitest run",
-    "lint": "expo lint",
+    "lint": "expo lint .",
     "desktop": "expo export --platform web && electron desktop/main.js",
     "desktop:run": "electron desktop/main.js"
   },

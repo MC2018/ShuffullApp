@@ -127,7 +127,7 @@ export default function GenreJamEditor() {
                 }
             }
         })().catch((e) => log.warn("genre-jam", "Loading the jam builder's options failed.", e));
-    }, [userId, editingId]);
+    }, [db, userId, editingId]);
 
     const cycleItem = (cat: Category, id: string) => {
         setItems((prev) => ({

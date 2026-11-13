@@ -36,13 +36,13 @@ export default function IconButton({
             style={({ pressed }) => [
                 filled
                     ? {
-                          width: round,
-                          height: round,
-                          borderRadius: theme.radius.pill,
-                          backgroundColor: theme.color.accent,
-                          alignItems: "center",
-                          justifyContent: "center",
-                      }
+                        width: round,
+                        height: round,
+                        borderRadius: theme.radius.pill,
+                        backgroundColor: theme.color.accent,
+                        alignItems: "center",
+                        justifyContent: "center",
+                    }
                     : null,
                 { opacity: pressed ? 0.7 : 1 },
                 style,

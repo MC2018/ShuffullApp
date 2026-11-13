@@ -23,7 +23,7 @@ export default function SongsScreen() {
             setSongs(all);
             setFilteredSongs(all);
         })().catch((e) => log.warn("songs", "Loading songs failed.", e));
-    }, []);
+    }, [db]);
 
     const handleSelectSong = async (songInfo: SongDetails) => {
         await MediaManager.playSpecificSong(songInfo.song.songId);

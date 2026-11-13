@@ -16,7 +16,7 @@ export default function HeartBurst({ playKey, color, size = 9 }: { playKey: numb
         }
         progress.setValue(0);
         Animated.timing(progress, { toValue: 1, duration: 620, useNativeDriver: true }).start();
-    }, [playKey]);
+    }, [playKey, progress]);
 
     return (
         <View pointerEvents="none" style={styles.container}>

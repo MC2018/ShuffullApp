@@ -67,7 +67,7 @@ export default function PlayerBar({ floating = false }: { floating?: boolean }) 
                 // Song may have changed out from under us; ignore.
             }
         })();
-    }, [songId]);
+    }, [db, songId]);
 
     const controlMedia = async () => {
         await MediaManager.togglePlayback();

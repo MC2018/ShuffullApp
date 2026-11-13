@@ -56,7 +56,7 @@ export default function HomeScreen() {
         return () => {
             cancelled = true;
         };
-    }, [songId]);
+    }, [db, songId]);
 
     // Reload saved jams whenever Home regains focus (e.g. after saving one in the builder).
     useFocusEffect(
