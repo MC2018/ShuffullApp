@@ -66,8 +66,6 @@ export async function recordPlayed(db: GenericDb, userId: string, songId: string
         let userSong = await getUserSong(tx, userId, songId);
 
         if (userSong == undefined) {
-            // Only the local row. The server creates its own from the last-played stamp below (Shuffull#2), so no
-            // CreateUserSong row is queued any more. SyncManager still sends the ones older builds left in the outbox.
             userSong = {
                 userId,
                 songId,
