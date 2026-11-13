@@ -51,7 +51,7 @@ module.exports = defineConfig([{
         "curly": "error",
         "semi": ["error", "always"],
         "quotes": ["error", "double"],
-        "indent": ["warn", 4, { "SwitchCase": 1 }],
+        "indent": ["warn", 4, { "SwitchCase": 1, "flatTernaryExpressions": true }],
         "@typescript-eslint/no-unused-vars": ["error", {
             argsIgnorePattern: "^_",
             varsIgnorePattern: "^_",
