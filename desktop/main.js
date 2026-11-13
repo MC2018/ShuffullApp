@@ -89,7 +89,7 @@ function createWindow() {
     // outside page should get. Nothing in the app needs a second window, so every request is denied here.
     win.webContents.setWindowOpenHandler(({ url: target }) => {
         if (/^https?:\/\//i.test(target)) {
-            void shell.openExternal(target);
+            shell.openExternal(target).catch((error) => console.warn(`Opening ${target} in the browser failed:`, error));
         }
         return { action: "deny" };
     });

@@ -1,6 +1,7 @@
 import { HttpStatusCode } from "axios";
 import { isUnreachableStatus, statusOfFailure } from "../services/api/errors";
 import type { DeletedSong, DeletedSongsPage } from "../services/api/models";
+import { MONTH_NAMES } from "./recap";
 
 // Library › Deleted songs (ShuffullApp#59): the songs the server deleted for you (today, the un-kept songs of an
 // audition mix you deleted), so a regretted delete can be looked up again. Read straight from the server each time the
@@ -46,11 +47,9 @@ export function youtubeWatchUrl(externalSongId: string | null): string | null {
         : null;
 }
 
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
 /** "Oct 22", or "Oct 22, 2025" when it isn't this year. Local time, like the rest of the app's dates. */
 export function describeDeletedDate(deletedAt: Date, now: Date): string {
-    const day = `${MONTHS[deletedAt.getMonth()]} ${deletedAt.getDate()}`;
+    const day = `${MONTH_NAMES[deletedAt.getMonth()].slice(0, 3)} ${deletedAt.getDate()}`;
     return deletedAt.getFullYear() === now.getFullYear() ? day : `${day}, ${deletedAt.getFullYear()}`;
 }
 

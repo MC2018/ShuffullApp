@@ -10,4 +10,5 @@ files (pending tags and their hold report, YouTube ratings, replacements, the li
 imports and lyrics) come along because the hub script copies the whole set to every consumer. `listens.json` and
 `listens-request.json` are the listen log's outcomes and the body the app sends (ShuffullApp#57). `listens-stats.json`
 is the per-song stats behind song details and the "Maybe drop this" list (ShuffullApp#115), and `recap.json` the
-yearly recap the December recap screen reads (ShuffullApp#116).
+yearly recap the December recap screen reads (ShuffullApp#116). `songs-deleted.json` is the page the Deleted
+songs screen reads (ShuffullApp#59).

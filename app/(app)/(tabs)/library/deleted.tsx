@@ -26,7 +26,7 @@ export default function DeletedSongsScreen() {
     const theme = useTheme();
     const api = useApi();
     const [state, setState] = useState<LoadState>({ status: "loading" });
-    const [text, setText] = useState("");
+    const [query, setQuery] = useState("");
     // Only the newest load may set the list; one answering after the screen closed or after a retry is dropped.
     const loadSeq = useRef(0);
 
@@ -56,7 +56,7 @@ export default function DeletedSongsScreen() {
     }, [load]);
 
     const songs = useMemo(() => (state.status === "loaded" ? state.songs : []), [state]);
-    const shown = useMemo(() => filterDeletedSongs(songs, text), [songs, text]);
+    const shown = useMemo(() => filterDeletedSongs(songs, query), [songs, query]);
     const now = new Date();
     const openIcon = <Ionicons name="open-outline" size={18} color={theme.color.textFaint} />;
 
@@ -111,8 +111,8 @@ export default function DeletedSongsScreen() {
                 </Text>
                 {state.status === "loaded" && songs.length > 0 && (
                     <TextField
-                        value={text}
-                        onChangeText={setText}
+                        value={query}
+                        onChangeText={setQuery}
                         placeholder="Song, artist or mix"
                         autoCorrect={false}
                         returnKeyType="search"
