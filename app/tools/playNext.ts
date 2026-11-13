@@ -1,6 +1,6 @@
 import { SongRequestStatus } from "../enums/SongRequestStatus";
-import { isInFlightSongRequest } from "./songRequests";
-import type { SongRequest } from "../services/api/models";
+import { isInFlightSongRequest, ownedSongIdFor } from "./songRequests";
+import type { SongRequest, SongRequestSearchResult } from "../services/api/models";
 import type { PlayNextIntent } from "../services/db/models";
 
 // "Request & play next" (ShuffullApp#108): the user asked for a song to play right after the current one, but it isn't
@@ -143,6 +143,20 @@ export function isIntentForRequest(intent: PlayNextIntent, request: SongRequest)
     return intent.songRequestId != null
         ? intent.songRequestId === request.songRequestId
         : intent.externalSongId === request.externalSongId;
+}
+
+/**
+ * Whether a request search result shows this intent's "Plays next". By the song's source id, which is how the search
+ * screen keys its rows; or, for a song the user has, by its song id, since the song page keys its row
+ * library:<songId> (ShuffullApp#25). A song the user doesn't have is never matched by song id: the search can't play
+ * it without a request, so its own row is the one that counts.
+ */
+export function isIntentForSearchResult(intent: PlayNextIntent, result: SongRequestSearchResult): boolean {
+    if (intent.externalSongId === result.externalSongId) {
+        return true;
+    }
+    const owned = ownedSongIdFor(result);
+    return owned != null && intent.songId === owned;
 }
 
 /**

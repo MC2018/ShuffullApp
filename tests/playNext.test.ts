@@ -4,7 +4,7 @@ import { drizzle } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import path from "path";
 import type { GenericDb } from "@/app/services/db/GenericDb";
-import { SongRequest } from "@/app/services/api/models";
+import { SongRequest, SongRequestSearchResult } from "@/app/services/api/models";
 import { PlayNextIntent } from "@/app/services/db/models";
 import { deletePlayNextIntent, getPlayNextIntents, savePlayNextIntent, updatePlayNextIntent } from "@/app/services/db/queries/playNext";
 import { SongRequestStatus } from "@/app/enums";
@@ -15,6 +15,7 @@ import {
     describeUpNext,
     intentsWithoutRequestRow,
     isIntentForRequest,
+    isIntentForSearchResult,
     needsRequestStatus,
     PLAY_NEXT_MAX_AGE_MS,
     PLAY_NEXT_UNFILED_MS,
@@ -209,6 +210,32 @@ describe("the Up next label", () => {
 
     it("counts the rest", () => {
         expect(describeUpNext([intent(), intent({ externalSongId: "yt-2", title: "Other" })], [])).toBe("Next, once it arrives: A song (+1)");
+    });
+});
+
+describe("which search results show \"Plays next\" (ShuffullApp#25)", () => {
+    function result(change: Partial<SongRequestSearchResult> = {}): SongRequestSearchResult {
+        return {
+            externalSongId: "yt-1", title: "A song", artists: ["An artist"], album: null, durationSeconds: 200,
+            thumbnailUrl: null, isExplicit: false, inLibrary: false, alreadyRequested: false, songId: null,
+            inUserLibrary: false, ...change,
+        } as SongRequestSearchResult;
+    }
+    const library = intent({ externalSongId: "library:s1", songId: "s1" });
+
+    it("a row asked for from the song page lights the result for that song the user has", () => {
+        expect(isIntentForSearchResult(library, result({ songId: "s1", inLibrary: true, inUserLibrary: true }))).toBe(true);
+    });
+
+    it("a row asked for from the search lights its result by source id, before and after it learns its song", () => {
+        expect(isIntentForSearchResult(intent(), result())).toBe(true);
+        expect(isIntentForSearchResult(intent({ songId: "s1" }), result({ songId: "s1", inLibrary: true }))).toBe(true);
+        expect(isIntentForSearchResult(intent({ externalSongId: "yt-2" }), result())).toBe(false);
+    });
+
+    it("a song-page row never lights a result the user doesn't have, even for the same song", () => {
+        expect(isIntentForSearchResult(library, result({ songId: "s1", inLibrary: true, inUserLibrary: false }))).toBe(false);
+        expect(isIntentForSearchResult(library, result({ songId: "s2", inLibrary: true, inUserLibrary: true }))).toBe(false);
     });
 });
 

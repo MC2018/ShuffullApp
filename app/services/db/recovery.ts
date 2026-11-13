@@ -16,7 +16,7 @@ import { log } from "../../tools/log";
  *   dead_letter_requests  the only record that queued work did not happen.
  *   genre_jam             user-made presets. Nothing syncs them.
  *   listens               a listen left open by a run that died, which the next start closes into the outbox.
- *   play_next_intents     "play this next" on a song request, until the song plays (ShuffullApp#108).
+ *   play_next_intents     "play this next" on a song request or a library song, until it plays (ShuffullApp#108, #25).
  * Deleting the database file used to take the first three with it (ShuffullApp#92).
  *
  * The rows never leave the file. In ONE transaction the preserved tables are renamed to `__rescued_<ts>__<table>`

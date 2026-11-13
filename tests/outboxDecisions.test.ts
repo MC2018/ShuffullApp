@@ -6,7 +6,7 @@ import { eq, sql } from "drizzle-orm";
 import path from "path";
 import type { GenericDb } from "@/app/services/db/GenericDb";
 import { addRequests, enqueueSongRetag, getRequests } from "@/app/services/db/queries/request";
-import { recordKeep, recordLikeStatus } from "@/app/services/db/queries/decision";
+import { recordKeep, recordLikeStatus, recordPlayed } from "@/app/services/db/queries/decision";
 import { songTable, userSongTable, userTable } from "@/app/services/db/schema";
 import { LikeStatus, RequestType } from "@/app/enums";
 
@@ -53,7 +53,7 @@ describe("getRequests: one user's outbox, in the order it was queued", () => {
     });
 });
 
-describe("recordLikeStatus / recordKeep: the decision and its outbox row commit together", () => {
+describe("recordLikeStatus / recordKeep / recordPlayed: the decision and its outbox row commit together", () => {
     let db: GenericDb;
     beforeEach(async () => {
         db = makeDb();
@@ -110,5 +110,19 @@ describe("recordLikeStatus / recordKeep: the decision and its outbox row commit 
         expect(await recordKeep(db, USER, "s1")).toBe(false);
 
         expect(await getRequests(db, USER)).toEqual([]);
+    });
+
+    // The server's last-played creates its own play record (Shuffull#2), so a first play queues no CreateUserSong.
+    it("a first play saves the play record locally and queues only the last-played stamp", async () => {
+        await addSong(db, "s1");
+        const playedAt = new Date("2026-11-13T10:00:00Z");
+
+        await recordPlayed(db, USER, "s1", playedAt);
+
+        const [userSong] = await db.select().from(userSongTable);
+        expect(userSong).toMatchObject({ songId: "s1", lastPlayed: playedAt, likeStatus: LikeStatus.Neutral });
+        expect((await getRequests(db, USER)).map(x => [x.requestType, x.songId])).toEqual([
+            [RequestType.UpdateSongLastPlayed, "s1"],
+        ]);
     });
 });

@@ -1,8 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, View } from "react-native";
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { useShallow } from "zustand/react/shallow";
 import { AlbumArt, Button, Card, IconButton, Screen, SectionHeader, Text, TextField } from "@/app/components/ui";
 import SongRequestStatusList, { PlayNextWithoutRequestList } from "@/app/components/song-requests/SongRequestStatusList";
 import { useTheme } from "@/app/theme";
@@ -33,6 +32,7 @@ import {
     searchQuery,
     toCreateSongRequest,
 } from "@/app/tools/songRequests";
+import { isIntentForSearchResult } from "@/app/tools/playNext";
 
 type SearchState =
     | { status: "idle" }
@@ -277,8 +277,7 @@ interface ResultsProps {
 
 function SearchResults({ search, rows, requests, onRetry, onRequest, onPlay, onPlayNext }: ResultsProps) {
     const theme = useTheme();
-    const playNextIdList = usePlayNext(useShallow((state) => state.intents.map((i) => i.externalSongId)));
-    const playNextIds = useMemo(() => new Set(playNextIdList), [playNextIdList]);
+    const intents = usePlayNext((state) => state.intents);
     switch (search.status) {
         case "idle":
             return (
@@ -311,7 +310,7 @@ function SearchResults({ search, rows, requests, onRetry, onRequest, onPlay, onP
                             row={rows[result.externalSongId]}
                             onRequest={() => onRequest(result)}
                             onPlay={() => onPlay(result)}
-                            playsNext={playNextIds.has(result.externalSongId)}
+                            playsNext={intents.some((intent) => isIntentForSearchResult(intent, result))}
                             onPlayNext={() => onPlayNext(result)}
                         />
                     ))}

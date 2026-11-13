@@ -22,6 +22,7 @@ import RatingControl from "@/app/components/likes/atoms/RatingControl";
 import SongDownloadControl from "@/app/components/downloading/atoms/SongDownloadControl";
 import FlagForReplacementControl from "@/app/components/replacement/atoms/FlagForReplacementControl";
 import AddToPlaylistSheet from "@/app/components/playlists/AddToPlaylistSheet";
+import PlayNextButton from "@/app/components/music-control/atoms/PlayNextButton";
 import { AlbumArt, Button, Chip, IconButton, Screen, SectionHeader, Text, TextField } from "@/app/components/ui";
 import { useTheme } from "@/app/theme";
 import { showAlert } from "@/app/tools/dialog";
@@ -322,7 +323,7 @@ export default function SongScreen() {
                                 )}
                             </View>
 
-                            {/* Action bar: like · dislike · download on the left, prominent Play on the right. */}
+                            {/* Action bar: like · dislike · download on the left, Play next and a prominent Play on the right. */}
                             <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: theme.space.lg }}>
                                 <View style={{ flexDirection: "row", alignItems: "center", gap: theme.space.lg }}>
                                     <RatingControl songId={details.song.songId} />
@@ -352,14 +353,17 @@ export default function SongScreen() {
                                     ) : null}
                                     <FlagForReplacementControl songId={details.song.songId} />
                                 </View>
-                                <IconButton
-                                    name="play"
-                                    size={26}
-                                    filled
-                                    round={58}
-                                    onPress={() => MediaManager.playSpecificSong(details.song.songId)}
-                                    accessibilityLabel="Play"
-                                />
+                                <View style={{ flexDirection: "row", alignItems: "center", gap: theme.space.md }}>
+                                    <PlayNextButton songId={details.song.songId} name={details.song.name} />
+                                    <IconButton
+                                        name="play"
+                                        size={26}
+                                        filled
+                                        round={58}
+                                        onPress={() => MediaManager.playSpecificSong(details.song.songId)}
+                                        accessibilityLabel="Play"
+                                    />
+                                </View>
                             </View>
 
                             {genres.length > 0 ? (
