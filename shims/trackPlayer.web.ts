@@ -66,10 +66,26 @@ let activeIndex = -1;
 let state: State = State.None;
 let isSetup = false;
 
-type Listener = (payload: any) => void;
-const listeners = new Map<Event, Set<Listener>>();
+// What each event hands its listeners: the parts of RNTP's payloads that this app reads.
+type NoPayload = Record<string, never>;
+type EventPayloads = {
+    [Event.PlaybackState]: PlaybackState;
+    [Event.PlaybackError]: PlaybackErrorEvent;
+    [Event.PlaybackActiveTrackChanged]: { index: number; track: Track };
+    [Event.PlaybackQueueEnded]: { track: number; position: number };
+    [Event.RemotePlay]: NoPayload;
+    [Event.RemotePause]: NoPayload;
+    [Event.RemoteNext]: NoPayload;
+    [Event.RemotePrevious]: NoPayload;
+    [Event.RemoteSeek]: RemoteSeekEvent;
+    [Event.RemoteCustomAction]: { customAction?: string };
+};
+type Listener<E extends Event> = (payload: EventPayloads[E]) => void;
+// Stored untyped; addEventListener and emit key each set by its event, so a listener only ever gets its own payload.
+type AnyListener = (payload: unknown) => void;
+const listeners = new Map<Event, Set<AnyListener>>();
 
-function emit(event: Event, payload: any = {}) {
+function emit<E extends Event>(event: E, payload: EventPayloads[E]) {
     listeners.get(event)?.forEach((l) => l(payload));
 }
 
@@ -96,15 +112,16 @@ function setState(next: State) {
  * Typed structurally rather than against lib.dom's MediaSession so this compiles under the React Native TS
  * config, which does not necessarily ship those DOM definitions.
  */
+type MediaSessionDetails = { seekTime?: number };
 type MediaSessionLike = {
     metadata: unknown;
     playbackState: "none" | "paused" | "playing";
-    setActionHandler: (action: string, handler: ((details?: any) => void) | null) => void;
+    setActionHandler: (action: string, handler: ((details?: MediaSessionDetails) => void) | null) => void;
     setPositionState?: (state: { duration: number; position: number; playbackRate?: number }) => void;
 };
 
 function media(): MediaSessionLike | undefined {
-    return (globalThis as any)?.navigator?.mediaSession;
+    return (globalThis as { navigator?: { mediaSession?: MediaSessionLike } }).navigator?.mediaSession;
 }
 
 /**
@@ -134,7 +151,7 @@ function setupMediaSession() {
 
     // Each action is bound defensively: an action a given browser doesn't know throws on assignment, and one
     // unsupported key must not take the rest of the transport controls down with it.
-    const bind = (action: string, handler: (details?: any) => void) => {
+    const bind = (action: string, handler: (details?: MediaSessionDetails) => void) => {
         try {
             ms.setActionHandler(action, handler);
         } catch {
@@ -142,10 +159,10 @@ function setupMediaSession() {
         }
     };
 
-    bind("play", () => emit(Event.RemotePlay));
-    bind("pause", () => emit(Event.RemotePause));
-    bind("nexttrack", () => emit(Event.RemoteNext));
-    bind("previoustrack", () => emit(Event.RemotePrevious));
+    bind("play", () => emit(Event.RemotePlay, {}));
+    bind("pause", () => emit(Event.RemotePause, {}));
+    bind("nexttrack", () => emit(Event.RemoteNext, {}));
+    bind("previoustrack", () => emit(Event.RemotePrevious, {}));
     bind("seekto", (details) => {
         if (typeof details?.seekTime === "number") {
             emit(Event.RemoteSeek, { position: details.seekTime });
@@ -155,10 +172,12 @@ function setupMediaSession() {
     mediaSessionReady = true;
 }
 
+type MediaMetadataConstructor = new (init: { title: string; artist: string; artwork: { src: string }[] }) => unknown;
+
 /** Title/artist/art for the desktop media applet, which otherwise just shows "Electron". */
 function publishMetadata(track: Track | undefined) {
     const ms = media();
-    const Metadata = (globalThis as any)?.MediaMetadata;
+    const Metadata = (globalThis as { MediaMetadata?: MediaMetadataConstructor }).MediaMetadata;
     if (!ms || !Metadata || !track) {
         return;
     }
@@ -228,7 +247,11 @@ function el(): HTMLAudioElement {
         audio.addEventListener("playing", () => setState(State.Playing));
         audio.addEventListener("pause", () => setState(State.Paused));
         audio.addEventListener("waiting", () => setState(State.Buffering));
-        audio.addEventListener("canplay", () => { if (state === State.Buffering) {setState(State.Ready);} });
+        audio.addEventListener("canplay", () => {
+            if (state === State.Buffering) {
+                setState(State.Ready);
+            }
+        });
         audio.addEventListener("ended", () => {
             setState(State.Ended);
             // The manager listens for this to advance the queue, exactly as it does natively.
@@ -263,7 +286,9 @@ function requestPlay(a: HTMLAudioElement) {
 
 async function load(index: number, autoplay: boolean) {
     const track = queue[index];
-    if (!track) {return;}
+    if (!track) {
+        return;
+    }
     activeIndex = index;
     const a = el();
     a.src = track.url;
@@ -273,7 +298,9 @@ async function load(index: number, autoplay: boolean) {
     // A rejected play() is deliberately NOT reported as a playback error: it means the browser refused the
     // gesture (autoplay policy), not that the source failed. A source that genuinely fails also fires the
     // element's `error` event, which is where PlaybackError comes from.
-    if (autoplay) {requestPlay(a);}
+    if (autoplay) {
+        requestPlay(a);
+    }
 }
 
 const TrackPlayer = {
@@ -296,7 +323,7 @@ const TrackPlayer = {
      * are what advance the queue when a track ends. Leaving this a no-op (as it first was) meant nothing was
      * ever subscribed to Event.PlaybackState, so playback stopped silently at the end of every song.
      */
-    registerPlaybackService(factory: () => any) {
+    registerPlaybackService(factory: () => unknown) {
         Promise.resolve(factory())
             .then((service) => (typeof service === "function" ? service() : undefined))
             .catch((e) => log.error("player", "Playback service failed to start:", e));
@@ -304,9 +331,14 @@ const TrackPlayer = {
 
     async add(tracks: Track | Track[], insertBeforeIndex?: number) {
         const items = Array.isArray(tracks) ? tracks : [tracks];
-        if (insertBeforeIndex == null || insertBeforeIndex < 0) {queue.push(...items);}
-        else {queue.splice(insertBeforeIndex, 0, ...items);}
-        if (activeIndex === -1 && queue.length > 0) {await load(0, false);}
+        if (insertBeforeIndex == null || insertBeforeIndex < 0) {
+            queue.push(...items);
+        } else {
+            queue.splice(insertBeforeIndex, 0, ...items);
+        }
+        if (activeIndex === -1 && queue.length > 0) {
+            await load(0, false);
+        }
     },
 
     async remove(indexes: number | number[]) {
@@ -343,7 +375,9 @@ const TrackPlayer = {
     },
 
     async play() {
-        if (activeIndex === -1 && queue.length > 0) {return load(0, true);}
+        if (activeIndex === -1 && queue.length > 0) {
+            return load(0, true);
+        }
         requestPlay(el());
     },
     async pause() { el().pause(); },
@@ -405,12 +439,15 @@ const TrackPlayer = {
     async getActiveTrackIndex() { return activeIndex === -1 ? undefined : activeIndex; },
     async getPlaybackState(): Promise<PlaybackState> { return { state }; },
 
-    addEventListener(event: Event, listener: Listener) {
-        if (!listeners.has(event)) {listeners.set(event, new Set());}
-        listeners.get(event)!.add(listener);
+    addEventListener<E extends Event>(event: E, listener: Listener<E>) {
+        if (!listeners.has(event)) {
+            listeners.set(event, new Set());
+        }
+        const stored = listener as AnyListener;
+        listeners.get(event)!.add(stored);
         // Braces matter: Set.delete returns a boolean, and handing that back would make this an invalid
         // useEffect cleanup (React expects void or a destructor).
-        return { remove: () => { listeners.get(event)?.delete(listener); } };
+        return { remove: () => { listeners.get(event)?.delete(stored); } };
     },
 };
 
