@@ -228,7 +228,7 @@ function el(): HTMLAudioElement {
         audio.addEventListener("playing", () => setState(State.Playing));
         audio.addEventListener("pause", () => setState(State.Paused));
         audio.addEventListener("waiting", () => setState(State.Buffering));
-        audio.addEventListener("canplay", () => { if (state === State.Buffering) setState(State.Ready); });
+        audio.addEventListener("canplay", () => { if (state === State.Buffering) {setState(State.Ready);} });
         audio.addEventListener("ended", () => {
             setState(State.Ended);
             // The manager listens for this to advance the queue, exactly as it does natively.
@@ -263,7 +263,7 @@ function requestPlay(a: HTMLAudioElement) {
 
 async function load(index: number, autoplay: boolean) {
     const track = queue[index];
-    if (!track) return;
+    if (!track) {return;}
     activeIndex = index;
     const a = el();
     a.src = track.url;
@@ -273,7 +273,7 @@ async function load(index: number, autoplay: boolean) {
     // A rejected play() is deliberately NOT reported as a playback error: it means the browser refused the
     // gesture (autoplay policy), not that the source failed. A source that genuinely fails also fires the
     // element's `error` event, which is where PlaybackError comes from.
-    if (autoplay) requestPlay(a);
+    if (autoplay) {requestPlay(a);}
 }
 
 const TrackPlayer = {
@@ -304,9 +304,9 @@ const TrackPlayer = {
 
     async add(tracks: Track | Track[], insertBeforeIndex?: number) {
         const items = Array.isArray(tracks) ? tracks : [tracks];
-        if (insertBeforeIndex == null || insertBeforeIndex < 0) queue.push(...items);
-        else queue.splice(insertBeforeIndex, 0, ...items);
-        if (activeIndex === -1 && queue.length > 0) await load(0, false);
+        if (insertBeforeIndex == null || insertBeforeIndex < 0) {queue.push(...items);}
+        else {queue.splice(insertBeforeIndex, 0, ...items);}
+        if (activeIndex === -1 && queue.length > 0) {await load(0, false);}
     },
 
     async remove(indexes: number | number[]) {
@@ -343,7 +343,7 @@ const TrackPlayer = {
     },
 
     async play() {
-        if (activeIndex === -1 && queue.length > 0) return load(0, true);
+        if (activeIndex === -1 && queue.length > 0) {return load(0, true);}
         requestPlay(el());
     },
     async pause() { el().pause(); },
@@ -406,7 +406,7 @@ const TrackPlayer = {
     async getPlaybackState(): Promise<PlaybackState> { return { state }; },
 
     addEventListener(event: Event, listener: Listener) {
-        if (!listeners.has(event)) listeners.set(event, new Set());
+        if (!listeners.has(event)) {listeners.set(event, new Set());}
         listeners.get(event)!.add(listener);
         // Braces matter: Set.delete returns a boolean, and handing that back would make this an invalid
         // useEffect cleanup (React expects void or a destructor).
