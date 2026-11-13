@@ -11,6 +11,7 @@ import { STORAGE_KEYS } from "@/app/constants/storageKeys";
 import { RequestType } from "@/app/enums";
 import { getAllSongDetails, getRandomSongId, updateSongs } from "@/app/services/db/queries/song";
 import { getRequests } from "@/app/services/db/queries/request";
+import { addGenreJam, getGenreJams } from "@/app/services/db/queries/genreJam";
 import { FEED_START, playlistsToFetch } from "@/app/services/sync-manager/syncLogic";
 import {
     artistTable, deadLetterRequestTable, downloadedSongTable, downloadQueueTable, genreJamTable, listenStatTable,
@@ -100,12 +101,17 @@ async function seedUnsentDecisions(db: GenericDb, userId: string, songId: string
         recentQuickSkips: 0, maybeDrop: false,
     });
     await db.insert(playNextIntentTable).values({ userId, externalSongId: "yt-1", title: "Next", createdAt: SYNCED_AT });
-    await db.insert(genreJamTable).values({
-        genreJamId: "jam", name: "Loud",
-        whitelists: { artistIds: [], playlistIds: [], genreIds: [], timePeriodIds: [], languageIds: [], moodIds: [], themeIds: [] },
-        blacklists: { artistIds: [], playlistIds: [], genreIds: [], timePeriodIds: [], languageIds: [], moodIds: [], themeIds: [] },
-    });
+    await db.insert(genreJamTable).values(jam("jam", userId));
 }
+
+const NO_FILTERS = { artistIds: [], playlistIds: [], genreIds: [], timePeriodIds: [], languageIds: [], moodIds: [], themeIds: [] };
+
+// A saved genre jam. A null user is one made before jams had an account (ShuffullApp#199).
+function jam(genreJamId: string, userId: string | null) {
+    return { genreJamId, userId, name: `Jam ${genreJamId}`, whitelists: NO_FILTERS, blacklists: NO_FILTERS, heavinessMin: null, heavinessMax: null };
+}
+
+const jamIds = async (db: GenericDb, userId: string) => (await getGenreJams(db, userId)).map(x => x.genreJamId);
 
 async function count(db: GenericDb, table: SQLiteTable): Promise<number> {
     return (await db.select().from(table)).length;
@@ -330,7 +336,7 @@ describe("claimSongCache (ShuffullApp#193)", () => {
             await db.insert(userTable).values({ userId: B, username: B, version: SYNCED_AT, isCurator: false });
             const { map, storage } = makeStorage();
 
-            await adoptSongCache(storage, A, HOST);
+            await adoptSongCache(db, storage, A, HOST);
 
             expect(map.get(STORAGE_KEYS.SONG_CACHE_USER_ID)).toBe(A);
             expect(map.get(STORAGE_KEYS.SONG_CACHE_HOST)).toBe(HOST);
@@ -342,10 +348,74 @@ describe("claimSongCache (ShuffullApp#193)", () => {
         it("adopting never replaces an owner already recorded", async () => {
             const { map, storage } = makeStorage({ [STORAGE_KEYS.SONG_CACHE_USER_ID]: A, [STORAGE_KEYS.SONG_CACHE_HOST]: HOST });
 
-            await adoptSongCache(storage, B, "https://other.example");
+            await adoptSongCache(db, storage, B, "https://other.example");
 
             expect(map.get(STORAGE_KEYS.SONG_CACHE_USER_ID)).toBe(A);
             expect(map.get(STORAGE_KEYS.SONG_CACHE_HOST)).toBe(HOST);
+        });
+    });
+
+    describe("genre jams (ShuffullApp#199)", () => {
+        it("A then B: B sees none of A's jams, and A has them all back on its return", async () => {
+            await addGenreJam(db, jam("a-jam", A));
+            const { storage } = makeStorage({ [STORAGE_KEYS.SONG_CACHE_USER_ID]: A });
+
+            expect(await claimSongCache(deps(storage), B, HOST)).toBe(true);
+            expect(await jamIds(db, B)).toEqual([]);
+            await addGenreJam(db, jam("b-jam", B));
+            expect(await jamIds(db, B)).toEqual(["b-jam"]);
+
+            expect(await claimSongCache(deps(storage), A, HOST)).toBe(true);
+            expect(await jamIds(db, A)).toEqual(["a-jam"]);
+            expect(await jamIds(db, B)).toEqual(["b-jam"]);
+        });
+
+        it("A logging back in keeps A's jams", async () => {
+            await addGenreJam(db, jam("a-jam", A));
+            const { storage } = makeStorage({ [STORAGE_KEYS.SONG_CACHE_USER_ID]: A });
+
+            expect(await claimSongCache(deps(storage), A, HOST)).toBe(false);
+
+            expect(await jamIds(db, A)).toEqual(["a-jam"]);
+        });
+
+        // A jam from before this build has no account. Whoever the device's songs belong to made it, so it goes to them.
+        it("upgrading with A signed in: the restored session gets A's existing jams", async () => {
+            await addGenreJam(db, jam("old", null));
+            const { storage } = makeStorage();
+
+            await adoptSongCache(db, storage, A, HOST);
+
+            expect(await jamIds(db, A)).toEqual(["old"]);
+        });
+
+        it("upgrading signed out: A logging in gets A's existing jams", async () => {
+            await addGenreJam(db, jam("old", null));
+            const { storage } = makeStorage();
+
+            expect(await claimSongCache(deps(storage), A, HOST)).toBe(false);
+
+            expect(await jamIds(db, A)).toEqual(["old"]);
+        });
+
+        it("an unowned jam on a device that holds A's songs stays A's when B logs in", async () => {
+            // A jam a database rebuild carried over from the older schema, after A's songs were already recorded as A's.
+            await addGenreJam(db, jam("old", null));
+            const { storage } = makeStorage({ [STORAGE_KEYS.SONG_CACHE_USER_ID]: A });
+
+            expect(await claimSongCache(deps(storage), B, HOST)).toBe(true);
+
+            expect(await jamIds(db, B)).toEqual([]);
+            expect(await jamIds(db, A)).toEqual(["old"]);
+        });
+
+        it("with no owner ever recorded, the first account to log in gets the unowned jams, as before it saw them", async () => {
+            await addGenreJam(db, jam("old", null));
+            const { storage } = makeStorage();
+
+            expect(await claimSongCache(deps(storage), B, HOST)).toBe(true);
+
+            expect(await jamIds(db, B)).toEqual(["old"]);
         });
     });
 

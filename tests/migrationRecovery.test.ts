@@ -8,7 +8,7 @@ import os from "os";
 import path from "path";
 import type { GenericDb } from "@/app/services/db/GenericDb";
 import { addRequests, deadLetterRequests, getDeadLetterRequests, getRequests } from "@/app/services/db/queries/request";
-import { addGenreJam, getGenreJams } from "@/app/services/db/queries/genreJam";
+import { addGenreJam, claimUnownedGenreJams, getGenreJams } from "@/app/services/db/queries/genreJam";
 import { getOpenListens, saveOpenListen } from "@/app/services/db/queries/listen";
 import { getPlayNextIntents, savePlayNextIntent } from "@/app/services/db/queries/playNext";
 import { prepareDatabase, rebuildKeepingLocalData, restoreRescuedTables } from "@/app/services/db/recovery";
@@ -116,6 +116,7 @@ const deletePlaylist = {
 };
 const jam = {
     genreJamId: "jam-1",
+    userId: "u1",
     name: "Morning",
     whitelists: { artistIds: ["a1"], playlistIds: [], genreIds: [], timePeriodIds: [], languageIds: [], moodIds: [], themeIds: [] },
     blacklists: { artistIds: [], playlistIds: [], genreIds: [], timePeriodIds: [], languageIds: [], moodIds: [], themeIds: [] },
@@ -174,7 +175,7 @@ describe("a failed migration rebuilds the database and keeps the data only this 
         expect(dead).toHaveLength(1);
         expect(dead[0]).toMatchObject({ requestId: "keep-2", songId: "s9", reason: "not in your library" });
         expect(dead[0].request).toMatchObject({ requestId: "keep-2", songId: "s9" });
-        expect(await getGenreJams(fresh)).toEqual([expect.objectContaining(jam)]);
+        expect(await getGenreJams(fresh, "u1")).toEqual([expect.objectContaining(jam)]);
         expect(await getOpenListens(fresh)).toEqual([openListen]);
         expect(await getPlayNextIntents(fresh, "u1")).toEqual([playNextIntent]);
         expect(rescued()).toEqual([]);
@@ -216,7 +217,9 @@ describe("a failed migration rebuilds the database and keeps the data only this 
 
         const fresh = await rebuildKeepingLocalData(db, migrateLatest, deleteFile);
 
-        expect(await getGenreJams(fresh)).toEqual([expect.objectContaining({ genreJamId: "jam-1", heavinessMin: 3, heavinessMax: 5 })]);
+        // From before jams had an account (ShuffullApp#199), so it has none until a login hands it one.
+        await claimUnownedGenreJams(fresh, "u1");
+        expect(await getGenreJams(fresh, "u1")).toEqual([expect.objectContaining({ genreJamId: "jam-1", heavinessMin: 3, heavinessMax: 5 })]);
         expect(rescued()).toEqual([]);
     });
 
@@ -255,7 +258,31 @@ describe("upgrading across the heaviness rename", () => {
         await migrateLatest();
 
         expect(sqlite.prepare("SELECT heaviness FROM songs WHERE song_id = 's1'").get()).toEqual({ heaviness: 7 });
-        expect(await getGenreJams(db)).toEqual([expect.objectContaining({ genreJamId: "jam-1", heavinessMin: 3, heavinessMax: 5 })]);
+        await claimUnownedGenreJams(db, "u1");
+        expect(await getGenreJams(db, "u1")).toEqual([expect.objectContaining({ genreJamId: "jam-1", heavinessMin: 3, heavinessMax: 5 })]);
+    });
+});
+
+// The fixture jam as a build from before ShuffullApp#199 stored it: no user_id column. Any schema from 0031 on.
+function insertJamWithoutOwner() {
+    sqlite.prepare(`INSERT INTO genre_jam (genre_jam_id, name, whitelists, blacklists, heaviness_min, heaviness_max)
+                    VALUES (?, ?, ?, ?, ?, ?)`)
+        .run(jam.genreJamId, jam.name, JSON.stringify(jam.whitelists), JSON.stringify(jam.blacklists), jam.heavinessMin, jam.heavinessMax);
+}
+
+describe("upgrading to genre jam owners (ShuffullApp#199)", () => {
+    it("an existing jam survives the migration unowned, and is its user's once claimed", async () => {
+        // Migration 0036 only adds genre_jam.user_id, so an existing install migrates in place.
+        const db = asDb(sqlite);
+        migrateTo(migrationsUpTo("0035_add_play_next_intents"));
+        insertJamWithoutOwner();
+
+        await migrateLatest();
+
+        expect(sqlite.prepare("SELECT genre_jam_id, user_id FROM genre_jam").all()).toEqual([{ genre_jam_id: "jam-1", user_id: null }]);
+        await claimUnownedGenreJams(db, "u1");
+        expect(await getGenreJams(db, "u1")).toEqual([jam]);
+        expect(await getGenreJams(db, "u2")).toEqual([]);
     });
 });
 
@@ -265,13 +292,14 @@ describe("upgrading to the play-next table", () => {
         const db = asDb(sqlite);
         migrateTo(migrationsUpTo("0034_add_listen_stats"));
         await addRequests(db, [keep]);
-        await addGenreJam(db, jam);
+        insertJamWithoutOwner();
         sqlite.prepare("INSERT INTO songs (song_id, file_extension, file_hash, name) VALUES ('s1', '.mp3', 'h', 'Song')").run();
 
         await migrateLatest();
 
         expect(await getRequests(db, "u1")).toEqual([expect.objectContaining(keep)]);
-        expect(await getGenreJams(db)).toEqual([expect.objectContaining(jam)]);
+        await claimUnownedGenreJams(db, "u1");
+        expect(await getGenreJams(db, "u1")).toEqual([expect.objectContaining(jam)]);
         expect(sqlite.prepare("SELECT name FROM songs WHERE song_id = 's1'").get()).toEqual({ name: "Song" });
         expect(await getPlayNextIntents(db, "u1")).toEqual([]);
         await savePlayNextIntent(db, playNextIntent);
@@ -296,7 +324,7 @@ describe("the preserved rows are never only in memory", () => {
         await restoreRescuedTables(next);
 
         expect(await getRequests(next, "u1")).toEqual([expect.objectContaining(keep)]);
-        expect(await getGenreJams(next)).toEqual([expect.objectContaining(jam)]);
+        expect(await getGenreJams(next, "u1")).toEqual([expect.objectContaining(jam)]);
         expect(rescued()).toEqual([]);
     });
 

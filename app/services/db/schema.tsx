@@ -312,6 +312,11 @@ export const downloadQueueTable = sqliteTable("download_queue", {
 
 export const genreJamTable = sqliteTable("genre_jam", {
     genreJamId: text("genre_jam_id").primaryKey(),
+    // The account that made it (ShuffullApp#199). Jams are read only for the account logged in, so after a switch one
+    // account never sees another's, and each keeps its own. Nothing syncs them, so the device holds the only copy.
+    // Null for a jam made before this column existed, until a login or session restore hands it to the account the
+    // device's songs belong to (claimUnownedGenreJams).
+    userId: text("user_id"),
     name: text("name").notNull(),
     whitelists: text("whitelists", { mode: "json" }).$type<WhitelistSetting>().notNull(),
     blacklists: text("blacklists", { mode: "json" }).$type<WhitelistSetting>().notNull(),

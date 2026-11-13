@@ -612,7 +612,7 @@ export async function purgeSongs(db: GenericDb, songIds: string[]): Promise<Song
 //
 // Per-user rows stay: playlists, user songs, the outbox, dead letters, open listens, listen stats and play-next
 // intents are all keyed by user, and the outbox and listens hold decisions not yet on the server. Genre jams stay too:
-// the user made them, and they exist nowhere else.
+// they are keyed by user as well (ShuffullApp#199), the user made them, and they exist nowhere else.
 // Returns how many songs it removed.
 export async function clearSongCache(db: GenericDb): Promise<number> {
     const songs = (await db.select({ n: count() }).from(songTable))[0]?.n ?? 0;
