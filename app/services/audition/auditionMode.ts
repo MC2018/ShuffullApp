@@ -42,13 +42,26 @@ const playerPort: Omit<AuditionPort, "rememberQuickSkips"> = {
     inForeground: () => MediaManager.isAppInForeground(),
 };
 
-/** Deals out `playlistId`'s unheard songs and starts the first. Returns the session, or undefined if superseded. */
-export async function startAuditionMode(db: GenericDb, playlistId: string): Promise<AuditionSession | undefined> {
+/**
+ * Deals out `playlistId`'s unheard songs and starts the first. Returns the session, or undefined if superseded.
+ *
+ * `signal` is the caller's "the screen is gone", checked after every wait. A stop only cancels a start once it has
+ * taken its generation, so a screen that closes before that (before this is even called, or while it stops the last
+ * deck) must abort it, or the deck starts with no screen to end it and keeps driving the player (ShuffullApp#187).
+ */
+export async function startAuditionMode(db: GenericDb, playlistId: string, signal: AbortSignal): Promise<AuditionSession | undefined> {
+    if (signal.aborted) {
+        return undefined;
+    }
     await stopAuditionMode();
     const myGeneration = ++generation;
+    const superseded = () => signal.aborted || myGeneration !== generation;
+    if (superseded()) {
+        return undefined;
+    }
 
     const sessionData = await DbQueries.getActiveLocalSessionData(db);
-    if (!sessionData || myGeneration !== generation) {
+    if (!sessionData || superseded()) {
         return undefined;
     }
     const { userId } = sessionData;
@@ -56,7 +69,7 @@ export async function startAuditionMode(db: GenericDb, playlistId: string): Prom
         DbQueries.getAuditionDeckSongIds(db, userId, playlistId),
         loadQuickSkips(userId, playlistId),
     ]);
-    if (myGeneration !== generation) {
+    if (superseded()) {
         return undefined;
     }
 
