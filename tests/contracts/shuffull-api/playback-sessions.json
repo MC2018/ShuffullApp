@@ -1,0 +1,51 @@
+{
+  "serverTime": "2026-10-02T08:00:04.125Z",
+  "devices": [
+    {
+      "deviceId": "device-1",
+      "name": "Pixel 8",
+      "platform": "android",
+      "lastActiveAt": "2026-10-02T08:00:00.125Z",
+      "online": true,
+      "session": {
+        "deviceId": "device-1",
+        "songId": "song-full",
+        "positionSeconds": 42.5,
+        "positionAt": "2026-10-02T08:00:00.125Z",
+        "isPlaying": false,
+        "estimatedPositionSeconds": 42.5,
+        "scope": {
+          "kind": "playlist",
+          "playlistId": "playlist-full",
+          "tags": [
+            "Rock"
+          ]
+        },
+        "history": [
+          "song-old",
+          "song-sparse"
+        ],
+        "queuedNext": [
+          "song-next"
+        ],
+        "updatedAt": "2026-10-02T08:00:00.125Z",
+        "takenOverBy": "device-2",
+        "takenOverAt": "2026-10-02T08:00:00.125Z",
+        "command": {
+          "commandId": "cmd-1",
+          "kind": "seek",
+          "seekSeconds": 90,
+          "at": "2026-10-02T08:00:03.125Z"
+        }
+      }
+    },
+    {
+      "deviceId": "device-2",
+      "name": "Laptop",
+      "platform": null,
+      "lastActiveAt": "2026-10-01T12:34:56.123456Z",
+      "online": false,
+      "session": null
+    }
+  ]
+}
