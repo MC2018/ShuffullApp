@@ -18,6 +18,18 @@ const compat = new FlatCompat({
 });
 
 module.exports = defineConfig([{
+    // `pnpm lint` is `expo lint .`, and neither it nor ESLint reads .gitignore. So the generated outputs listed there
+    // are named here, or a checkout where Expo has run fails lint on them (expo-env.d.ts has no trailing newline).
+    // android/ is tracked but holds only the native project and its build output.
+    ignores: [
+        ".expo/**",
+        "dist/**",
+        "web-build/**",
+        "expo-env.d.ts",
+        "ios/**",
+        "android/**",
+    ],
+}, {
     files: ["**/*.ts", "**/*.tsx"],
     languageOptions: {
         parser: tsParser,
