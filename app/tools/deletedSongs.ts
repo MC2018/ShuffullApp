@@ -1,7 +1,7 @@
 import { HttpStatusCode } from "axios";
 import { isUnreachableStatus, statusOfFailure } from "../services/api/errors";
 import type { DeletedSong, DeletedSongsPage } from "../services/api/models";
-import { MONTH_NAMES } from "./recap";
+import { MONTH_NAMES, plural } from "./recap";
 
 // Library › Deleted songs (ShuffullApp#59): the songs the server deleted for you (today, the un-kept songs of an
 // audition mix you deleted), so a regretted delete can be looked up again. Read straight from the server each time the
@@ -44,7 +44,7 @@ export async function loadAllDeletedSongs(fetchPage: (before?: string) => Promis
 
 /** The footer under a cut-off list. Search only sees what was loaded, so it says that too. */
 export function describeDeletedSongsCutOff(loaded: number): string {
-    return `The list stops at your newest ${loaded} deleted songs. Older ones aren't shown or searched.`;
+    return `The list stops at your newest ${plural(loaded, "deleted song")}. Older ones aren't shown or searched.`;
 }
 
 /** The songs whose name, artists or mix contain the search text, ignoring case. Empty text keeps them all. */

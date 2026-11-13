@@ -85,7 +85,8 @@ describe("loadAllDeletedSongs (ShuffullApp#59)", () => {
 describe("describeDeletedSongsCutOff", () => {
     it("says how many were loaded and that older ones aren't shown or searched", () => {
         expect(describeDeletedSongsCutOff(25000))
-            .toBe("The list stops at your newest 25000 deleted songs. Older ones aren't shown or searched.");
+            .toBe("The list stops at your newest 25,000 deleted songs. Older ones aren't shown or searched.");
+        expect(describeDeletedSongsCutOff(1)).toBe("The list stops at your newest 1 deleted song. Older ones aren't shown or searched.");
     });
 });
 

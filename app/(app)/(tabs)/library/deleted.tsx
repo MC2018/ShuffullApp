@@ -119,7 +119,7 @@ export default function DeletedSongsScreen() {
                 </Text>
                 <Text variant="caption" color="textMuted" style={{ marginBottom: theme.space.sm }}>
                     Songs removed when you deleted an audition mix without keeping them. Tap one to open it on YouTube.
-                    {state.status === "loaded" && songs.length > 0 ? ` ${songs.length} ${cutOff ? "shown" : "in all"}.` : ""}
+                    {state.status === "loaded" && songs.length > 0 ? ` ${songs.length} ${cutOff ? "loaded" : "in all"}.` : ""}
                 </Text>
                 {state.status === "loaded" && songs.length > 0 && (
                     <TextField
