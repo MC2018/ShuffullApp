@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-    AccessibilityActionEvent, Animated, AppState, ImageURISource, LayoutChangeEvent, PanResponder, Pressable, Vibration, View,
+    AccessibilityActionEvent, Animated, ImageURISource, LayoutChangeEvent, PanResponder, Pressable, Vibration, View,
 } from "react-native";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -16,7 +16,7 @@ import {
 import { startAuditionMode, stopAuditionMode, useAuditionMode } from "@/app/services/audition/auditionMode";
 import { confirmDeletePlaylist } from "@/app/services/playlists/deletePlaylist";
 import Skimmer from "@/app/components/music-control/atoms/Skimmer";
-import { AlbumArt, Button, Card, IconButton, Screen, Text } from "@/app/components/ui";
+import { AlbumArt, Button, Card, IconButton, MarqueeText, Screen, Text } from "@/app/components/ui";
 import { useTheme } from "@/app/theme";
 import { LikeStatus } from "@/app/enums";
 import { AuditionProgress, isAuditionComplete } from "@/app/tools/audition";
@@ -78,19 +78,12 @@ export default function AuditionScreen() {
         };
     }, [db, playlistId]);
 
-    // Leaving the screen, or the app (home, lock), pauses. Nothing advances on its own while nobody is listening.
-    // Only "background": iOS goes "inactive" for Control Center and call banners, which aren't leaving.
+    // Opening another screen over the deck pauses it. Leaving the APP doesn't (ShuffullApp#179): the deck plays on
+    // from the home and lock screens like any music, the notification's buttons drive it, and songs it starts there
+    // start from the top (AuditionPort.inForeground).
     useFocusEffect(
         useCallback(() => () => void sessionRef.current?.pause(), []),
     );
-    useEffect(() => {
-        const sub = AppState.addEventListener("change", (state) => {
-            if (state === "background") {
-                void sessionRef.current?.pause();
-            }
-        });
-        return () => sub.remove();
-    }, []);
 
     // The lap-2 pop-up dismisses itself; the deck carries on playing underneath it.
     useEffect(() => {
@@ -353,12 +346,12 @@ function Deck({ songId, session }: { songId: string; session: React.RefObject<Au
                         </View>
                     ) : null}
                 </View>
-                <Text variant="title" numberOfLines={2} style={{ marginTop: theme.space.lg, textAlign: "center" }}>
+                <MarqueeText variant="title" center staticLines={2} style={{ marginTop: theme.space.lg }}>
                     {details?.song.name ?? ""}
-                </Text>
-                <Text variant="body" color="textMuted" numberOfLines={1} style={{ marginTop: 2, textAlign: "center" }}>
+                </MarqueeText>
+                <MarqueeText variant="body" color="textMuted" center style={{ marginTop: 2 }}>
                     {artists}
-                </Text>
+                </MarqueeText>
                 {songIssue ? (
                     // "Reconnecting" counts as playing, so without this the card would look like it plays in silence.
                     <Text variant="caption" color="textFaint" style={{ marginTop: theme.space.sm, textAlign: "center" }}>

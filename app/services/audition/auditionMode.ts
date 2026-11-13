@@ -4,6 +4,7 @@ import { GenericDb } from "../db/GenericDb";
 import DbQueries from "../db/queries";
 import { MediaManager } from "../media-manager";
 import { AuditionController, useActiveSong } from "../media-manager/mediaManager";
+import { loadQuickSkips, saveQuickSkips } from "./quickSkipStore";
 import { AuditionPort, AuditionSession, AuditionSnapshot } from "@/app/tools/auditionSession";
 import { log } from "@/app/tools/log";
 
@@ -29,7 +30,7 @@ let generation = 0;
 
 // The player functions that do NOT route back into the deck: the routed ones (play, skip, previous) would call
 // the session again and wait on themselves.
-const port: AuditionPort = {
+const playerPort: Omit<AuditionPort, "rememberQuickSkips"> = {
     load: (songId, start) => MediaManager.playAuditionSong(songId, start),
     endListen: reason => MediaManager.endAuditionListen(reason),
     resume: () => MediaManager.auditionResume(),
@@ -39,6 +40,7 @@ const port: AuditionPort = {
     keep: songId => MediaManager.keepSong(songId),
     markHeard: songId => MediaManager.markAuditionHeard(songId),
     prefetch: songIds => void MediaManager.prefetchAudition(songIds).catch(e => log.warn("audition", "prefetch failed", e)),
+    inForeground: () => MediaManager.isAppInForeground(),
 };
 
 /** Deals out `playlistId`'s unheard songs and starts the first. Returns the session, or undefined if superseded. */
@@ -50,12 +52,17 @@ export async function startAuditionMode(db: GenericDb, playlistId: string): Prom
     if (!sessionData || myGeneration !== generation) {
         return undefined;
     }
-    const songIds = await DbQueries.getAuditionDeckSongIds(db, sessionData.userId, playlistId);
+    const { userId } = sessionData;
+    const [songIds, quickSkipped] = await Promise.all([
+        DbQueries.getAuditionDeckSongIds(db, userId, playlistId),
+        loadQuickSkips(userId, playlistId),
+    ]);
     if (myGeneration !== generation) {
         return undefined;
     }
 
-    const session = new AuditionSession(songIds, port);
+    const port: AuditionPort = { ...playerPort, rememberQuickSkips: ids => saveQuickSkips(userId, playlistId, ids) };
+    const session = new AuditionSession(songIds, port, Date.now, quickSkipped);
     const controller: AuditionController = {
         resume: () => session.resume(),
         next: () => session.next(),

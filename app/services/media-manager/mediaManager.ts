@@ -23,11 +23,12 @@ import {
     decidePlaybackRecovery,
     PlaybackErrorLike,
 } from "../../tools/playbackFailure";
-import { Platform } from "react-native";
+import { AppState, Platform } from "react-native";
 import { createSerialLock } from "../../tools/serialLock";
 import { auditionStartSeconds, AuditionStart } from "../../tools/auditionSession";
 import { withPlayNextFirst } from "../../tools/playNext";
 import { playerSetupOptions } from "../../tools/playerSetup";
+import { isBackground, waitForDuration, watchForeground } from "../../tools/foregroundWatch";
 import { SongDetails } from "../db/types";
 import { ListenRecorder } from "../listens/listenRecorder";
 import { openListenIfPlaying, recoverListensAfterRestart, ResumeListenInput } from "../listens/resumeListen";
@@ -1158,6 +1159,12 @@ export function playAuditionSong(songId: string, start: AuditionStart): Promise<
         }
         beginUserInitiatedPlayback();
         const epoch = ++auditionLoadEpoch;
+        if (start === "startPoint") {
+            // Loads it paused, so not a moment of it plays before the jump. TrackPlayer.add keeps the last song's
+            // play-when-ready, so a song added after one that was playing starts at 0:00 by itself, and the jump
+            // then lands in the middle of what is already playing (ShuffullApp#179).
+            await TrackPlayer.pause();
+        }
         const songWithArtist = await DbQueries.fetchSongDetails(db, songId);
         const sessionData = await DbQueries.getActiveLocalSessionData(db);
         // As in startNewSong. The deck has normally ended the last song's listen already, with its reason
@@ -1172,13 +1179,19 @@ export function playAuditionSong(songId: string, start: AuditionStart): Promise<
 
         if (start === "startPoint") {
             const hookStartPercent = songWithArtist.song.hookStartPercent;
-            const duration = await waitForDuration(START_POINT_WAIT_MS);
-            if (duration > 0) {
-                await TrackPlayer.seekTo(auditionStartSeconds(duration, hookStartPercent));
-            } else {
-                // The length isn't known yet (a slow stream): start it now and jump once it is, rather than hold
-                // every other control up behind the wait.
-                void seekToStartPointLate(epoch, hookStartPercent);
+            const watch = watchForeground(AppState);
+            try {
+                const duration = await waitForDuration(async () => (await TrackPlayer.getProgress()).duration, watch, START_POINT_WAIT_MS);
+                if (duration > 0) {
+                    await TrackPlayer.seekTo(auditionStartSeconds(duration, hookStartPercent));
+                } else if (!watch.hasLeftForeground) {
+                    // The length isn't known yet (a slow stream): start it now and jump once it is, rather than hold
+                    // every other control up behind the wait. Not once the app has left: off screen it plays from
+                    // the top, like every song the deck starts there.
+                    void seekToStartPointLate(epoch, hookStartPercent);
+                }
+            } finally {
+                watch.dispose();
             }
         }
         await TrackPlayer.play();
@@ -1188,36 +1201,40 @@ export function playAuditionSong(songId: string, start: AuditionStart): Promise<
     });
 }
 
-async function waitForDuration(timeoutMs: number): Promise<number> {
-    const deadline = Date.now() + timeoutMs;
-    for (;;) {
-        const { duration } = await TrackPlayer.getProgress();
-        if (duration > 0 || Date.now() >= deadline) {
-            return duration;
-        }
-        await new Promise(resolve => setTimeout(resolve, 100));
-    }
+/** Whether the app is on screen. Audition mode starts songs from the top while it isn't (AuditionPort.inForeground). */
+export function isAppInForeground(): boolean {
+    return !isBackground(AppState.currentState);
 }
 
+/**
+ * Jumps a song that started from the top, its length unknown then, to its start point once the length is known.
+ * Gives up for good if the app leaves the foreground at any point: off screen songs play from the top, and a timer
+ * stalled there would otherwise fire on the way back in, minutes into the song.
+ */
 async function seekToStartPointLate(epoch: number, hookStartPercent: number | null) {
-    const deadline = Date.now() + START_POINT_LATE_SEEK_MS;
-    while (Date.now() < deadline) {
-        await new Promise(resolve => setTimeout(resolve, 250));
-        if (epoch !== auditionLoadEpoch) {
-            return;
-        }
-        const { duration, position } = await TrackPlayer.getProgress();
-        if (duration > 0) {
-            // Only while the song is still near its top: past that, the user has scrubbed or chosen From the start.
-            if (position < 5) {
-                await transportLock.run(async () => {
-                    if (epoch === auditionLoadEpoch) {
-                        await TrackPlayer.seekTo(auditionStartSeconds(duration, hookStartPercent));
-                    }
-                });
+    const watch = watchForeground(AppState);
+    try {
+        const deadline = Date.now() + START_POINT_LATE_SEEK_MS;
+        while (Date.now() < deadline) {
+            await watch.sleep(250);
+            if (epoch !== auditionLoadEpoch || watch.hasLeftForeground) {
+                return;
             }
-            return;
+            const { duration, position } = await TrackPlayer.getProgress();
+            if (duration > 0) {
+                // Only while the song is still near its top: past that, the user has scrubbed or chosen From the start.
+                if (position < 5) {
+                    await transportLock.run(async () => {
+                        if (epoch === auditionLoadEpoch && !watch.hasLeftForeground) {
+                            await TrackPlayer.seekTo(auditionStartSeconds(duration, hookStartPercent));
+                        }
+                    });
+                }
+                return;
+            }
         }
+    } finally {
+        watch.dispose();
     }
 }
 
