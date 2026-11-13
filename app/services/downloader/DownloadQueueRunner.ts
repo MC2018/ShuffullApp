@@ -82,6 +82,13 @@ const WATCHDOG_MS = 10000;
 
 const defaultSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
+/** A promise and the function that settles it. */
+function signal(): { promise: Promise<void>; resolve: () => void } {
+    let resolve: () => void = () => {};
+    const promise = new Promise<void>((r) => { resolve = r; });
+    return { promise, resolve };
+}
+
 export function songFileName(song: { fileHash: string; fileExtension: string }): string {
     return `${song.fileHash}${song.fileExtension}`;
 }
@@ -142,6 +149,14 @@ export class DownloadQueueRunner {
     private readonly claimed = new Set<string>();
     // Songs being fetched right now, oldest first, with their progress. The oldest is the one the status shows.
     private readonly inFlight = new Map<string, { name: string; progress: number }>();
+    // Bumped each time the queue is cleared. An attempt that read its row before then neither fetches nor records it.
+    private queueEpoch = 0;
+    // Attempts past that check: fetching a song, or recording one found on disk. What clearQueueAndSettle waits for.
+    private landing = 0;
+    // Called when `landing` drops to zero.
+    private landed: (() => void)[] = [];
+    // Settled by clearQueue, to wake the workers waiting out a backoff: the rows they wait to retry are gone.
+    private wake = signal();
     // Starts true so nothing can start before the persisted value is read (start() flips it).
     paused = true;
     // Failures in a row per song, which set that song's backoff; cleared when it lands or is dropped. Per song because
@@ -267,6 +282,11 @@ export class DownloadQueueRunner {
             return;
         }
         await DbQueries.removeAllFromDownloadQueue(this.db);
+        // After the delete: an attempt that read the queue before it is stopped by the epoch, and one after finds it empty.
+        this.queueEpoch++;
+        const wake = this.wake;
+        this.wake = signal();
+        wake.resolve();
         this.startNewRun();
         await this.publishStatus();
     }
@@ -274,21 +294,23 @@ export class DownloadQueueRunner {
     /**
      * Empties the queue, then waits up to `timeoutMs` for the songs already in flight to land or fail, since a fetch
      * can't be cancelled. For emptying the library (services/auth/accountSwitch, ShuffullApp#193): a song that landed
-     * after its files were deleted would leave a file nothing removes. Resolves whether every worker stopped in time.
+     * after its files were deleted would leave a file nothing removes. Only real downloads are waited for: a worker
+     * waiting out a backoff is woken by the clear and stops, since its row is gone. Resolves whether they all ended in
+     * time.
      */
     public async clearQueueAndSettle(timeoutMs: number): Promise<boolean> {
         if (this.adapter == undefined) {
             return true;
         }
         await this.clearQueue();
-        const idle = this.idle?.promise;
-        if (this.workers === 0 || idle == undefined) {
+        if (this.landing === 0) {
             return true;
         }
         let timer: ReturnType<typeof setTimeout> | undefined;
         const timedOut = new Promise<boolean>((resolve) => { timer = setTimeout(() => resolve(false), timeoutMs); });
+        const landed = new Promise<boolean>((resolve) => { this.landed.push(() => resolve(true)); });
         try {
-            return await Promise.race([idle.then(() => true), timedOut]);
+            return await Promise.race([landed, timedOut]);
         } finally {
             clearTimeout(timer);
         }
@@ -390,8 +412,9 @@ export class DownloadQueueRunner {
                     if (attempt === "failed") {
                         const failures = (this.failures.get(key) ?? 0) + 1;
                         this.failures.set(key, failures);
-                        // Still claimed while it waits, so another worker doesn't retry the song straight away.
-                        await this.sleep(retryDelayMs(failures));
+                        // Still claimed while it waits, so another worker doesn't retry the song straight away. A clear
+                        // cuts the wait short (clearQueue).
+                        await Promise.race([this.sleep(retryDelayMs(failures)), this.wake.promise]);
                     } else {
                         this.failures.delete(key);
                         this.failures.delete(UNCLAIMED);
@@ -520,6 +543,8 @@ export class DownloadQueueRunner {
         }
 
         let started: string | undefined;
+        let landing = false;
+        const epoch = this.queueEpoch;
 
         try {
             const nextDownload = await this.claimNext(claim);
@@ -546,10 +571,19 @@ export class DownloadQueueRunner {
             }
 
             const songFile = songFileName(song);
+            const onDisk = await adapter.exists("music", songFile);
+
+            // The queue was cleared while this attempt read it: the row is gone, so neither record the song nor fetch
+            // it. From here to the fetch nothing awaits, so a clear can't slip in between the check and `landing`.
+            if (this.queueEpoch !== epoch) {
+                return "blocked";
+            }
+            landing = true;
+            this.landing++;
 
             // Already in the music folder: an earlier run moved it in, then died before recording it. Record it
             // rather than just dropping the row, or it is on disk but never listed or offered offline.
-            if (await adapter.exists("music", songFile)) {
+            if (onDisk) {
                 await this.recordDownloaded(song.songId);
                 return "skipped";
             }
@@ -625,6 +659,12 @@ export class DownloadQueueRunner {
         } finally {
             if (started != undefined) {
                 this.inFlight.delete(started);
+            }
+            if (landing) {
+                this.landing--;
+                if (this.landing === 0) {
+                    this.landed.splice(0).forEach(resolve => resolve());
+                }
             }
             await this.publishStatus();
         }

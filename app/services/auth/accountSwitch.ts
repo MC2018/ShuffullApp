@@ -21,6 +21,11 @@ export interface AccountSwitchDeps {
     /** Stops the player and empties its queue, so nothing from the old library keeps playing. MediaManager.clear. */
     stopPlayback: () => Promise<void>;
     /**
+     * Stops the old account's sync and waits, for a bounded time, for one still running to end, so it writes nothing
+     * after the clear. SyncManager.stopAll.
+     */
+    stopSync: () => Promise<void>;
+    /**
      * Empties the download queue and waits, for a bounded time, for downloads in flight to finish, so none lands after
      * its files were deleted. Resolves false if some were still running. Downloader.clearQueueAndSettleShared.
      */
@@ -29,13 +34,13 @@ export interface AccountSwitchDeps {
     deleteSongFiles: (song: Song) => Promise<void>;
 }
 
+/** Files deleted at once: the deletes are independent native or IPC calls, and the login waits for all of them. */
+const FILE_DELETE_CONCURRENCY = 8;
+
 /**
  * The device-wide song-sync keys. They describe the song cache as a whole, so they reset with it and the next sync
  * starts like a first one.
  */
-/** Files deleted at once: the deletes are independent native or IPC calls, and the login waits for all of them. */
-const FILE_DELETE_CONCURRENCY = 8;
-
 export const SONG_CACHE_STORAGE_KEYS = [
     STORAGE_KEYS.SONG_SYNC_CURSOR,
     STORAGE_KEYS.SONG_SYNC_KEY,
@@ -75,6 +80,9 @@ export async function claimSongCache(deps: AccountSwitchDeps, userId: string, ho
     }
 
     const ownerHost = await storage.getItem(STORAGE_KEYS.SONG_CACHE_HOST);
+    // Before anything is read: a sync of the old account still running would otherwise write its songs back, and move
+    // its version on, after they were cleared.
+    await deps.stopSync();
     await deps.stopPlayback();
 
     // Which songs can have files: the queued ones are read before the queue is emptied, the downloaded ones after the
@@ -111,6 +119,17 @@ export async function claimSongCache(deps: AccountSwitchDeps, userId: string, ho
         `${userId} on ${hostAddress}): cleared ${cleared} cached song(s) and ${byFile.length} downloaded file(s). ` +
         "The previous account's queued requests and listens are kept for its next login.");
     return true;
+}
+
+/**
+ * Records `userId` as the song cache's owner if no one is recorded yet. For a session restored at app start, which is
+ * the account the cache has been syncing for. Without it, a device updated from a build before ShuffullApp#193 that
+ * still holds another account's users row would clear on that same account's next login (belongsToAnotherAccount).
+ */
+export async function adoptSongCache(storage: AccountSwitchStorage, userId: string, hostAddress: string): Promise<void> {
+    if ((await storage.getItem(STORAGE_KEYS.SONG_CACHE_USER_ID)) == null) {
+        await recordOwner(storage, userId, hostAddress);
+    }
 }
 
 /**

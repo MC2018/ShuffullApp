@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { View } from "react-native";
 import { Redirect } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -27,6 +27,11 @@ export default function LoginScreen() {
     const [password, setPassword] = useState("");
     const [hostAddress, setHostAddress] = useState("");
     const [error, setError] = useState<string | null>(null);
+    // Which button is running. A login can take a while: it may clear the last account's songs first
+    // (services/auth/accountSwitch), and a second tap must not start a second login and a second clear.
+    const [busy, setBusy] = useState<"login" | "register" | null>(null);
+    // The same, read synchronously: two taps can both land before the re-render that disables the buttons.
+    const submitting = useRef(false);
 
     useEffect(() => {
         (async () => {
@@ -39,25 +44,26 @@ export default function LoginScreen() {
         return <Redirect href="/home" />;
     }
 
-    const attemptLogin = async () => {
+    const submit = async (kind: "login" | "register", run: typeof login, failure: string) => {
+        if (submitting.current) {
+            return;
+        }
+        submitting.current = true;
+        setBusy(kind);
         try {
             setError(null);
             await AsyncStorage.setItem(STORAGE_KEYS.HOST_ADDRESS, hostAddress);
-            await login(username, password, hostAddress);
+            await run(username, password, hostAddress);
         } catch (e) {
-            setError(`Login failed. ${describeAuthFailure(e, hostAddress)}`);
+            setError(`${failure} ${describeAuthFailure(e, hostAddress)}`);
+        } finally {
+            submitting.current = false;
+            setBusy(null);
         }
     };
 
-    const attemptRegister = async () => {
-        try {
-            setError(null);
-            await AsyncStorage.setItem(STORAGE_KEYS.HOST_ADDRESS, hostAddress);
-            await register(username, password, hostAddress);
-        } catch (e) {
-            setError(`Registration failed. ${describeAuthFailure(e, hostAddress)}`);
-        }
-    };
+    const attemptLogin = () => submit("login", login, "Login failed.");
+    const attemptRegister = () => submit("register", register, "Registration failed.");
 
     return (
         <Screen>
@@ -69,8 +75,14 @@ export default function LoginScreen() {
                 <TextField value={password} onChangeText={setPassword} placeholder="Password" secureTextEntry />
                 <TextField value={hostAddress} onChangeText={setHostAddress} placeholder="Host Address" autoCapitalize="none" autoCorrect={false} />
                 <View style={{ height: theme.space.sm }} />
-                <Button label="Login" onPress={attemptLogin} full />
-                <Button label="Create account" variant="ghost" onPress={attemptRegister} full />
+                <Button label={busy === "login" ? "Logging in..." : "Login"} onPress={attemptLogin} disabled={busy != null} full />
+                <Button
+                    label={busy === "register" ? "Creating account..." : "Create account"}
+                    variant="ghost"
+                    onPress={attemptRegister}
+                    disabled={busy != null}
+                    full
+                />
                 {error != null ? (
                     <Text variant="caption" style={{ color: theme.color.accent, textAlign: "center" }}>
                         {error}

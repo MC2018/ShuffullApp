@@ -6,7 +6,7 @@ import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import path from "path";
 import type { GenericDb } from "@/app/services/db/GenericDb";
 import type { Song } from "@/app/services/db/models";
-import { claimSongCache, SONG_CACHE_STORAGE_KEYS, type AccountSwitchStorage } from "@/app/services/auth/accountSwitch";
+import { adoptSongCache, claimSongCache, SONG_CACHE_STORAGE_KEYS, type AccountSwitchStorage } from "@/app/services/auth/accountSwitch";
 import { STORAGE_KEYS } from "@/app/constants/storageKeys";
 import { RequestType } from "@/app/enums";
 import { getAllSongDetails, getRandomSongId, updateSongs } from "@/app/services/db/queries/song";
@@ -116,9 +116,11 @@ describe("claimSongCache (ShuffullApp#193)", () => {
     let deleted: Song[];
     let playbackStops: number;
     let settleDownloads: () => Promise<boolean>;
+    let stopSync: () => Promise<void>;
     const deps = (storage: AccountSwitchStorage) => ({
         db,
         storage,
+        stopSync: () => stopSync(),
         stopPlayback: async () => { playbackStops++; },
         settleDownloads: () => settleDownloads(),
         deleteSongFiles: async (s: Song) => { deleted.push(s); },
@@ -129,6 +131,7 @@ describe("claimSongCache (ShuffullApp#193)", () => {
         deleted = [];
         playbackStops = 0;
         settleDownloads = async () => true;
+        stopSync = async () => {};
         // a1 (downloaded) and a2 (queued) share one audio file, so it is deleted once. a3 was only streamed: no file.
         await seedLibrary(db, A, [song("a1", "shared"), song("a2", "shared"), song("a3")]);
     });
@@ -174,9 +177,12 @@ describe("claimSongCache (ShuffullApp#193)", () => {
             [STORAGE_KEYS.SONG_CACHE_USER_ID]: A,
             [STORAGE_KEYS.SONG_SYNC_CURSOR]: SYNCED_AT.toISOString(),
         });
+        let syncStops = 0;
+        stopSync = async () => { syncStops++; };
 
         expect(await claimSongCache(deps(storage), A, HOST)).toBe(false);
 
+        expect(syncStops).toBe(0);
         expect(playbackStops).toBe(0);
         expect(deleted).toEqual([]);
         expect(await count(db, songTable)).toBe(3);
@@ -238,6 +244,46 @@ describe("claimSongCache (ShuffullApp#193)", () => {
         expect(await count(db, songTable)).toBe(0);
     });
 
+    it("waits for A's sync still running before clearing, so nothing it writes survives", async () => {
+        const { storage } = makeStorage({ [STORAGE_KEYS.SONG_CACHE_USER_ID]: A });
+        stopSync = async () => {
+            // A's last sync commits while the switch waits for it: one more song, and A's version moves on.
+            await updateSongs(db, [song("a4")]);
+            await db.insert(downloadedSongTable).values({ downloadedSongId: "dl-a4", songId: "a4" });
+            await db.update(userTable).set({ version: new Date("2026-11-02T00:00:00Z") });
+        };
+
+        expect(await claimSongCache(deps(storage), B, HOST)).toBe(true);
+
+        expect(await count(db, songTable)).toBe(0);
+        expect(deleted.map(s => s.songId)).toContain("a4");
+        expect((await db.select().from(userTable))[0].version).toEqual(new Date(FEED_START));
+    });
+
+    // The steps run files, then the transaction, then the storage keys, then the owner. A run that dies anywhere before
+    // the owner leaves it as it was, and the next login finishes the job.
+    it.each([
+        ["deleting a file", "files"],
+        ["resetting the song-sync keys", "keys"],
+    ] as const)("a clear that fails while %s leaves the owner unchanged, and the next login clears again", async (_what, failAt) => {
+        const { map, storage } = makeStorage({ [STORAGE_KEYS.SONG_CACHE_USER_ID]: A, [STORAGE_KEYS.SONG_SYNC_CURSOR]: "c" });
+        const failing = { ...deps(storage) };
+        if (failAt === "files") {
+            failing.deleteSongFiles = async () => { throw new Error("disk gone"); };
+        } else {
+            failing.storage = { ...storage, removeItem: async () => { throw new Error("storage gone"); } };
+        }
+
+        await expect(claimSongCache(failing, B, HOST)).rejects.toThrow();
+        expect(map.get(STORAGE_KEYS.SONG_CACHE_USER_ID)).toBe(A);
+        expect(await count(db, songTable)).toBe(failAt === "files" ? 3 : 0);
+
+        expect(await claimSongCache(deps(storage), B, HOST)).toBe(true);
+        expect(await count(db, songTable)).toBe(0);
+        expect(map.has(STORAGE_KEYS.SONG_SYNC_CURSOR)).toBe(false);
+        expect(map.get(STORAGE_KEYS.SONG_CACHE_USER_ID)).toBe(B);
+    });
+
     it("deletes the file of a download that lands while the clear waits for it", async () => {
         const { storage } = makeStorage({ [STORAGE_KEYS.SONG_CACHE_USER_ID]: A });
         settleDownloads = async () => {
@@ -276,6 +322,30 @@ describe("claimSongCache (ShuffullApp#193)", () => {
             expect(await claimSongCache(deps(storage), A, HOST)).toBe(false);
             expect(await count(db, songTable)).toBe(3);
             expect(map.get(STORAGE_KEYS.SONG_CACHE_USER_ID)).toBe(A);
+        });
+
+        // restoreSession adopts the cache for the signed-in account, so another account's leftover users row doesn't
+        // make that same account's next login wipe its downloads.
+        it("keeps everything on the restored account's next login, though another account has a users row", async () => {
+            await db.insert(userTable).values({ userId: B, username: B, version: SYNCED_AT, isCurator: false });
+            const { map, storage } = makeStorage();
+
+            await adoptSongCache(storage, A, HOST);
+
+            expect(map.get(STORAGE_KEYS.SONG_CACHE_USER_ID)).toBe(A);
+            expect(map.get(STORAGE_KEYS.SONG_CACHE_HOST)).toBe(HOST);
+            expect(await claimSongCache(deps(storage), A, HOST)).toBe(false);
+            expect(deleted).toEqual([]);
+            expect(await count(db, songTable)).toBe(3);
+        });
+
+        it("adopting never replaces an owner already recorded", async () => {
+            const { map, storage } = makeStorage({ [STORAGE_KEYS.SONG_CACHE_USER_ID]: A, [STORAGE_KEYS.SONG_CACHE_HOST]: HOST });
+
+            await adoptSongCache(storage, B, "https://other.example");
+
+            expect(map.get(STORAGE_KEYS.SONG_CACHE_USER_ID)).toBe(A);
+            expect(map.get(STORAGE_KEYS.SONG_CACHE_HOST)).toBe(HOST);
         });
     });
 

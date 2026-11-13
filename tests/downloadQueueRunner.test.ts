@@ -661,6 +661,47 @@ describe("DownloadQueueRunner", () => {
             expect(await runner.clearQueueAndSettle(60_000)).toBe(true);
             expect(await countDownloadQueue(db)).toBe(0);
         });
+
+        it("clearQueueAndSettle doesn't wait on a worker backing off, and wakes it so it stops", async () => {
+            // A backoff that never ends by itself: only the clear can end it.
+            runner = makeRunner({ onSleep: () => new Promise<void>(() => {}) });
+            adapter.responses.set(music("a"), [{ status: 503 }]);
+            await queue(db, ["a", "b"]);
+            const running = run();
+            await until(() => sleeps.length === 1, "a backing off");
+
+            expect(await runner.clearQueueAndSettle(60_000)).toBe(true);
+            await running;
+
+            expect(adapter.fetched.filter(x => x.startsWith("music/"))).toEqual([music("a")]);
+            expect(await countDownloadQueue(db)).toBe(0);
+        });
+
+        it.each([
+            ["fetched", false],
+            ["recorded from disk", true],
+        ])("a song claimed before the queue was cleared is not %s", async (_what, onDisk) => {
+            if (onDisk) {
+                adapter.stored.add(music("a"));
+            }
+            let reached = false;
+            let open = () => {};
+            adapter.canDownloadNow = async () => {
+                reached = true;
+                await new Promise<void>((resolve) => { open = resolve; });
+                return true;
+            };
+            await queue(db, ["a"]);
+            const running = run();
+            await until(() => reached, "a claimed");
+
+            expect(await runner.clearQueueAndSettle(60_000)).toBe(true);
+            open();
+            await running;
+
+            expect(adapter.fetched).toEqual([]);
+            expect(await downloadedIds(db)).toEqual([]);
+        });
     });
 
     describe("queueing", () => {
