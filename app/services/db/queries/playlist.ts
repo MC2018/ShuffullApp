@@ -24,6 +24,12 @@ export async function removeOldPlaylists(db: GenericDb, accessiblePlaylistIds: s
     }
 }
 
+// Makes every account's next sync fetch each of its playlists again, songs included, whatever version it has: a sync
+// fetches only playlists the server reports newer than the local copy (playlistsToFetch).
+export async function resetPlaylistVersions(db: GenericDb): Promise<void> {
+    await db.update(playlistTable).set({ version: new Date(0) });
+}
+
 export async function updatePlaylist(db: GenericDb, newPlaylist: Playlist): Promise<void> {
     await db.delete(playlistTable).where(eq(playlistTable.playlistId, newPlaylist.playlistId));
     await db.insert(playlistTable).values([

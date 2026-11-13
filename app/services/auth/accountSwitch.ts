@@ -1,9 +1,9 @@
-import { ne } from "drizzle-orm";
 import { STORAGE_KEYS } from "@/app/constants/storageKeys";
 import { GenericDb } from "@/app/services/db/GenericDb";
 import { Song } from "@/app/services/db/models";
-import { clearSongCache } from "@/app/services/db/queries/song";
-import { playlistTable, songTable, userTable } from "@/app/services/db/schema";
+import { resetPlaylistVersions } from "@/app/services/db/queries/playlist";
+import { clearSongCache, getSongsWithLocalFiles } from "@/app/services/db/queries/song";
+import { hasOtherUser, setAllUserVersions } from "@/app/services/db/queries/user";
 import { withTransaction } from "@/app/services/db/transaction";
 import { FEED_START } from "@/app/services/sync-manager/syncLogic";
 import { log } from "@/app/tools/log";
@@ -20,6 +20,11 @@ export interface AccountSwitchDeps {
     storage: AccountSwitchStorage;
     /** Stops the player and empties its queue, so nothing from the old library keeps playing. MediaManager.clear. */
     stopPlayback: () => Promise<void>;
+    /**
+     * Empties the download queue and waits, for a bounded time, for downloads in flight to finish, so none lands after
+     * its files were deleted. Resolves false if some were still running. Downloader.clearQueueAndSettleShared.
+     */
+    settleDownloads: () => Promise<boolean>;
     /** Removes one song's downloaded audio and album art. The app passes Downloader.deleteLocalSongFiles. */
     deleteSongFiles: (song: Song) => Promise<void>;
 }
@@ -28,6 +33,9 @@ export interface AccountSwitchDeps {
  * The device-wide song-sync keys. They describe the song cache as a whole, so they reset with it and the next sync
  * starts like a first one.
  */
+/** Files deleted at once: the deletes are independent native or IPC calls, and the login waits for all of them. */
+const FILE_DELETE_CONCURRENCY = 8;
+
 export const SONG_CACHE_STORAGE_KEYS = [
     STORAGE_KEYS.SONG_SYNC_CURSOR,
     STORAGE_KEYS.SONG_SYNC_KEY,
@@ -68,20 +76,28 @@ export async function claimSongCache(deps: AccountSwitchDeps, userId: string, ho
 
     const ownerHost = await storage.getItem(STORAGE_KEYS.SONG_CACHE_HOST);
     await deps.stopPlayback();
-    const songs = await db.select().from(songTable);
+
+    // Which songs can have files: the queued ones are read before the queue is emptied, the downloaded ones after the
+    // downloads in flight have landed and recorded themselves.
+    const queued = await getSongsWithLocalFiles(db);
+    if (!(await deps.settleDownloads())) {
+        log.warn("auth", "Downloads were still running when the last account's songs were cleared; one that lands later stays on disk.");
+    }
+    const withFiles = [...queued, ...(await getSongsWithLocalFiles(db))];
 
     // Files first, while the rows still say which they are: a run that dies after this but before the transaction
     // leaves the rows, and the next login clears again. The other way round would orphan the files for good. Media is
     // stored by file hash, so songs that share audio share one file.
-    const byFile = new Map(songs.map(song => [`${song.fileHash}.${song.fileExtension}`, song]));
-    for (const song of byFile.values()) {
-        await deps.deleteSongFiles(song);
+    const byFile = [...new Map(withFiles.map(song => [`${song.fileHash}${song.fileExtension}`, song])).values()];
+    for (let i = 0; i < byFile.length; i += FILE_DELETE_CONCURRENCY) {
+        await Promise.all(byFile.slice(i, i + FILE_DELETE_CONCURRENCY).map(song => deps.deleteSongFiles(song)));
     }
 
+    let cleared = 0;
     await withTransaction(db, async (tx) => {
-        await clearSongCache(tx);
-        await tx.update(userTable).set({ version: new Date(FEED_START) });
-        await tx.update(playlistTable).set({ version: new Date(0) });
+        cleared = await clearSongCache(tx);
+        await setAllUserVersions(tx, new Date(FEED_START));
+        await resetPlaylistVersions(tx);
     });
 
     for (const key of SONG_CACHE_STORAGE_KEYS) {
@@ -92,7 +108,7 @@ export async function claimSongCache(deps: AccountSwitchDeps, userId: string, ho
 
     log.info("auth",
         `Account changed on this device (${owner ?? "an earlier account"} on ${ownerHost ?? "an unknown host"} -> ` +
-        `${userId} on ${hostAddress}): cleared ${songs.length} cached song(s) and ${byFile.size} file(s). ` +
+        `${userId} on ${hostAddress}): cleared ${cleared} cached song(s) and ${byFile.length} downloaded file(s). ` +
         "The previous account's queued requests and listens are kept for its next login.");
     return true;
 }
@@ -102,11 +118,7 @@ export async function claimSongCache(deps: AccountSwitchDeps, userId: string, ho
  * they are, so then any other account that has synced here (it has a users row) counts: its songs may be in there.
  */
 async function belongsToAnotherAccount(db: GenericDb, owner: string | null, userId: string): Promise<boolean> {
-    if (owner != null) {
-        return owner !== userId;
-    }
-    const others = await db.select({ userId: userTable.userId }).from(userTable).where(ne(userTable.userId, userId)).limit(1);
-    return others.length > 0;
+    return owner != null ? owner !== userId : await hasOtherUser(db, userId);
 }
 
 async function recordOwner(storage: AccountSwitchStorage, userId: string, hostAddress: string): Promise<void> {

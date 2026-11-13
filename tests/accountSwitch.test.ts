@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
+import type { SQLiteTable } from "drizzle-orm/sqlite-core";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import path from "path";
 import type { GenericDb } from "@/app/services/db/GenericDb";
@@ -106,8 +107,7 @@ async function seedUnsentDecisions(db: GenericDb, userId: string, songId: string
     });
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- any of the schema's tables
-async function count(db: GenericDb, table: any): Promise<number> {
+async function count(db: GenericDb, table: SQLiteTable): Promise<number> {
     return (await db.select().from(table)).length;
 }
 
@@ -115,10 +115,12 @@ describe("claimSongCache (ShuffullApp#193)", () => {
     let db: GenericDb;
     let deleted: Song[];
     let playbackStops: number;
+    let settleDownloads: () => Promise<boolean>;
     const deps = (storage: AccountSwitchStorage) => ({
         db,
         storage,
         stopPlayback: async () => { playbackStops++; },
+        settleDownloads: () => settleDownloads(),
         deleteSongFiles: async (s: Song) => { deleted.push(s); },
     });
 
@@ -126,7 +128,8 @@ describe("claimSongCache (ShuffullApp#193)", () => {
         db = makeDb();
         deleted = [];
         playbackStops = 0;
-        // a1 and a2 share one audio file, so it is deleted once.
+        settleDownloads = async () => true;
+        // a1 (downloaded) and a2 (queued) share one audio file, so it is deleted once. a3 was only streamed: no file.
         await seedLibrary(db, A, [song("a1", "shared"), song("a2", "shared"), song("a3")]);
     });
 
@@ -145,7 +148,7 @@ describe("claimSongCache (ShuffullApp#193)", () => {
         expect(await claimSongCache(deps(storage), B, HOST)).toBe(true);
 
         expect(playbackStops).toBe(1);
-        expect(deleted.map(s => s.fileHash).sort()).toEqual(["hash-a3", "shared"]);
+        expect(deleted.map(s => s.fileHash)).toEqual(["shared"]);
         for (const table of [songTable, artistTable, songArtistTable, tagTable, songTagTable, downloadedSongTable,
             downloadQueueTable, recentlyPlayedSongTable]) {
             expect(await count(db, table)).toBe(0);
@@ -227,11 +230,37 @@ describe("claimSongCache (ShuffullApp#193)", () => {
         expect(playlistsToFetch([{ playlistId: `playlist-${A}`, version: SYNCED_AT }], localPlaylists)).toEqual([`playlist-${A}`]);
 
         // And back to A: a different account from B, so B's songs go the same way.
-        await updateSongs(db, [song("b1")]);
+        await updateSongs(db, [song("b1"), song("b2")]);
+        await db.insert(downloadedSongTable).values({ downloadedSongId: "dl-b1", songId: "b1" });
         deleted = [];
         expect(await claimSongCache(deps(storage), A, HOST)).toBe(true);
         expect(deleted.map(s => s.songId)).toEqual(["b1"]);
         expect(await count(db, songTable)).toBe(0);
+    });
+
+    it("deletes the file of a download that lands while the clear waits for it", async () => {
+        const { storage } = makeStorage({ [STORAGE_KEYS.SONG_CACHE_USER_ID]: A });
+        settleDownloads = async () => {
+            // What the runner does with the queue emptied: the song in flight lands and records itself.
+            await db.delete(downloadQueueTable);
+            await db.insert(downloadedSongTable).values({ downloadedSongId: "dl-a3", songId: "a3" });
+            return true;
+        };
+
+        expect(await claimSongCache(deps(storage), B, HOST)).toBe(true);
+
+        expect(deleted.map(s => s.fileHash).sort()).toEqual(["hash-a3", "shared"]);
+        expect(await count(db, downloadedSongTable)).toBe(0);
+    });
+
+    it("still clears when downloads don't settle in time", async () => {
+        const { map, storage } = makeStorage({ [STORAGE_KEYS.SONG_CACHE_USER_ID]: A });
+        settleDownloads = async () => false;
+
+        expect(await claimSongCache(deps(storage), B, HOST)).toBe(true);
+
+        expect(await count(db, songTable)).toBe(0);
+        expect(map.get(STORAGE_KEYS.SONG_CACHE_USER_ID)).toBe(B);
     });
 
     describe("a device whose last build never recorded the cache's owner", () => {

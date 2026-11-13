@@ -271,6 +271,29 @@ export class DownloadQueueRunner {
         await this.publishStatus();
     }
 
+    /**
+     * Empties the queue, then waits up to `timeoutMs` for the songs already in flight to land or fail, since a fetch
+     * can't be cancelled. For emptying the library (services/auth/accountSwitch, ShuffullApp#193): a song that landed
+     * after its files were deleted would leave a file nothing removes. Resolves whether every worker stopped in time.
+     */
+    public async clearQueueAndSettle(timeoutMs: number): Promise<boolean> {
+        if (this.adapter == undefined) {
+            return true;
+        }
+        await this.clearQueue();
+        const idle = this.idle?.promise;
+        if (this.workers === 0 || idle == undefined) {
+            return true;
+        }
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const timedOut = new Promise<boolean>((resolve) => { timer = setTimeout(() => resolve(false), timeoutMs); });
+        try {
+            return await Promise.race([idle.then(() => true), timedOut]);
+        } finally {
+            clearTimeout(timer);
+        }
+    }
+
     public async addSongToDownloadQueue(songId: string, priority: DownloadPriority) {
         if (this.adapter == undefined) {
             return;

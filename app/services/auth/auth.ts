@@ -38,7 +38,6 @@ export async function restoreSession(): Promise<void> {
 // Persist the session envelope returned by authenticate/create/password change and flip the store to authenticated.
 async function bootstrapSession(authResponse: AuthenticateResponse, hostAddress: string): Promise<void> {
     const db = getDb();
-    await claimSongCacheForLogin(authResponse.user.userId, hostAddress);
 
     await db.insert(localSessionDataTable).values([{
         userId: authResponse.user.userId,
@@ -64,15 +63,20 @@ async function bootstrapSession(authResponse: AuthenticateResponse, hostAddress:
     useAuthStore.getState().setSession({ userId: localSessionData.userId, apiClient, hostAddress });
 }
 
-// Before the session exists, so no sync starts while another account's songs are still in the cache. A failure here
-// doesn't stop the login: the library stays mixed, as before this check existed, and the next login tries again,
-// since the cache's owner is recorded only once a clear has finished.
+// How long a login waits for the last account's downloads in flight to finish before clearing its songs anyway.
+const DOWNLOAD_SETTLE_MS = 10_000;
+
+// Login and register only, before bootstrapSession: the session doesn't exist yet, so no sync starts while another
+// account's songs are still in the cache. A password change keeps the same account, and runs while a sync may be live,
+// so it never clears. A failure here doesn't stop the login: the library stays mixed, as before this check existed,
+// and the next login tries again, since the cache's owner is recorded only once a clear has finished.
 async function claimSongCacheForLogin(userId: string, hostAddress: string): Promise<void> {
     try {
         await claimSongCache({
             db: getDb(),
             storage: AsyncStorage,
             stopPlayback: () => MediaManager.clear(),
+            settleDownloads: () => Downloader.clearQueueAndSettleShared(DOWNLOAD_SETTLE_MS),
             deleteSongFiles: song => Downloader.deleteLocalSongFiles(song),
         }, userId, hostAddress);
     } catch (e) {
@@ -84,6 +88,7 @@ export async function login(username: string, password: string, hostAddress: str
     const userHash = await Hasher.argon2Hash(`${username};${password}`);
     const api = new ApiClient(hostAddress, "");
     const authResponse = await api.userAuthenticate(username, userHash);
+    await claimSongCacheForLogin(authResponse.user.userId, hostAddress);
     await bootstrapSession(authResponse, hostAddress);
 }
 
@@ -91,6 +96,7 @@ export async function register(username: string, password: string, hostAddress: 
     const userHash = await Hasher.argon2Hash(`${username};${password}`);
     const api = new ApiClient(hostAddress, "");
     const authResponse = await api.userCreate(username, userHash);
+    await claimSongCacheForLogin(authResponse.user.userId, hostAddress);
     await bootstrapSession(authResponse, hostAddress);
 }
 
