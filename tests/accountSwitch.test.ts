@@ -8,6 +8,7 @@ import type { GenericDb } from "@/app/services/db/GenericDb";
 import type { Song } from "@/app/services/db/models";
 import { adoptSongCache, claimSongCache, SONG_CACHE_STORAGE_KEYS, type AccountSwitchStorage } from "@/app/services/auth/accountSwitch";
 import { STORAGE_KEYS } from "@/app/constants/storageKeys";
+import { SongFilters, SongFilterType } from "@/app/types/SongFilters";
 import { RequestType } from "@/app/enums";
 import { getAllSongDetails, getRandomSongId, updateSongs } from "@/app/services/db/queries/song";
 import { getRequests } from "@/app/services/db/queries/request";
@@ -267,27 +268,42 @@ describe("claimSongCache (ShuffullApp#193)", () => {
         expect((await db.select().from(userTable))[0].version).toEqual(new Date(FEED_START));
     });
 
-    // The steps run files, then the transaction, then the storage keys, then the owner. A run that dies anywhere before
-    // the owner leaves it as it was, and the next login finishes the job.
+    // The steps run the playback scope, then files, then the transaction, then the song-sync keys, then the owner. A run
+    // that dies anywhere before the owner leaves it as it was, and the next login finishes the job. The scope is reset
+    // even so: the login carries on after a failed clear, and B mustn't play on A's genre jam meanwhile (ShuffullApp#204).
     it.each([
         ["deleting a file", "files"],
         ["resetting the song-sync keys", "keys"],
     ] as const)("a clear that fails while %s leaves the owner unchanged, and the next login clears again", async (_what, failAt) => {
-        const { map, storage } = makeStorage({ [STORAGE_KEYS.SONG_CACHE_USER_ID]: A, [STORAGE_KEYS.SONG_SYNC_CURSOR]: "c" });
+        const { map, storage } = makeStorage({
+            [STORAGE_KEYS.SONG_CACHE_USER_ID]: A,
+            [STORAGE_KEYS.SONG_SYNC_CURSOR]: "c",
+            [STORAGE_KEYS.CURRENT_SONG_FILTERS]: JSON.stringify(SongFilters.fromGenreJam(jam("a-jam", A), false)),
+        });
         const failing = { ...deps(storage) };
         if (failAt === "files") {
             failing.deleteSongFiles = async () => { throw new Error("disk gone"); };
         } else {
-            failing.storage = { ...storage, removeItem: async () => { throw new Error("storage gone"); } };
+            failing.storage = {
+                ...storage,
+                removeItem: async key => {
+                    if (key !== STORAGE_KEYS.CURRENT_SONG_FILTERS) {
+                        throw new Error("storage gone");
+                    }
+                    await storage.removeItem(key);
+                },
+            };
         }
 
         await expect(claimSongCache(failing, B, HOST)).rejects.toThrow();
         expect(map.get(STORAGE_KEYS.SONG_CACHE_USER_ID)).toBe(A);
         expect(await count(db, songTable)).toBe(failAt === "files" ? 3 : 0);
+        expect(map.has(STORAGE_KEYS.CURRENT_SONG_FILTERS)).toBe(false);
 
         expect(await claimSongCache(deps(storage), B, HOST)).toBe(true);
         expect(await count(db, songTable)).toBe(0);
         expect(map.has(STORAGE_KEYS.SONG_SYNC_CURSOR)).toBe(false);
+        expect(map.has(STORAGE_KEYS.CURRENT_SONG_FILTERS)).toBe(false);
         expect(map.get(STORAGE_KEYS.SONG_CACHE_USER_ID)).toBe(B);
     });
 
@@ -459,6 +475,46 @@ describe("claimSongCache (ShuffullApp#193)", () => {
             expect(await claimSongCache(deps(storage), B, HOST)).toBe(true);
 
             expect(await jamIds(db, B)).toEqual(["old"]);
+        });
+    });
+
+    describe("the current playback scope (ShuffullApp#204)", () => {
+        // What A was playing when B logged in: one of A's genre jams, with a heaviness band, or A's playlist.
+        const jamScope = () => {
+            const filters = SongFilters.fromGenreJam({
+                ...jam("a-jam", A), whitelists: { ...NO_FILTERS, genreIds: ["rock"] }, heavinessMin: 6, heavinessMax: 9,
+            }, false);
+            return JSON.stringify(filters);
+        };
+        const playlistScope = () => {
+            const filters = new SongFilters();
+            filters.setSoleFilter(SongFilterType.Playlist, [`playlist-${A}`]);
+            return JSON.stringify(filters);
+        };
+
+        it.each([
+            ["a genre jam", jamScope],
+            ["a playlist", playlistScope],
+        ] as const)("A playing %s, then B: the current scope is no longer A's, and goes only once playback stopped", async (_what, scope) => {
+            const { map, storage } = makeStorage({ [STORAGE_KEYS.SONG_CACHE_USER_ID]: A, [STORAGE_KEYS.CURRENT_SONG_FILTERS]: scope() });
+            let scopeAtStop: string | undefined;
+
+            expect(await claimSongCache({
+                ...deps(storage),
+                stopPlayback: async () => { scopeAtStop = map.get(STORAGE_KEYS.CURRENT_SONG_FILTERS); },
+            }, B, HOST)).toBe(true);
+
+            expect(scopeAtStop).toBe(scope());
+            // Gone, so getSongFilters starts B on a fresh scope: the whole library, not a jam.
+            expect(map.has(STORAGE_KEYS.CURRENT_SONG_FILTERS)).toBe(false);
+        });
+
+        it("A logging back in keeps A's scope", async () => {
+            const { map, storage } = makeStorage({ [STORAGE_KEYS.SONG_CACHE_USER_ID]: A, [STORAGE_KEYS.CURRENT_SONG_FILTERS]: jamScope() });
+
+            expect(await claimSongCache(deps(storage), A, HOST)).toBe(false);
+
+            expect(map.get(STORAGE_KEYS.CURRENT_SONG_FILTERS)).toBe(jamScope());
         });
     });
 

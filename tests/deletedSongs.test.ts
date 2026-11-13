@@ -5,6 +5,7 @@ import {
     MAX_DELETED_PAGES,
     describeDeletedDate,
     describeDeletedSong,
+    describeDeletedSongsCount,
     describeDeletedSongsCutOff,
     describeDeletedSongsFailure,
     filterDeletedSongs,
@@ -87,6 +88,15 @@ describe("describeDeletedSongsCutOff", () => {
         expect(describeDeletedSongsCutOff(25000))
             .toBe("The list stops at your newest 25,000 deleted songs. Older ones aren't shown or searched.");
         expect(describeDeletedSongsCutOff(1)).toBe("The list stops at your newest 1 deleted song. Older ones aren't shown or searched.");
+    });
+});
+
+describe("describeDeletedSongsCount", () => {
+    it("groups the count like the cut-off footer does, so the header and the footer show the same number", () => {
+        expect(describeDeletedSongsCount(25000, false)).toBe("25,000 loaded.");
+        expect(describeDeletedSongsCutOff(25000)).toContain("25,000");
+        expect(describeDeletedSongsCount(1234, true)).toBe("1,234 in all.");
+        expect(describeDeletedSongsCount(3, true)).toBe("3 in all.");
     });
 });
 

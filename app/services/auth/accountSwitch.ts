@@ -71,6 +71,8 @@ export const SONG_CACHE_STORAGE_KEYS = [
  * library again. So every user's version goes back to the start of the feed and every playlist's to 0, and each
  * account's next sync pages its whole library, like a first sync.
  *
+ * It also resets the current playback scope, so the new account doesn't play on the old one's filters (ShuffullApp#204).
+ *
  * Returns whether the cache was cleared.
  */
 export async function claimSongCache(deps: AccountSwitchDeps, userId: string, hostAddress: string): Promise<boolean> {
@@ -91,6 +93,12 @@ export async function claimSongCache(deps: AccountSwitchDeps, userId: string, ho
     // its version on, after they were cleared.
     await deps.stopSync();
     await deps.stopPlayback();
+    // The playback scope is device-wide, so the old account's would otherwise be the new one's next play: a genre jam's
+    // filters would play A's jam for B and log B's listens as a jam B never chose (ShuffullApp#204), and a playlist or
+    // artist scope names A's ids, gone with the clear. Every kind resets, not only a jam's: the next read starts B on a
+    // fresh whole-library scope. Right after the player stops and before the clear, because a clear that fails doesn't
+    // stop the login: B would then play on A's scope all session.
+    await storage.removeItem(STORAGE_KEYS.CURRENT_SONG_FILTERS);
 
     // Which songs can have files: the queued ones are read before the queue is emptied, the downloaded ones after the
     // downloads in flight have landed and recorded themselves.

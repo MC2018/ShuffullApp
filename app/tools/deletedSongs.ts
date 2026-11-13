@@ -42,6 +42,14 @@ export async function loadAllDeletedSongs(fetchPage: (before?: string) => Promis
     return { songs, complete: false };
 }
 
+/**
+ * The count after the screen's intro: "3 in all.", or "25,000 loaded." for a cut-off list. Grouped like the footer's
+ * count (plural), so a cut-off list doesn't say "25000" above and "25,000" below.
+ */
+export function describeDeletedSongsCount(count: number, complete: boolean): string {
+    return `${count.toLocaleString("en-US")} ${complete ? "in all" : "loaded"}.`;
+}
+
 /** The footer under a cut-off list. Search only sees what was loaded, so it says that too. */
 export function describeDeletedSongsCutOff(loaded: number): string {
     return `The list stops at your newest ${plural(loaded, "deleted song")}. Older ones aren't shown or searched.`;
