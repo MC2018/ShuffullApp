@@ -7,6 +7,9 @@ import { localSessionDataTable } from "../db/schema";
 import { ApiClient } from "../api/ApiClient";
 import { AuthenticateResponse } from "../api/models";
 import { MediaManager } from "../media-manager";
+import { Downloader } from "../downloader/Downloader";
+import { SyncManager } from "../sync-manager/SyncManager";
+import { adoptSongCache, claimSongCache } from "./accountSwitch";
 import { useAuthStore } from "./authStore";
 import { sendPasswordChange } from "./passwordChange";
 import { log } from "@/app/tools/log";
@@ -30,6 +33,9 @@ export async function restoreSession(): Promise<void> {
 
     const apiClient = new ApiClient(hostAddress, localSessionData.token);
     await AsyncStorage.setItem(STORAGE_KEYS.CURRENT_USER_ID, localSessionData.userId);
+    // A device updated from a build that never recorded whose songs it holds: they are this session's.
+    await adoptSongCache(AsyncStorage, localSessionData.userId, hostAddress)
+        .catch((e) => log.warn("auth", "Recording whose songs this device holds failed; the next start tries again.", e));
     useAuthStore.getState().setSession({ userId: localSessionData.userId, apiClient, hostAddress });
 }
 
@@ -61,10 +67,39 @@ async function bootstrapSession(authResponse: AuthenticateResponse, hostAddress:
     useAuthStore.getState().setSession({ userId: localSessionData.userId, apiClient, hostAddress });
 }
 
+// How long a login waits for the last account's downloads in flight, and its sync, to finish before clearing its
+// songs anyway.
+const DOWNLOAD_SETTLE_MS = 10_000;
+const SYNC_STOP_MS = 10_000;
+
+// Login and register only, before bootstrapSession: the session doesn't exist yet, so no sync starts while another
+// account's songs are still in the cache. A password change keeps the same account, and runs while a sync may be live,
+// so it never clears. A failure here doesn't stop the login: the library stays mixed, as before this check existed,
+// and the next login tries again, since the cache's owner is recorded only once a clear has finished.
+async function claimSongCacheForLogin(userId: string, hostAddress: string): Promise<void> {
+    try {
+        await claimSongCache({
+            db: getDb(),
+            storage: AsyncStorage,
+            stopSync: async () => {
+                if (!(await SyncManager.stopAll(SYNC_STOP_MS))) {
+                    log.warn("auth", "The last account's sync was still running when its songs were cleared; it was stopped before its next write.");
+                }
+            },
+            stopPlayback: () => MediaManager.clear(),
+            settleDownloads: () => Downloader.clearQueueAndSettleShared(DOWNLOAD_SETTLE_MS),
+            deleteSongFiles: song => Downloader.deleteLocalSongFiles(song),
+        }, userId, hostAddress);
+    } catch (e) {
+        log.error("auth", "Clearing the last account's songs failed; they stay in the library until the next login.", e);
+    }
+}
+
 export async function login(username: string, password: string, hostAddress: string): Promise<void> {
     const userHash = await Hasher.argon2Hash(`${username};${password}`);
     const api = new ApiClient(hostAddress, "");
     const authResponse = await api.userAuthenticate(username, userHash);
+    await claimSongCacheForLogin(authResponse.user.userId, hostAddress);
     await bootstrapSession(authResponse, hostAddress);
 }
 
@@ -72,6 +107,7 @@ export async function register(username: string, password: string, hostAddress: 
     const userHash = await Hasher.argon2Hash(`${username};${password}`);
     const api = new ApiClient(hostAddress, "");
     const authResponse = await api.userCreate(username, userHash);
+    await claimSongCacheForLogin(authResponse.user.userId, hostAddress);
     await bootstrapSession(authResponse, hostAddress);
 }
 

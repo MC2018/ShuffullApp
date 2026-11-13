@@ -250,6 +250,86 @@ describe("overallSync: the write phase is all-or-nothing", () => {
     });
 });
 
+describe("SyncManager.stopAll: an account change stops the old account's sync (ShuffullApp#193)", () => {
+    let db: GenericDb;
+    let syncError: ReturnType<typeof vi.fn<(...args: unknown[]) => void>>;
+
+    beforeEach(async () => {
+        db = makeDb();
+        await seed(db);
+        storage.clear();
+        storage.set("SONG_SYNC_CURSOR", CURSOR);
+        syncError = vi.fn<(...args: unknown[]) => void>();
+        vi.spyOn(console, "error").mockImplementation(syncError);
+        vi.spyOn(console, "info").mockImplementation(() => {});
+        vi.spyOn(console, "warn").mockImplementation(() => {});
+    });
+
+    afterEach(() => vi.restoreAllMocks());
+
+    // A sync for the old account held on its last fetch before the write phase, as a slow network would hold it while
+    // the user logs in as someone else.
+    async function startHeldSync() {
+        const api = makeApi(apiSong("s1", "Changed", "hash-s1-v2"));
+        const realChanged = api.songGetChanged.getMockImplementation()!;
+        let release!: () => void;
+        const gate = new Promise<void>(resolve => { release = resolve; });
+        let reached!: () => void;
+        const held = new Promise<void>(resolve => { reached = resolve; });
+        api.songGetChanged.mockImplementation(async () => {
+            reached();
+            await gate;
+            return await realChanged();
+        });
+        const manager = makeManager(db, api) as unknown as { sync(): Promise<void> };
+        const running = manager.sync();
+        await held;
+        return { running, release };
+    }
+
+    it("without a stop, the held sync writes once it resumes", async () => {
+        // The control: shows the held sync really would write, so the tests below prove the stop prevented it.
+        const { running, release } = await startHeldSync();
+        release();
+        await running;
+
+        expect((await snapshot(db)).user[0].version).toEqual(NEW_VERSION);
+    });
+
+    it("waits for the running sync, which stops before writing anything", async () => {
+        const { running, release } = await startHeldSync();
+        const before = await snapshot(db);
+
+        const stopped = SyncManager.stopAll(60_000);
+        release();
+
+        expect(await stopped).toBe(true);
+        await running;
+        expect(await snapshot(db)).toEqual(before);
+        expect(storage.get("SONG_SYNC_CURSOR")).toBe(CURSOR);
+        expect(storage.has("SONG_SYNC_KEY")).toBe(false);
+        // A stop is not a failure: nothing logged as one.
+        expect(syncError).not.toHaveBeenCalled();
+    });
+
+    it("gives up waiting after its timeout, and the sync still writes nothing when it resumes later", async () => {
+        const { running, release } = await startHeldSync();
+        const before = await snapshot(db);
+
+        expect(await SyncManager.stopAll(1)).toBe(false);
+        release();
+        await running;
+
+        expect(await snapshot(db)).toEqual(before);
+        expect(storage.get("SONG_SYNC_CURSOR")).toBe(CURSOR);
+        expect(syncError).not.toHaveBeenCalled();
+    });
+
+    it("resolves at once when no sync is running", async () => {
+        expect(await SyncManager.stopAll(60_000)).toBe(true);
+    });
+});
+
 describe("overallSync: a stalled user-songs feed", () => {
     let db: GenericDb;
 

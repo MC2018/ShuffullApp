@@ -2,7 +2,7 @@ import { SongFilters } from "@/app/types/SongFilters";
 import { GenericDb } from "../GenericDb";
 import { Song, UpdateSongMetadataPayload } from "../models";
 import { artistTable, downloadedSongTable, downloadQueueTable, playlistSongTable, recentlyPlayedSongTable, songArtistTable, songTable, songTagTable, tagTable, userSongTable } from "../schema";
-import { eq, inArray, sql, asc } from "drizzle-orm";
+import { eq, inArray, sql, asc, or, count } from "drizzle-orm";
 import { SongDetails } from "../types";
 // Import the dependency-free helper directly (not via @/app/tools, which re-exports React-Native-bound utils)
 // so this query module stays importable from the Vitest (node) test harness.
@@ -603,6 +603,37 @@ export async function purgeSongs(db: GenericDb, songIds: string[]): Promise<Song
         await db.delete(songTable).where(inArray(songTable.songId, idChunk));
     }
     return purged;
+}
+
+// Empties the song cache every account on this device shares: the songs, their artists and tags, what is downloaded or
+// queued for download, and play history. None of these tables has a user column, so after another account logs in
+// they would hold the last account's library (ShuffullApp#193). Leaves the media files: read the songs and delete
+// their files before calling this, while the rows still say which files they are.
+//
+// Per-user rows stay: playlists, user songs, the outbox, dead letters, open listens, listen stats and play-next
+// intents are all keyed by user, and the outbox and listens hold decisions not yet on the server. Genre jams stay too:
+// the user made them, and they exist nowhere else.
+// Returns how many songs it removed.
+export async function clearSongCache(db: GenericDb): Promise<number> {
+    const songs = (await db.select({ n: count() }).from(songTable))[0]?.n ?? 0;
+    await db.delete(downloadQueueTable);
+    await db.delete(downloadedSongTable);
+    await db.delete(recentlyPlayedSongTable);
+    await db.delete(songTagTable);
+    await db.delete(songArtistTable);
+    await db.delete(tagTable);
+    await db.delete(artistTable);
+    await db.delete(songTable);
+    return songs;
+}
+
+// The songs that may have media on disk: the downloaded ones, and the queued ones, whose album art a failed attempt
+// can have stored before the audio. Only the downloader stores files, so a song that was only streamed has none.
+export async function getSongsWithLocalFiles(db: GenericDb): Promise<Song[]> {
+    return await db.select().from(songTable).where(or(
+        inArray(songTable.songId, db.select({ songId: downloadedSongTable.songId }).from(downloadedSongTable)),
+        inArray(songTable.songId, db.select({ songId: downloadQueueTable.songId }).from(downloadQueueTable)),
+    ));
 }
 
 // Which of these file hashes a local song still uses. Media is stored by hash, so a purged song's file may belong

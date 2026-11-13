@@ -44,6 +44,11 @@ export class Downloader extends DownloadQueueRunner {
         await Downloader.instance?.reconcileWithDisk();
     }
 
+    /** clearQueueAndSettle on the running Downloader. True if none started: then nothing is in flight. */
+    public static async clearQueueAndSettleShared(timeoutMs: number): Promise<boolean> {
+        return await Downloader.instance?.clearQueueAndSettle(timeoutMs) ?? true;
+    }
+
     private constructor(db: GenericDb) {
         const media = mediaBridge();
         super({ db, adapter: media && createDesktopDownloadAdapter(media), storage: AsyncStorage });

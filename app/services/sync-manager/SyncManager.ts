@@ -25,6 +25,16 @@ interface RunResult {
 /** The request types the outbox pushes. OverallSync is the pull, and nothing queues Authenticate. */
 type PushedRequestType = Exclude<RequestType, RequestType.OverallSync | RequestType.Authenticate>;
 
+/**
+ * Thrown inside a sync whose SyncManager was disposed while it ran (see SyncManager.disposed), to stop it before its
+ * next write. sync() swallows it: a stopped sync is neither a failure nor a backoff.
+ */
+class SyncStoppedError extends Error {
+    constructor() {
+        super("The sync was stopped because its account logged out.");
+    }
+}
+
 /** Sends a batch's rows one call at a time, in queue order; the first failure stops the rest. */
 async function eachInOrder<T>(requests: T[], send: (request: T) => Promise<unknown>): Promise<void> {
     for (const request of requests) {
@@ -50,20 +60,59 @@ export class SyncManager {
     // Called after each sync that pulled, so what depends on the library (play-next) can see what just arrived. Optional:
     // the tests build a SyncManager without its constructor.
     onSynced?: () => void;
-    
+    // Set by dispose(). A sync still running checks it before each write and stops there, so an account that logged
+    // out can't write into the next account's library (ShuffullApp#193). Unset, so false, in the tests' managers.
+    private disposed?: boolean;
+    // The sync running now, for stopAll to wait on.
+    private running?: Promise<void>;
+    // Every manager not yet disposed, plus any disposed one whose sync is still running: what stopAll stops.
+    private static readonly live = new Set<SyncManager>();
+
     constructor(db: GenericDb, api: ApiClient, userId: string, logout: () => Promise<void>, onSynced?: () => void) {
         this.db = db;
         this.api = api;
         this.userId = userId;
         this.logout = logout;
         this.onSynced = onSynced;
+        SyncManager.live.add(this);
         // sync() never rejects, so neither call can leave an unhandled rejection behind.
         this.timerId = setInterval(() => void this.sync(), SYNC_INTERVAL_MS);
         void this.sync();
     }
 
     dispose() {
+        this.disposed = true;
         clearInterval(this.timerId);
+        if (!this.syncing) {
+            SyncManager.live.delete(this);
+        }
+    }
+
+    /**
+     * Disposes every SyncManager and waits up to `timeoutMs` for a sync still running to end. For an account change
+     * (services/auth/accountSwitch): the old account's sync must not write after its songs were cleared. Resolves
+     * whether every sync ended in time. One that didn't writes nothing more anyway: it checks `disposed` inside its
+     * write transactions, and the clear's transaction waits behind one it already started.
+     */
+    static async stopAll(timeoutMs: number): Promise<boolean> {
+        const running: Promise<void>[] = [];
+        for (const manager of [...SyncManager.live]) {
+            manager.dispose();
+            if (manager.running != undefined) {
+                running.push(manager.running);
+            }
+        }
+        if (!running.length) {
+            return true;
+        }
+
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const timedOut = new Promise<boolean>((resolve) => { timer = setTimeout(() => resolve(false), timeoutMs); });
+        try {
+            return await Promise.race([Promise.all(running).then(() => true), timedOut]);
+        } finally {
+            clearTimeout(timer);
+        }
     }
 
     // Syncs at once and drops any backoff, for when its cause has just gone away: the connection is back, or the app
@@ -83,25 +132,34 @@ export class SyncManager {
         }
     }
 
-    // One sync, unless one is running or this tick is sat out after failures. Never rejects: a throw is logged and
-    // counted as a failure, so the interval that calls this has nothing to drop.
-    private async sync() {
-        if (this.syncing) {
-            return;
+    // One sync, unless one is running, this manager was disposed, or this tick is sat out after failures. Never rejects:
+    // a throw is logged and counted as a failure, so the interval that calls this has nothing to drop.
+    private sync(): Promise<void> {
+        if (this.syncing || this.disposed) {
+            return Promise.resolve();
         }
         if (this.ticksToSkip > 0) {
             this.ticksToSkip--;
-            return;
+            return Promise.resolve();
         }
 
         this.syncing = true;
+        SyncManager.live.add(this);
+        this.running = this.syncOnce();
+        return this.running;
+    }
 
+    private async syncOnce() {
         try {
             const { statusCode, loggedOut } = await this.pushAndPull();
             // A sync that logged out isn't the server failing, so it doesn't back off.
             this.failedSyncs = statusCode == HttpStatusCode.Ok || loggedOut ? 0 : this.failedSyncs + 1;
             useServerReachability.getState().setReachability(isUnreachableStatus(statusCode) ? "unreachable" : "reachable");
         } catch (e) {
+            if (e instanceof SyncStoppedError) {
+                log.info("sync", "Stopped the sync of an account that logged out before its next write.");
+                return;
+            }
             log.error("sync", "Sync failed:", e);
             this.failedSyncs++;
         } finally {
@@ -112,6 +170,17 @@ export class SyncManager {
                     `next try in ${(this.ticksToSkip + 1) * SYNC_INTERVAL_MS / 1000}s.`);
             }
             this.syncing = false;
+            this.running = undefined;
+            if (this.disposed) {
+                SyncManager.live.delete(this);
+            }
+        }
+    }
+
+    // Ends a sync whose manager was disposed while it ran (see `disposed`). Called before each write.
+    private throwIfStopped() {
+        if (this.disposed) {
+            throw new SyncStoppedError();
         }
     }
 
@@ -125,6 +194,8 @@ export class SyncManager {
         const refused = new Set<string>(); // songs and playlists with a row refused this sync, kept for retry
         let listensSent = false; // the stats have moved, so refreshListenStats needn't wait out its interval
         for (const queuedBatch of requestBatches) {
+            // Between batches, never between a send and its delete, so nothing sent is sent again.
+            this.throwIfStopped();
             const { ready: requestBatch, held } = holdBehindRefused(queuedBatch, refused);
             if (held.length) {
                 log.warn("sync", `Holding ${held.length} request(s) behind a refused one for the same song or playlist.`);
@@ -180,11 +251,13 @@ export class SyncManager {
             requestType: RequestType.OverallSync,
             userId: this.userId
         };
+        this.throwIfStopped();
         const { statusCode } = await this.runRequests([overallSyncRequest]);
         if (statusCode != HttpStatusCode.Ok) {
             return await this.stopSync(statusCode, { quiet: true });
         }
         await this.reconcileSongs();
+        this.throwIfStopped();
         await this.refreshListenStats(listensSent);
         this.onSynced?.();
         return { statusCode: HttpStatusCode.Ok };
@@ -370,6 +443,7 @@ export class SyncManager {
             return;
         }
         // Stamped before the fetch, so a check that fails waits out the interval instead of re-running every sync.
+        this.throwIfStopped();
         await AsyncStorage.setItem(STORAGE_KEYS.SONG_RECONCILE_AT, String(now));
 
         try {
@@ -388,11 +462,13 @@ export class SyncManager {
 
             const { purge, misses, implausible } = songsGoneFromServer(checkedSongIds, returnedSongIds, pending);
             const { purged, filesInUse } = await withTransaction(this.db, async (tx) => {
+                this.throwIfStopped();
                 const purged = await DbQueries.purgeSongs(tx, purge);
                 await DbQueries.backfillSongFields(tx, returnedSongs);
                 return { purged, filesInUse: await DbQueries.fileHashesInUse(tx, purged.map(x => x.fileHash)) };
             });
             const state: SongReconcileState = { host, userId: this.userId, misses };
+            this.throwIfStopped();
             await AsyncStorage.setItem(STORAGE_KEYS.SONG_RECONCILE_STATE, JSON.stringify(state));
             // Only a full check has seen every held song.
             if (!pending.length) {
@@ -412,6 +488,9 @@ export class SyncManager {
                     `${misses.length} more are missing and go in an hour if still gone.`);
             }
         } catch (e) {
+            if (e instanceof SyncStoppedError) {
+                throw e;
+            }
             log.warn("sync", `Checking local songs against the server failed with ${statusOfFailure(e)}; nothing removed.`, e);
         }
     }
@@ -543,6 +622,9 @@ export class SyncManager {
             // withTransaction, not db.transaction(): on the sync drivers the latter commits before an async body runs,
             // so none of this used to roll back (see transaction.ts).
             await withTransaction(this.db, async (tx) => {
+                // First, inside the transaction: the account-change clear runs in one too, so this either finished
+                // before it began or sees that its account logged out (see stopAll).
+                this.throwIfStopped();
                 await DbQueries.updateTags(tx, tags);
 
                 await DbQueries.removeOldPlaylists(tx, accessiblePlaylists.map(x => x.playlistId));
@@ -640,6 +722,8 @@ export class SyncManager {
             if (newSongIds.length) {
                 await Downloader.reconcileShared();
             }
+            // The cursor describes the song cache, which an account change resets (see stopAll).
+            this.throwIfStopped();
             if (nextSongKey != undefined) {
                 // The key first: until the cursor matches it, songFeedStart ignores it and pages from the date alone.
                 await AsyncStorage.setItem(STORAGE_KEYS.SONG_SYNC_KEY, JSON.stringify(nextSongKey));
@@ -650,6 +734,9 @@ export class SyncManager {
 
             return HttpStatusCode.Ok;
         } catch (e) {
+            if (e instanceof SyncStoppedError) {
+                throw e;
+            }
             if (e instanceof ApiStatusFailureError || axios.isAxiosError(e)) {
                 return statusOfFailure(e);
             }
