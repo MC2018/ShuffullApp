@@ -1,5 +1,5 @@
 import { GenericDb } from "../GenericDb";
-import { CreateUserSongRequest, Song, UpdateSongLastPlayedRequest, UserSong } from "../models";
+import { Song, UpdateSongLastPlayedRequest, UserSong } from "../models";
 import { withTransaction } from "../transaction";
 import { LikeStatus, RequestType } from "@/app/enums";
 import { shouldPromoteOnLike } from "@/app/tools/promotion";
@@ -56,8 +56,8 @@ export async function recordKeep(db: GenericDb, userId: string, songId: string):
 }
 
 /**
- * Stamps a song as played at `playedAt` and queues the stamp, creating the UserSong row if there is none yet. Returns
- * the row. This is what makes an audition song "heard" (deriveAuditionRowState), so it is the write a mix's purge
+ * Stamps a song as played at `playedAt` and queues the stamp, creating the local UserSong row if there is none yet (the
+ * server creates its own from the stamp). Returns the row. This is what makes an audition song "heard" (deriveAuditionRowState), so it is the write a mix's purge
  * ends up keying off. The normal player calls it as a song starts; audition mode only once its heard rule is met.
  */
 export async function recordPlayed(db: GenericDb, userId: string, songId: string, playedAt: Date): Promise<UserSong> {
@@ -65,24 +65,16 @@ export async function recordPlayed(db: GenericDb, userId: string, songId: string
         let userSong = await getUserSong(tx, userId, songId);
 
         if (userSong == undefined) {
-            // TODO: remove CreateUserSongRequest
-            const newUserSongRequest: CreateUserSongRequest = {
-                userId: userId,
-                songId: songId,
-                requestId: generateId(),
-                timeRequested: playedAt,
-                requestType: RequestType.CreateUserSong
-            };
-
+            // Only the local row. The server creates its own from the last-played stamp below (Shuffull#2), so no
+            // CreateUserSong row is queued any more. SyncManager still sends the ones older builds left in the outbox.
             userSong = {
-                userId: newUserSongRequest.userId,
-                songId: newUserSongRequest.songId,
-                lastPlayed: newUserSongRequest.timeRequested,
-                version: newUserSongRequest.timeRequested,
+                userId,
+                songId,
+                lastPlayed: playedAt,
+                version: playedAt,
                 likeStatus: LikeStatus.Neutral
             };
             await addUserSong(tx, userSong);
-            await addRequests(tx, [newUserSongRequest]);
         }
 
         const updateSongLastPlayedRequest: UpdateSongLastPlayedRequest = {
