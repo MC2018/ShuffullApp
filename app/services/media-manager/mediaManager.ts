@@ -34,6 +34,7 @@ import { ListenRecorder } from "../listens/listenRecorder";
 import { openListenIfPlaying, recoverListensAfterRestart, ResumeListenInput } from "../listens/resumeListen";
 import { listenContext, listenPlatform } from "../../tools/listens";
 import { desktopShell } from "../desktopShell";
+import { deviceIdOrNull } from "../device";
 import { isServerUnreachable, useServerReachability } from "../connectivity/serverReachability";
 import { log } from "../../tools/log";
 
@@ -1450,6 +1451,7 @@ async function beginListen(song: Song, userId: string, playing: boolean, context
             userId,
             ...scope,
             platform: listenPlatform(Platform.OS, desktopShell() != undefined),
+            deviceId: await deviceIdOrNull(),
             playing,
         });
     } catch (e) {

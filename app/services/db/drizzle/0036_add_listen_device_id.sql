@@ -1,0 +1,1 @@
+ALTER TABLE `listens` ADD `device_id` text;

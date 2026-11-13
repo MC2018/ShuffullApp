@@ -1,5 +1,6 @@
 import axios, { AxiosHeaders, AxiosInstance } from "axios";
-import { AuthenticateResponse, AuthenticateResponseSchema, Capabilities, CapabilitiesSchema, CreateSongRequestPayload, ChangedSongKeysSchema, ChangedSongPageSchema, CreatePlaylistResponseSchema, DeletedSongsPage, DeletedSongsPageSchema, FeedCursor, KeepResponse, KeepResponseSchema, ListenStatsResponse, ListenStatsResponseSchema, Playlist, PlaylistListResponseSchema, Recap, RecapSchema, RecordListensResponse, RecordListensResponseSchema, RetagResponse, RetagResponseSchema, RetagStaleResponse, RetagStaleResponseSchema, SongListResponseSchema, SongRequest, SongRequestListSchema, SongRequestSchema, SongRequestSearchResponseSchema, SongRequestSearchResult, SongRetagWireItem, Tag, TagListResponseSchema, UserResponseSchema, UserSongKeysSchema, UserSongPageSchema } from "./models";
+import { AuthenticateResponse, AuthenticateResponseSchema, Capabilities, CapabilitiesSchema, CreateSongRequestPayload, ChangedSongKeysSchema, ChangedSongPageSchema, CreatePlaylistResponseSchema, DeletedSongsPage, DeletedSongsPageSchema, FeedCursor, KeepResponse, KeepResponseSchema, ListenStatsResponse, ListenStatsResponseSchema, Playlist, PlaylistListResponseSchema, Recap, RecapSchema, RecordListensResponse, RecordListensResponseSchema, RetagResponse, RetagResponseSchema, RetagStaleResponse, RetagStaleResponseSchema, SongListResponseSchema, SongRequest, SongRequestListSchema, SongRequestSchema, SongRequestSearchResponseSchema, SongRequestSearchResult, SongRetagWireItem, Tag, TagListResponseSchema, UserDevice, UserDeviceSchema, UserResponseSchema, UserSongKeysSchema, UserSongPageSchema } from "./models";
+import { DeviceCheckInBody } from "../../tools/device";
 import { ApiStatusFailureError } from "./errors";
 import { RecordListenPayload, UpdateSongLastPlayedRequest, UpdateSongMetadataPayload } from "../db/models";
 import { log } from "../../tools/log";
@@ -215,6 +216,12 @@ export class ApiClient {
                 return { items: page.songs, keys: ChangedSongKeysSchema.parse(data).songs, endOfList: page.endOfList };
             } },
         });
+    }
+
+    // Any user: this install is open, under this name (Shuffull#132). Creates the caller's device row the first time,
+    // then updates it in place. An API from before that answers 404, which the check-in logs and drops.
+    public async deviceCheckIn(deviceId: string, body: DeviceCheckInBody): Promise<UserDevice> {
+        return this.request("put", `/api/v1/devices/${encodeURIComponent(deviceId)}`, { body, schema: UserDeviceSchema });
     }
 
     // Any user: log finished listens (at most 200 per call, the server's MaxBatch). Returns one outcome per listen;

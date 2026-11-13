@@ -134,6 +134,7 @@ const openListen = {
     context: "playlist" as const,
     playlistId: "p1",
     platform: "android",
+    deviceId: "device-1",
     checkpointedAt: new Date("2026-10-01T00:00:43Z"),
 };
 

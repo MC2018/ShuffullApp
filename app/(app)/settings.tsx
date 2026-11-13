@@ -1,6 +1,10 @@
+import { useEffect, useState } from "react";
 import { Platform, ScrollView, Switch, View } from "react-native";
 import { router } from "expo-router";
-import { IconButton, ListRow, Screen, Text } from "@/app/components/ui";
+import { IconButton, ListRow, Screen, Text, TextField } from "@/app/components/ui";
+import { deviceIdentity, renameDevice } from "@/app/services/device";
+import { cleanDeviceName, DEVICE_NAME_MAX_LENGTH } from "@/app/tools/device";
+import { log } from "@/app/tools/log";
 import { useTheme } from "@/app/theme";
 import { MediaManager } from "@/app/services/media-manager";
 import { usePrefetchSetting } from "@/app/services/prefetch/prefetchSetting";
@@ -10,12 +14,13 @@ import { PREFETCH_CACHE_CAP_BYTES } from "@/app/tools/prefetchCache";
 const CAP_MB = Math.round(PREFETCH_CACHE_CAP_BYTES / 1024 / 1024);
 
 // App settings: "Load upcoming songs ahead" (ShuffullApp#124), which fetches the next song or two while the current
-// one plays so a skip starts at once, and Change password (ShuffullApp#158). Development builds also get a Developer
+// one plays so a skip starts at once, this device's name (ShuffullApp#58), and Change password (ShuffullApp#158). Development builds also get a Developer
 // section that opens the December recap (ShuffullApp#116) at any time of year.
 export default function SettingsScreen() {
     const theme = useTheme();
     const enabled = usePrefetchSetting((state) => state.enabled);
     const loaded = usePrefetchSetting((state) => state.loaded);
+    const deviceName = useDeviceNameField();
 
     return (
         <Screen>
@@ -53,6 +58,23 @@ export default function SettingsScreen() {
                     </Text>
                 )}
 
+                <Text variant="label" color="textMuted" style={{ marginTop: theme.space.lg }}>This device</Text>
+                <TextField
+                    value={deviceName.value}
+                    onChangeText={deviceName.setValue}
+                    onBlur={deviceName.save}
+                    onSubmitEditing={deviceName.save}
+                    placeholder={deviceName.defaultName}
+                    maxLength={DEVICE_NAME_MAX_LENGTH}
+                    editable={deviceName.loaded}
+                    returnKeyType="done"
+                    autoCapitalize="words"
+                    accessibilityLabel="Device name"
+                />
+                <Text variant="caption" color="textFaint">
+                    What your other devices call this one. Leave it empty for &quot;{deviceName.defaultName}&quot;.
+                </Text>
+
                 <Text variant="label" color="textMuted" style={{ marginTop: theme.space.lg }}>Account</Text>
                 <ListRow
                     title="Change password"
@@ -78,4 +100,42 @@ export default function SettingsScreen() {
             </ScrollView>
         </Screen>
     );
+}
+
+/** The device name field: the name the user chose (empty = the default), saved and sent when editing ends. */
+function useDeviceNameField() {
+    const [value, setValue] = useState("");
+    const [saved, setSaved] = useState("");
+    const [loaded, setLoaded] = useState(false);
+    const defaultName = deviceIdentity.defaultName();
+
+    useEffect(() => {
+        let live = true;
+        deviceIdentity.customName()
+            .then(name => {
+                if (live) {
+                    setValue(name ?? "");
+                    setSaved(name ?? "");
+                }
+            })
+            .catch(e => log.warn("device", "could not read the device name", e))
+            .finally(() => live && setLoaded(true));
+        return () => { live = false; };
+    }, []);
+
+    const save = () => {
+        if (!loaded || (cleanDeviceName(value) ?? "") === saved) {
+            return;
+        }
+        renameDevice(value)
+            .then(name => {
+                // Cleared: the field shows the default as its placeholder, not as text.
+                const custom = cleanDeviceName(value) == undefined ? "" : name;
+                setValue(custom);
+                setSaved(custom);
+            })
+            .catch(e => log.warn("device", "could not save the device name", e));
+    };
+
+    return { value, setValue, save, loaded, defaultName };
 }

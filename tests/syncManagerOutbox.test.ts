@@ -539,6 +539,7 @@ describe("SyncManager: listens go through the outbox and are read, never dropped
             context: "other",
             playlistId: null,
             platform: "android",
+            deviceId: "device-1",
         }, Date.parse("2026-10-31T01:01:00Z"), 60, "skipped"), closedAt);
     }
 

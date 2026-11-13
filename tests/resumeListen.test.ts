@@ -43,7 +43,7 @@ describe("a listen for a song still playing when the JS context restarts", () =>
         auditionOpen: false,
         isPlaying: async () => true,
         loadedTrackId: async () => "s1",
-        begin: songId => recorder.begin({ songId, userId: USER, context: "playlist", playlistId: "p1", platform: "android", playing: true }),
+        begin: songId => recorder.begin({ songId, userId: USER, context: "playlist", playlistId: "p1", platform: "android", deviceId: "device-1", playing: true }),
         ...over,
     });
     // setup()'s call, once the player is ready. The player is 32 s into s1 unless a test says otherwise.
@@ -57,7 +57,7 @@ describe("a listen for a song still playing when the JS context restarts", () =>
     // The old run plays s1 for 25 s (checkpointed by the timer), 7 s more go unsaved, then its JS context dies.
     async function oldRunDiesMidSong(): Promise<string> {
         const dying = makeRecorder();
-        await dying.begin({ songId: "s1", userId: USER, context: "playlist", playlistId: "p1", platform: "android", playing: true });
+        await dying.begin({ songId: "s1", userId: USER, context: "playlist", playlistId: "p1", platform: "android", deviceId: "device-1", playing: true });
         now += 25_000;
         await vi.advanceTimersByTimeAsync(20_000);
         now += 7_000;
@@ -124,11 +124,11 @@ describe("a listen for a song still playing when the JS context restarts", () =>
     it("with other orphans too, the newest for the playing song carries on and the rest close as stopped", async () => {
         // An older play of s1 and a play of s2, both left open by runs that died long ago.
         const older = makeRecorder();
-        await older.begin({ songId: "s1", userId: USER, context: "playlist", playlistId: "p1", platform: "android", playing: true });
+        await older.begin({ songId: "s1", userId: USER, context: "playlist", playlistId: "p1", platform: "android", deviceId: "device-1", playing: true });
         now += 5_000;
         await older.playbackStateChanged(false);
         const other = makeRecorder();
-        await other.begin({ songId: "s2", userId: USER, context: "playlist", playlistId: "p1", platform: "android", playing: true });
+        await other.begin({ songId: "s2", userId: USER, context: "playlist", playlistId: "p1", platform: "android", deviceId: "device-1", playing: true });
         now += 3_000;
         await other.playbackStateChanged(false);
         const open = await getOpenListens(db);
@@ -215,7 +215,7 @@ describe("a listen for a song still playing when the JS context restarts", () =>
         const orphanId = await oldRunDiesMidSong();
 
         const nextRun = makeRecorder();
-        await nextRun.begin({ songId: "s1", userId: USER, context: "playlist", playlistId: "p1", platform: "android", playing: true });
+        await nextRun.begin({ songId: "s1", userId: USER, context: "playlist", playlistId: "p1", platform: "android", deviceId: "device-1", playing: true });
         expect(await restart(nextRun)).toBe("none");
 
         expect((await queuedListens(db)).map(x => [x.payload.listenId, x.payload.endReason])).toEqual([[orphanId, "stopped"]]);

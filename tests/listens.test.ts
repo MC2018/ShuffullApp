@@ -113,6 +113,7 @@ describe("finishedListen: the wire item", () => {
         context: "playlist",
         playlistId: "p1",
         platform: "android",
+        deviceId: "device-1",
     };
     const start = open.startedAt.getTime();
 
@@ -128,6 +129,7 @@ describe("finishedListen: the wire item", () => {
             context: "playlist",
             playlistId: "p1",
             platform: "android",
+            deviceId: "device-1",
             userId: "u1",
         });
     });

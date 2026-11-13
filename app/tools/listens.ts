@@ -147,6 +147,7 @@ export function finishedListen(
         context: open.context,
         playlistId: open.playlistId,
         platform: open.platform,
+        deviceId: open.deviceId,
         userId: open.userId,
     };
 }

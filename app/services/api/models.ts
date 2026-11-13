@@ -163,6 +163,16 @@ export const RetagStaleResponseSchema = z.object({
 });
 export type RetagStaleResponse = z.infer<typeof RetagStaleResponseSchema>;
 
+// PUT /api/v1/devices/{deviceId} (Shuffull#132): the caller's row for this install, as the check-in left it.
+export const UserDeviceSchema = z.object({
+    deviceId: z.string(),
+    name: z.string(),
+    platform: z.string().nullable(),
+    createdAt: z.coerce.date(),
+    lastSeenAt: z.coerce.date(),
+});
+export type UserDevice = z.infer<typeof UserDeviceSchema>;
+
 // POST /api/v1/songs/retag  body: { items } -> per-song outcome (targeted, multi-id). Parsed rather than cast, like the
 // Keep response below. Outcome stays a string ("enriched" | "skipped" | "failed" today) so a new outcome can't fail the
 // parse; only "failed" is reported (summarizeRetagFailures).
