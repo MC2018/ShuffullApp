@@ -19,6 +19,9 @@ import { log } from "../../tools/log";
 // still waiting for its song, and once the song is on this device puts it at the front of the play queue. The row is
 // what lasts: the queue is in memory, so a restart or a new scope empties it, and the next sync puts the song back.
 // The row goes once the song starts playing, or when tools/playNext.ts says it is over.
+//
+// "Play next" on a song already in the library (ShuffullApp#25) uses the same rows: playLibrarySongNext saves one with
+// the song id known, so the reconcile it runs queues the song at once.
 
 interface PlayNextState {
     /** Oldest first. */
@@ -57,9 +60,21 @@ export function startPlayNext(db: GenericDb, api: ApiClient, userId: string): ()
     session = s;
     usePlayNext.setState({ intents: [], queuedSongIds: [] });
     const unsubscribe = useActiveSong.subscribe((state, previous) => {
-        if (state.songId != null && state.songId !== previous.songId
-            && usePlayNext.getState().intents.some(i => i.songId === state.songId)) {
-            void lock.run(() => clearPlayed(s, state.songId!)).catch(e => log.warn("play-next", "clearing a played intent failed", e));
+        if (state.songId == null || state.songId === previous.songId) {
+            return;
+        }
+        const songId = state.songId;
+        const { intents } = usePlayNext.getState();
+        if (intents.some(i => i.songId === songId)) {
+            void lock.run(() => dropIntentsForSong(s, songId)).catch(e => log.warn("play-next", "clearing a played intent failed", e));
+        }
+        if (usePlayNext.getState().queuedSongIds.some(id => id !== songId)) {
+            // Tapping a song in a playlist, or starting a genre jam, is a new scope, and a new scope empties the queue.
+            // Put the other queued play-next songs back now (ShuffullApp#25) rather than at the next sync, which would
+            // let a shuffle pick play first. Only while this device has queued one, so a track change with nothing
+            // queued runs no reconcile. Runs after dropIntentsForSong (one lock), and queueNext is idempotent. Like any
+            // reconcile, it can also drop an intent that has run out of time and say so, as the next sync would.
+            void reconcilePlayNext({ readRequests: false });
         }
     });
     void reconcilePlayNext({ readRequests: false });
@@ -72,9 +87,10 @@ export function startPlayNext(db: GenericDb, api: ApiClient, userId: string): ()
     };
 }
 
-// Also takes the song off the queue: a reconcile that ran between skip taking it off the queue and the song starting
+// Drops every intent for the song, once it starts playing or the user takes it off (cancelPlayNextForSong). Also takes
+// the song off the queue: a reconcile that ran between skip taking it off the queue and the song starting
 // (loading a track takes a moment) will have put it back, and it would play again straight after itself.
-async function clearPlayed(s: Session, songId: string): Promise<void> {
+async function dropIntentsForSong(s: Session, songId: string): Promise<void> {
     for (const intent of await DbQueries.getPlayNextIntents(s.db, s.userId)) {
         if (intent.songId === songId) {
             await DbQueries.deletePlayNextIntent(s.db, intent);
@@ -152,17 +168,31 @@ async function reconcile(s: Session, readRequests: boolean): Promise<void> {
  */
 export type KnownPlayNextSong = { songId: string; songRequestId: string | null };
 
+/** What an intent row needs to name its song: the key it is stored under, and what "Up next" calls it. */
+export type PlayNextSong = Pick<PlayNextIntent, "externalSongId" | "title">;
+
 /**
  * The tap on "Request & play next". Writes the intent and nothing else, so it is saved before the request is filed:
  * the caller files (or reuses) the request, then passes it to attachPlayNextRequest, or calls cancelPlayNext when
  * filing failed. With `known` there is nothing to file; savePlayNext is the one call for that case.
  */
-export function recordPlayNext(result: SongRequestSearchResult, known?: KnownPlayNextSong): Promise<void> {
+export function recordPlayNext(result: PlayNextSong, known?: KnownPlayNextSong): Promise<void> {
     const s = session;
     if (s == null) {
         return Promise.reject(new Error("Not signed in."));
     }
     return lock.run(async () => {
+        // The library and the request search key their rows their own way, so asking for one song from both would
+        // otherwise leave two rows: "Up next" would count it twice, and taking one off would leave the other. Asking
+        // again still starts the wait over, as a second tap on the same row does (savePlayNextIntent).
+        const songId = known?.songId;
+        const existing = songId == null ? undefined
+            : (await DbQueries.getPlayNextIntents(s.db, s.userId)).find(i => i.songId === songId);
+        if (existing) {
+            await DbQueries.savePlayNextIntent(s.db, { ...existing, createdAt: new Date() });
+            await reload(s);
+            return;
+        }
         await DbQueries.savePlayNextIntent(s.db, {
             userId: s.userId,
             externalSongId: result.externalSongId,
@@ -179,7 +209,7 @@ export function recordPlayNext(result: SongRequestSearchResult, known?: KnownPla
  * Saves the intent for a song that needs no request, then reconciles, so it is queued at once if this device has it.
  * Returns why it couldn't be saved, or null.
  */
-export async function savePlayNext(result: SongRequestSearchResult, known: KnownPlayNextSong): Promise<string | null> {
+export async function savePlayNext(result: PlayNextSong, known: KnownPlayNextSong): Promise<string | null> {
     try {
         await recordPlayNext(result, known);
     } catch (error) {
@@ -228,6 +258,41 @@ export async function attachPlayNextRequest(request: SongRequest): Promise<void>
         }
     });
     await reconcilePlayNext({ readRequests: false });
+}
+
+/**
+ * The play_next_intents key for a song picked from the library (ShuffullApp#25). The table is keyed by the song's
+ * source id because a requested song has no song id until its request completes. A library song always has a song id
+ * and may have no source id at all (a manual upload), so its row is keyed by the song id instead. No source id
+ * starts with "library:", so the two kinds can't collide.
+ */
+export function libraryPlayNextKey(songId: string): string {
+    return `library:${songId}`;
+}
+
+/**
+ * "Play next" on a song in the library (ShuffullApp#25). The song is on this device, so the reconcile savePlayNext runs
+ * queues it straight away, right after the current song and behind any play-next asked for earlier. Like any intent it
+ * lasts until the song plays, a restart included. Returns why it couldn't be saved, or null.
+ */
+export async function playLibrarySongNext(song: { songId: string; name: string }): Promise<string | null> {
+    if (useActiveSong.getState().songId === song.songId) {
+        return "It's playing now.";
+    }
+    return await savePlayNext({ externalSongId: libraryPlayNextKey(song.songId), title: song.name }, { songId: song.songId, songRequestId: null });
+}
+
+/**
+ * Takes a song off play-next, whichever screen asked for it. recordPlayNext keeps one row per known song, but a
+ * request row only learns its song later, so one song can still have a row from each screen. This drops every row
+ * that names it.
+ */
+export async function cancelPlayNextForSong(songId: string): Promise<void> {
+    const s = session;
+    if (s == null) {
+        return;
+    }
+    await lock.run(() => dropIntentsForSong(s, songId));
 }
 
 /** Drops the intent for a song: filing its request failed, or the user changed their mind. */
