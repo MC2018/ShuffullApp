@@ -42,8 +42,17 @@ const playerPort: Omit<AuditionPort, "rememberQuickSkips"> = {
     inForeground: () => MediaManager.isAppInForeground(),
 };
 
-/** Deals out `playlistId`'s unheard songs and starts the first. Returns the session, or undefined if superseded. */
-export async function startAuditionMode(db: GenericDb, playlistId: string): Promise<AuditionSession | undefined> {
+/**
+ * Deals out `playlistId`'s unheard songs and starts the first. Returns the session, or undefined if superseded.
+ *
+ * `signal` is the caller's "the screen is gone". A stop only cancels a start that is already under way (generation),
+ * so a screen that closes before this is even called must abort it here, or the deck starts with no screen to end it
+ * and keeps driving the player (ShuffullApp#187).
+ */
+export async function startAuditionMode(db: GenericDb, playlistId: string, signal?: AbortSignal): Promise<AuditionSession | undefined> {
+    if (signal?.aborted) {
+        return undefined;
+    }
     await stopAuditionMode();
     const myGeneration = ++generation;
 

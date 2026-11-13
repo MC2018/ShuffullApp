@@ -55,10 +55,12 @@ export default function AuditionScreen() {
             return;
         }
         let closed = false;
+        // Aborted on close, so a start the playlist read is still holding up never begins (ShuffullApp#187).
+        const abort = new AbortController();
         setStartFailed(false);
         (async () => {
             setPlaylist(await DbQueries.getPlaylist(db, playlistId));
-            const session = await startAuditionMode(db, playlistId);
+            const session = await startAuditionMode(db, playlistId, abort.signal);
             if (!closed) {
                 sessionRef.current = session;
                 // Undefined while still open means it found no signed-in session to deal for.
@@ -72,6 +74,7 @@ export default function AuditionScreen() {
         });
         return () => {
             closed = true;
+            abort.abort();
             sessionRef.current = undefined;
             void stopAuditionMode();
         };
