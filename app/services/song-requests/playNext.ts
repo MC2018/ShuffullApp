@@ -68,11 +68,12 @@ export function startPlayNext(db: GenericDb, api: ApiClient, userId: string): ()
         if (intents.some(i => i.songId === songId)) {
             void lock.run(() => dropIntentsForSong(s, songId)).catch(e => log.warn("play-next", "clearing a played intent failed", e));
         }
-        if (intents.some(i => i.songId !== songId)) {
+        if (usePlayNext.getState().queuedSongIds.some(id => id !== songId)) {
             // Tapping a song in a playlist, or starting a genre jam, is a new scope, and a new scope empties the queue.
-            // Put the other play-next songs back now (ShuffullApp#25) rather than at the next sync, which would let a
-            // shuffle pick play first. Runs after dropIntentsForSong (one lock), and queueNext is idempotent, so on a plain
-            // skip this costs a read and changes nothing.
+            // Put the other queued play-next songs back now (ShuffullApp#25) rather than at the next sync, which would
+            // let a shuffle pick play first. Only while this device has queued one, so a track change with nothing
+            // queued runs no reconcile. Runs after dropIntentsForSong (one lock), and queueNext is idempotent. Like any
+            // reconcile, it can also drop an intent that has run out of time and say so, as the next sync would.
             void reconcilePlayNext({ readRequests: false });
         }
     });
@@ -182,9 +183,13 @@ export function recordPlayNext(result: PlayNextSong, known?: KnownPlayNextSong):
     }
     return lock.run(async () => {
         // The library and the request search key their rows their own way, so asking for one song from both would
-        // otherwise leave two rows: "Up next" would count it twice, and taking one off would leave the other.
+        // otherwise leave two rows: "Up next" would count it twice, and taking one off would leave the other. Asking
+        // again still starts the wait over, as a second tap on the same row does (savePlayNextIntent).
         const songId = known?.songId;
-        if (songId != null && (await DbQueries.getPlayNextIntents(s.db, s.userId)).some(i => i.songId === songId)) {
+        const existing = songId == null ? undefined
+            : (await DbQueries.getPlayNextIntents(s.db, s.userId)).find(i => i.songId === songId);
+        if (existing) {
+            await DbQueries.savePlayNextIntent(s.db, { ...existing, createdAt: new Date() });
             await reload(s);
             return;
         }
@@ -278,8 +283,9 @@ export async function playLibrarySongNext(song: { songId: string; name: string }
 }
 
 /**
- * Takes a song off play-next, whichever screen asked for it. recordPlayNext keeps one row per known song, but a request
- * row only learns its song later, so one song can still have a row from each screen; this drops every row that names it.
+ * Takes a song off play-next, whichever screen asked for it. recordPlayNext keeps one row per known song, but a
+ * request row only learns its song later, so one song can still have a row from each screen. This drops every row
+ * that names it.
  */
 export async function cancelPlayNextForSong(songId: string): Promise<void> {
     const s = session;

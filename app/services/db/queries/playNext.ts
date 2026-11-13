@@ -5,7 +5,10 @@ import { playNextIntentTable } from "../schema";
 
 // Play-next intents (ShuffullApp#108): see playNextIntentTable.
 
-/** Records the tap. A second tap on the same song starts it over: a new request, a fresh wait. */
+/**
+ * Records the tap. A second tap on the same song starts it over: a new request, a fresh wait. (recordPlayNext also
+ * refreshes the wait when a song already has a row under the other screen's key, rather than adding a second row.)
+ */
 export async function savePlayNextIntent(db: GenericDb, intent: PlayNextIntent): Promise<void> {
     await db.insert(playNextIntentTable).values(intent).onConflictDoUpdate({
         target: [playNextIntentTable.userId, playNextIntentTable.externalSongId],

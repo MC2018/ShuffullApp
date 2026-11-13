@@ -242,9 +242,13 @@ describe("play-next driver", () => {
         await addSong(db, "s1");
         const owned = result({ songId: "s1", inLibrary: true, inUserLibrary: true });
 
+        vi.useFakeTimers({ toFake: ["Date"], now: Date.now() });
         await playLibrarySongNext({ songId: "s1", name: "Song s1" });
+        const later = new Date(Date.now() + 60_000);
+        vi.setSystemTime(later);
         expect(await savePlayNext(owned, { songId: "s1", songRequestId: null })).toBeNull();
-        expect(await getPlayNextIntents(db, USER)).toMatchObject([{ externalSongId: libraryPlayNextKey("s1") }]);
+        // One row, under the key it was first saved with, and its wait starts over, as a second tap's does.
+        expect(await getPlayNextIntents(db, USER)).toMatchObject([{ externalSongId: libraryPlayNextKey("s1"), createdAt: later }]);
 
         await cancelPlayNextForSong("s1");
         await savePlayNext(owned, { songId: "s1", songRequestId: null });
@@ -276,6 +280,14 @@ describe("play-next driver", () => {
         activeSong.setState({ songId: "picked" });
         await vi.waitFor(() => expect(queueNext).toHaveBeenCalledWith(["s1"]));
         expect(await getPlayNextIntents(db, USER)).toHaveLength(1);
+    });
+
+    it("a track change runs no reconcile while no play-next song is queued on this device", async () => {
+        await recordPlayNext(result()); // still waiting on its request
+        queueNext.mockClear();
+        activeSong.setState({ songId: "picked" });
+        await recordPlayNext(result({ externalSongId: "yt-other" })); // runs behind any reconcile the change started
+        expect(queueNext).not.toHaveBeenCalled();
     });
 
     it("when one play-next song starts, the others are put back and it is not", async () => {

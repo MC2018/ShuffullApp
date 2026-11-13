@@ -1,8 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, View } from "react-native";
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { useShallow } from "zustand/react/shallow";
 import { AlbumArt, Button, Card, IconButton, Screen, SectionHeader, Text, TextField } from "@/app/components/ui";
 import SongRequestStatusList, { PlayNextWithoutRequestList } from "@/app/components/song-requests/SongRequestStatusList";
 import { useTheme } from "@/app/theme";
@@ -33,6 +32,7 @@ import {
     searchQuery,
     toCreateSongRequest,
 } from "@/app/tools/songRequests";
+import { isIntentForSearchResult } from "@/app/tools/playNext";
 
 type SearchState =
     | { status: "idle" }
@@ -277,9 +277,7 @@ interface ResultsProps {
 
 function SearchResults({ search, rows, requests, onRetry, onRequest, onPlay, onPlayNext }: ResultsProps) {
     const theme = useTheme();
-    // A song asked for from its library page is keyed by its song id (libraryPlayNextKey), not its source id, so match both.
-    const playNextIdList = usePlayNext(useShallow((state) => state.intents.flatMap((i) => i.songId == null ? [i.externalSongId] : [i.externalSongId, i.songId])));
-    const playNextIds = useMemo(() => new Set(playNextIdList), [playNextIdList]);
+    const intents = usePlayNext((state) => state.intents);
     switch (search.status) {
         case "idle":
             return (
@@ -312,7 +310,7 @@ function SearchResults({ search, rows, requests, onRetry, onRequest, onPlay, onP
                             row={rows[result.externalSongId]}
                             onRequest={() => onRequest(result)}
                             onPlay={() => onPlay(result)}
-                            playsNext={[result.externalSongId, ownedSongIdFor(result)].some((id) => id != null && playNextIds.has(id))}
+                            playsNext={intents.some((intent) => isIntentForSearchResult(intent, result))}
                             onPlayNext={() => onPlayNext(result)}
                         />
                     ))}

@@ -327,8 +327,8 @@ export const genreJamTable = sqliteTable("genre_jam", {
 // and every sync puts the song back at the front of the queue until it plays. Keyed by the song's source id, since
 // the request id is the server's and only arrives with the create response; the API holds one open request per user
 // and source id. "Play next" on a library song (ShuffullApp#25) keys its row library:<songId> instead, since a manual
-// upload has no source id (libraryPlayNextKey). Cleared once the song plays, the request ends Failed or Cancelled, or it waits too long
-// (tools/playNext.ts). Nothing syncs it, so a recovery rebuild keeps it (db/recovery.ts).
+// upload has no source id (libraryPlayNextKey). Cleared once the song plays, the request ends Failed or Cancelled,
+// or it waits too long (tools/playNext.ts). Nothing syncs it, so a recovery rebuild keeps it (db/recovery.ts).
 export const playNextIntentTable = sqliteTable("play_next_intents", {
     userId: text("user_id").notNull(),
     externalSongId: text("external_song_id").notNull(),
