@@ -13,6 +13,7 @@ import { getAllSongDetails, getRandomSongId, updateSongs } from "@/app/services/
 import { getRequests } from "@/app/services/db/queries/request";
 import { addGenreJam, deleteGenreJam, getGenreJam, getGenreJams, updateGenreJam } from "@/app/services/db/queries/genreJam";
 import { FEED_START, playlistsToFetch } from "@/app/services/sync-manager/syncLogic";
+import { withTransaction } from "@/app/services/db/transaction";
 import {
     artistTable, deadLetterRequestTable, downloadedSongTable, downloadQueueTable, genreJamTable, listenStatTable,
     listenTable, localSessionDataTable, playlistSongTable, playlistTable, playNextIntentTable, recentlyPlayedSongTable,
@@ -417,6 +418,38 @@ describe("claimSongCache (ShuffullApp#193)", () => {
 
             expect(await jamIds(db, B)).toEqual([]);
             expect(await jamIds(db, A)).toEqual(["old"]);
+        });
+
+        it("a restored session gives unowned jams to the recorded owner, not to itself", async () => {
+            // B's login died after B's session was saved but before B was recorded as the owner, so the app restarts
+            // signed in as B while A's songs are still on the device. A jam with no account is A's.
+            await db.insert(genreJamTable).values(jam("old", null));
+            const { map, storage } = makeStorage({ [STORAGE_KEYS.SONG_CACHE_USER_ID]: A });
+
+            await adoptSongCache(db, storage, B, HOST);
+
+            expect(await jamIds(db, B)).toEqual([]);
+            expect(await jamIds(db, A)).toEqual(["old"]);
+            expect(map.get(STORAGE_KEYS.SONG_CACHE_USER_ID)).toBe(A);
+        });
+
+        it("A's unowned jams stay A's when a sync of A's still open at login rolls back", async () => {
+            // withTransaction shares one connection, so a write through the plain db while A's sync transaction is
+            // open would land inside it and be undone with it, while the owner still moved on to B.
+            await db.insert(genreJamTable).values(jam("old", null));
+            const { storage } = makeStorage({ [STORAGE_KEYS.SONG_CACHE_USER_ID]: A });
+            const sync = withTransaction(db, async () => {
+                await new Promise(resolve => setTimeout(resolve, 10));
+                throw new Error("A's sync failed");
+            }).catch(() => {});
+            stopSync = () => sync;
+
+            expect(await claimSongCache(deps(storage), B, HOST)).toBe(true);
+            // B's next start: anything still unowned would now go to B.
+            await adoptSongCache(db, storage, B, HOST);
+
+            expect(await jamIds(db, A)).toEqual(["old"]);
+            expect(await jamIds(db, B)).toEqual([]);
         });
 
         it("with no owner ever recorded, the first account to log in gets the unowned jams, as before it saw them", async () => {

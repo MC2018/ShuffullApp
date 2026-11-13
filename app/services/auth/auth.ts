@@ -33,7 +33,8 @@ export async function restoreSession(): Promise<void> {
 
     const apiClient = new ApiClient(hostAddress, localSessionData.token);
     await AsyncStorage.setItem(STORAGE_KEYS.CURRENT_USER_ID, localSessionData.userId);
-    // A device updated from a build that never recorded whose songs (or genre jams) it holds: they are this session's.
+    // A device updated from a build that never recorded whose songs it holds: they are this session's. Genre jams with no
+    // account go to whoever the songs are recorded as belonging to, which is this session only when no one is yet.
     await adoptSongCache(getDb(), AsyncStorage, localSessionData.userId, hostAddress)
         .catch((e) => log.warn("auth", "Recording whose songs and jams this device holds failed; the next start tries again.", e));
     useAuthStore.getState().setSession({ userId: localSessionData.userId, apiClient, hostAddress });

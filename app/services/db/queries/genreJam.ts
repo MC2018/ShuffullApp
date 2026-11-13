@@ -1,6 +1,7 @@
 import { GenericDb } from "../GenericDb";
 import { GenreJam, OwnedGenreJam } from "../models";
 import { genreJamTable } from "../schema";
+import { withTransaction } from "../transaction";
 import { and, eq, asc, isNull } from "drizzle-orm";
 
 // Every jam belongs to the account that made it (ShuffullApp#199). Reads, updates and deletes take that account, so
@@ -49,7 +50,14 @@ export async function deleteGenreJam(db: GenericDb, userId: string, genreJamId: 
  * database rebuild carried over from that older schema (recovery.ts). Until it has one, no account sees it, so this
  * runs at every login and session restore, before the device's owner can change. Idempotent: once every jam is
  * owned, it changes nothing.
+ *
+ * In a transaction of its own, so it commits before the caller moves the owner on. Through the plain db, a sync's
+ * transaction still open at login would take this write in and roll it back with itself, while the owner still moved
+ * to the new account, and the next start would hand the old account's jams to the new one. Don't call it from inside
+ * another transaction's body: it would wait for that body to finish.
  */
 export async function claimUnownedGenreJams(db: GenericDb, userId: string): Promise<void> {
-    await db.update(genreJamTable).set({ userId }).where(isNull(genreJamTable.userId));
+    await withTransaction(db, async tx => {
+        await tx.update(genreJamTable).set({ userId }).where(isNull(genreJamTable.userId));
+    });
 }
