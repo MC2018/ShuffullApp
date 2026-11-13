@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { eq } from "drizzle-orm";
+import type { SQLiteColumn, SQLiteTable } from "drizzle-orm/sqlite-core";
 import type { GenericDb } from "@/app/services/db/GenericDb";
 import { deletePlaylistAndPurge } from "@/app/services/db/queries/playlist";
 import { updateSongs } from "@/app/services/db/queries/song";
@@ -79,7 +80,7 @@ async function addChildren(db: GenericDb, songId: string) {
     await db.insert(recentlyPlayedSongTable).values([{ recentlyPlayedSongId: `r-${songId}`, songId, timestampSeconds: 0, lastPlayed: new Date() }]);
 }
 
-const exists = async (db: GenericDb, table: any, col: any, value: string) =>
+const exists = async (db: GenericDb, table: SQLiteTable, col: SQLiteColumn, value: string) =>
     (await db.select().from(table).where(eq(col, value))).length > 0;
 
 describe("deletePlaylistAndPurge", () => {
