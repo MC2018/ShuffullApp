@@ -1,6 +1,10 @@
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Platform, ScrollView, Switch, View } from "react-native";
 import { router } from "expo-router";
-import { IconButton, ListRow, Screen, Text } from "@/app/components/ui";
+import { IconButton, ListRow, Screen, Text, TextField } from "@/app/components/ui";
+import { deviceIdentity, renameDevice } from "@/app/services/device";
+import { DEVICE_NAME_MAX_LENGTH, DeviceNameDraft } from "@/app/tools/device";
+import { log } from "@/app/tools/log";
 import { useTheme } from "@/app/theme";
 import { MediaManager } from "@/app/services/media-manager";
 import { usePrefetchSetting } from "@/app/services/prefetch/prefetchSetting";
@@ -10,12 +14,13 @@ import { PREFETCH_CACHE_CAP_BYTES } from "@/app/tools/prefetchCache";
 const CAP_MB = Math.round(PREFETCH_CACHE_CAP_BYTES / 1024 / 1024);
 
 // App settings: "Load upcoming songs ahead" (ShuffullApp#124), which fetches the next song or two while the current
-// one plays so a skip starts at once, and Change password (ShuffullApp#158). Development builds also get a Developer
-// section that opens the December recap (ShuffullApp#116) at any time of year.
+// one plays so a skip starts at once, this device's name (ShuffullApp#58), and Change password (ShuffullApp#158).
+// Development builds also get a Developer section that opens the December recap (ShuffullApp#116) at any time of year.
 export default function SettingsScreen() {
     const theme = useTheme();
     const enabled = usePrefetchSetting((state) => state.enabled);
     const loaded = usePrefetchSetting((state) => state.loaded);
+    const deviceName = useDeviceNameField();
 
     return (
         <Screen>
@@ -53,6 +58,22 @@ export default function SettingsScreen() {
                     </Text>
                 )}
 
+                <Text variant="label" color="textMuted" style={{ marginTop: theme.space.lg }}>This device</Text>
+                <TextField
+                    value={deviceName.value}
+                    onChangeText={deviceName.setValue}
+                    onBlur={deviceName.save}
+                    placeholder={deviceName.defaultName}
+                    maxLength={DEVICE_NAME_MAX_LENGTH}
+                    editable={deviceName.loaded}
+                    returnKeyType="done"
+                    autoCapitalize="words"
+                    accessibilityLabel="Device name"
+                />
+                <Text variant="caption" color="textFaint">
+                    What your other devices call this one. Leave it empty for &quot;{deviceName.defaultName}&quot;.
+                </Text>
+
                 <Text variant="label" color="textMuted" style={{ marginTop: theme.space.lg }}>Account</Text>
                 <ListRow
                     title="Change password"
@@ -78,4 +99,48 @@ export default function SettingsScreen() {
             </ScrollView>
         </Screen>
     );
+}
+
+/**
+ * The device name field: the name the user chose (empty = the default). It is saved and sent when the field loses
+ * focus, and when the screen closes with an edit unsaved: on a phone, tapping Back with the keyboard up doesn't blur
+ * the field before the screen goes.
+ */
+function useDeviceNameField() {
+    const [value, setValueState] = useState("");
+    const [loaded, setLoaded] = useState(false);
+    const defaultName = deviceIdentity.defaultName();
+    // A ref, so the unmount cleanup sees the latest text. The save rules are DeviceNameDraft's.
+    const draft = useRef(new DeviceNameDraft()).current;
+
+    const setValue = useCallback((text: string) => {
+        draft.typed(text);
+        setValueState(text);
+    }, [draft]);
+
+    const save = useCallback(() => {
+        const text = draft.take();
+        if (text != undefined) {
+            renameDevice(text).catch(e => log.warn("device", "could not save the device name", e));
+        }
+    }, [draft]);
+
+    useEffect(() => {
+        let live = true;
+        deviceIdentity.customName()
+            .then(name => {
+                const shown = draft.loaded(name);
+                if (live && shown != undefined) {
+                    setValueState(shown);
+                }
+            })
+            .catch(e => log.warn("device", "could not read the device name", e))
+            .finally(() => live && setLoaded(true));
+        return () => {
+            live = false;
+            save();
+        };
+    }, [draft, save]);
+
+    return { value, setValue, save, loaded, defaultName };
 }

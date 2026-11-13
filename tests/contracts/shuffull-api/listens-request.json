@@ -11,7 +11,8 @@
       "context": "playlist",
       "playlistId": "playlist-1",
       "platform": "android",
-      "userId": "user-1"
+      "userId": "user-1",
+      "deviceId": "device-1"
     },
     {
       "listenId": "listen-sparse",
@@ -24,7 +25,8 @@
       "context": "genreJam",
       "playlistId": null,
       "platform": null,
-      "userId": null
+      "userId": null,
+      "deviceId": null
     }
   ]
 }

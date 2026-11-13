@@ -36,4 +36,11 @@ export const STORAGE_KEYS = {
     // `${AUDITION_QUICK_SKIPS_PREFIX}${userId}:${playlistId}` (services/audition/quickSkipStore). Removed once the
     // list is empty or the mix is deleted on this device. Never synced: a quick skip must not look like a listen.
     AUDITION_QUICK_SKIPS_PREFIX: "AUDITION_QUICK_SKIPS:",
+    // This install's id, a UUID made on first launch (services/device, ShuffullApp#58). Never removed: logging out
+    // keeps it, so the same install stays the same device across accounts and sessions.
+    DEVICE_ID: "DEVICE_ID",
+    // The name the user gave this device in Settings. Unset means the default (tools/device defaultDeviceName). Logging
+    // out or switching accounts keeps it, on purpose: it names the device, not the account. Only clearing it in
+    // Settings removes it.
+    DEVICE_NAME: "DEVICE_NAME",
 };

@@ -29,6 +29,7 @@ import {
     TagListResponseSchema,
     TagSchema,
     UserResponseSchema,
+    UserDeviceSchema,
     UserSchema,
     UserSongKeysSchema,
     UserSongPageSchema,
@@ -293,6 +294,7 @@ describe("API contract: the listen log (ShuffullApp#57)", () => {
             context: "playlist",
             playlistId: "playlist-1",
             platform: "android",
+            deviceId: "device-1",
         }, Date.parse("2026-10-01T12:38:30.123Z"), 201.5, "finished");
 
         expect(Object.keys(sent).sort()).toEqual(Object.keys(full).sort());
@@ -301,6 +303,33 @@ describe("API contract: the listen log (ShuffullApp#57)", () => {
             .toEqual({ ...full, startedAt: undefined, endedAt: undefined });
         expect(Date.parse(sent.startedAt)).toBe(Date.parse(full.startedAt as string));
         expect(Date.parse(sent.endedAt)).toBe(Date.parse(full.endedAt as string));
+    });
+});
+
+describe("API contract: device check-in (ShuffullApp#58)", () => {
+    it("parses the device the API returns, which sends every field the app reads", () => {
+        const raw = golden("devices-checkin") as object;
+        const device = UserDeviceSchema.parse(raw);
+
+        expect(unsentFields(UserDeviceSchema, raw)).toEqual([]);
+        expect(device).toMatchObject({ deviceId: "device-1", name: "Pixel 8", platform: "android" });
+        expect(device.createdAt.toISOString()).toBe("2026-10-01T12:34:56.123Z");
+        expect(device.lastSeenAt.toISOString()).toBe("2026-10-02T08:00:00.000Z");
+    });
+
+    it("encodes a device id that isn't URL-safe", async () => {
+        const original = axios.defaults.adapter;
+        const sent: InternalAxiosRequestConfig[] = [];
+        axios.defaults.adapter = async (config) => {
+            sent.push(config);
+            return { data: golden("devices-checkin"), status: 200, statusText: "OK", headers: {}, config };
+        };
+        try {
+            await new ApiClient("http://api", "t").deviceCheckIn("a/b c", { name: "x", platform: "web" });
+        } finally {
+            axios.defaults.adapter = original;
+        }
+        expect(sent[0].url).toBe("/api/v1/devices/a%2Fb%20c");
     });
 });
 
@@ -361,6 +390,8 @@ describe("API contract: request bodies the app sends (shuffull-workspace#92)", (
         { request: "song-requests-create-request", method: "post", url: "/api/v1/song-requests",
             call: api => api.songRequestCreate(toCreateSongRequest(SongRequestSearchResponseSchema.parse(golden("song-requests-search"))[0])),
             response: "song-requests-create" },
+        { request: "devices-checkin-request", method: "put", url: "/api/v1/devices/device-1",
+            call: api => api.deviceCheckIn("device-1", { name: "Pixel 8", platform: "android" }), response: "devices-checkin" },
     ];
 
     /** [FromBody] binds JSON only, and axios sets no content type for a body passed as a string, which most calls do. */

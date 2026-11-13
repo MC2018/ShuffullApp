@@ -28,6 +28,7 @@ const start = (over: Partial<ListenStart> = {}): ListenStart => ({
     context: "playlist",
     playlistId: "p1",
     platform: "android",
+    deviceId: "device-1",
     ...over,
 });
 
@@ -79,6 +80,7 @@ describe("ListenRecorder", () => {
             context: "playlist",
             playlistId: "p1",
             platform: "android",
+            deviceId: "device-1",
             startedAt: new Date(T0).toISOString(),
             endedAt: new Date(now).toISOString(),
         });

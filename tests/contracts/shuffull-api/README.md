@@ -11,4 +11,5 @@ imports and lyrics) come along because the hub script copies the whole set to ev
 `listens-request.json` are the listen log's outcomes and the body the app sends (ShuffullApp#57). `listens-stats.json`
 is the per-song stats behind song details and the "Maybe drop this" list (ShuffullApp#115), and `recap.json` the
 yearly recap the December recap screen reads (ShuffullApp#116). `songs-deleted.json` is the page the Deleted
-songs screen reads (ShuffullApp#59).
+songs screen reads (ShuffullApp#59). `devices-checkin.json` and `devices-checkin-request.json` are the device
+check-in's response and the body the app sends; `listens-request.json` carries the same device id (ShuffullApp#58).

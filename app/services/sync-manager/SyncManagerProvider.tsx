@@ -7,6 +7,7 @@ import { logout } from "../auth/auth";
 import { logoutUnlessReplaced } from "../auth/passwordChange";
 import { useServerReachability } from "../connectivity/serverReachability";
 import { reconcilePlayNext, startPlayNext } from "../song-requests/playNext";
+import { checkInDeviceOnReconnect, startDeviceCheckIn } from "../device";
 import { SyncManager } from "./SyncManager";
 
 interface SyncManagerProviderProps {
@@ -26,6 +27,9 @@ export default function SyncManagerProvider({ userId }: SyncManagerProviderProps
     useEffect(() => {
         // Play-next intents queue their song once a sync brings it down (ShuffullApp#108).
         const stopPlayNext = startPlayNext(db, api, userId);
+        // Tells the server this install is open: now (a start signed in, or a login) and on each foreground
+        // (ShuffullApp#58).
+        const stopDeviceCheckIn = startDeviceCheckIn(api);
         // A 401 on a token a password change has just replaced isn't this session ending (see logoutUnlessReplaced).
         const instance = new SyncManager(db, api, userId, () => logoutUnlessReplaced(api, logout),
             () => void reconcilePlayNext({ readRequests: true }));
@@ -40,6 +44,7 @@ export default function SyncManagerProvider({ userId }: SyncManagerProviderProps
         const network = addNetworkStateListener(({ isInternetReachable }) => {
             if (isInternetReachable === true) {
                 instance.syncNow();
+                checkInDeviceOnReconnect();
             } else if (isInternetReachable === false) {
                 useServerReachability.getState().setReachability("unreachable");
             }
@@ -55,6 +60,7 @@ export default function SyncManagerProvider({ userId }: SyncManagerProviderProps
             appState.remove();
             instance.dispose();
             stopPlayNext();
+            stopDeviceCheckIn();
             setSyncManager(null);
             // The next session (another user, another server) finds out for itself.
             reachability.setCheckNow(undefined);

@@ -260,6 +260,13 @@
       "when": 1794553674523,
       "tag": "0036_add_genre_jam_user_id",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "6",
+      "when": 1794554864247,
+      "tag": "0037_add_listen_device_id",
+      "breakpoints": true
     }
   ]
 }

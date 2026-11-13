@@ -213,6 +213,8 @@ export interface RecordListenPayload {
     context: ListenContext;
     playlistId: string | null;
     platform: string | null;
+    // The install that played it (ShuffullApp#58). Absent on a row queued before then; the API stores null for both.
+    deviceId?: string | null;
     userId: string;
 }
 
@@ -267,6 +269,8 @@ export const listenTable = sqliteTable("listens", {
     context: text("context").$type<ListenContext>().notNull(),
     playlistId: text("playlist_id"),
     platform: text("platform"),
+    // The install that played it (services/device, ShuffullApp#58). Null on a listen opened before this column existed.
+    deviceId: text("device_id"),
     checkpointedAt: integer("checkpointed_at", { mode: "timestamp_ms" }).notNull(),
 });
 

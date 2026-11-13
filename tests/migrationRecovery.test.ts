@@ -134,6 +134,7 @@ const openListen = {
     context: "playlist" as const,
     playlistId: "p1",
     platform: "android",
+    deviceId: "device-1",
     checkpointedAt: new Date("2026-10-01T00:00:43Z"),
 };
 
@@ -283,6 +284,29 @@ describe("upgrading to genre jam owners (ShuffullApp#199)", () => {
         await claimUnownedGenreJams(db, "u1");
         expect(await getGenreJams(db, "u1")).toEqual([jam]);
         expect(await getGenreJams(db, "u2")).toEqual([]);
+    });
+});
+
+describe("upgrading to listen device ids (ShuffullApp#58)", () => {
+    it("an install on 0035 takes both 0036 and 0037 in place: its open listen and jam keep, with the new columns null", async () => {
+        // Migration 0036 adds genre_jam.user_id and 0037 adds listens.device_id; neither rebuilds a table.
+        const db = asDb(sqlite);
+        migrateTo(migrationsUpTo("0035_add_play_next_intents"));
+        const { deviceId: _, ...withoutDevice } = openListen;
+        sqlite.prepare(`INSERT INTO listens (listen_id, user_id, song_id, started_at, seconds_listened, song_duration_seconds,
+                        context, playlist_id, platform, checkpointed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+            .run(openListen.listenId, openListen.userId, openListen.songId, openListen.startedAt.getTime(),
+                openListen.secondsListened, openListen.songDurationSeconds, openListen.context, openListen.playlistId,
+                openListen.platform, openListen.checkpointedAt.getTime());
+        insertJamWithoutOwner();
+
+        await migrateLatest();
+
+        expect(await getOpenListens(db)).toEqual([{ ...withoutDevice, deviceId: null }]);
+        expect(sqlite.prepare("SELECT genre_jam_id, user_id FROM genre_jam").all()).toEqual([{ genre_jam_id: "jam-1", user_id: null }]);
+        const next = { ...openListen, listenId: "listen-2" };
+        await saveOpenListen(db, next);
+        expect(await getOpenListens(db)).toEqual(expect.arrayContaining([next]));
     });
 });
 

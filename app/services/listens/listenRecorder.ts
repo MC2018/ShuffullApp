@@ -16,6 +16,8 @@ export interface ListenStart {
     context: ListenContext;
     playlistId: string | null;
     platform: string | null;
+    /** This install's id (services/device), or null if it couldn't be read. */
+    deviceId: string | null;
     /** Whether the song is already playing. A listen opened as a song is loaded starts paused: it isn't yet. */
     playing?: boolean;
 }
@@ -124,6 +126,7 @@ export class ListenRecorder {
                 context: start.context,
                 playlistId: start.playlistId,
                 platform: start.platform,
+                deviceId: start.deviceId,
                 checkpointedAt: new Date(now),
             },
             clock: newListenClock(start.playing ?? false, now),
