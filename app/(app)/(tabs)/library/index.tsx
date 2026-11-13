@@ -150,6 +150,17 @@ export default function LibraryScreen() {
                         }
                         right={chevron}
                     />
+                    <ListRow
+                        title="Deleted songs"
+                        subtitle="Look up songs you deleted"
+                        onPress={() => router.push("/library/deleted")}
+                        left={
+                            <View style={{ width: 48, height: 48, borderRadius: theme.radius.md, backgroundColor: theme.color.surfaceAlt, alignItems: "center", justifyContent: "center" }}>
+                                <Ionicons name="trash-outline" size={22} color={theme.color.textMuted} />
+                            </View>
+                        }
+                        right={chevron}
+                    />
                     {isCurator && (
                         <ListRow
                             title="Curator tools"

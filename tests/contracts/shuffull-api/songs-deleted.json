@@ -1,0 +1,21 @@
+{
+  "songs": [
+    {
+      "songId": "song-full",
+      "name": "Everybody Wants You",
+      "artistNames": "Billy Squier, Burnard",
+      "externalSongId": "dQw4w9WgXcQ",
+      "playlistName": "Audition \u00B7 week of Oct 20",
+      "deletedAt": "2026-10-02T08:00:00.000001Z"
+    },
+    {
+      "songId": "song-sparse",
+      "name": "Untitled",
+      "artistNames": null,
+      "externalSongId": null,
+      "playlistName": null,
+      "deletedAt": "2026-10-01T12:34:56.123456Z"
+    }
+  ],
+  "nextBefore": "639264548961234560_song-sparse"
+}

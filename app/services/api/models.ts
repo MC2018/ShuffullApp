@@ -329,6 +329,24 @@ export const SongRequestSchema = z.object({
 export const SongRequestListSchema = SongRequestSchema.array();
 export type SongRequest = z.infer<typeof SongRequestSchema>;
 
+// GET /api/v1/songs/deleted?before= -> the caller's deleted songs, newest first (ShuffullApp#59), read from the
+// server's song tombstones. artistNames and playlistName are null on songs deleted before the server recorded them.
+// externalSongId is the YouTube id, when the song came from YouTube. nextBefore is null on the last page.
+export const DeletedSongSchema = z.object({
+    songId: z.string(),
+    name: z.string(),
+    artistNames: z.string().nullable(),
+    externalSongId: z.string().nullable(),
+    playlistName: z.string().nullable(),
+    deletedAt: z.coerce.date(),
+});
+export const DeletedSongsPageSchema = z.object({
+    songs: DeletedSongSchema.array(),
+    nextBefore: z.string().nullable(),
+});
+export type DeletedSong = z.infer<typeof DeletedSongSchema>;
+export type DeletedSongsPage = z.infer<typeof DeletedSongsPageSchema>;
+
 /** The body of POST /api/v1/song-requests: the song's source id, plus what the user saw, for display. */
 export interface CreateSongRequestPayload {
     externalSongId: string;

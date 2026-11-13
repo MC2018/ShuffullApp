@@ -1,4 +1,4 @@
-const { app, BrowserWindow, protocol, net, session, globalShortcut, ipcMain, Notification } = require("electron");
+const { app, BrowserWindow, protocol, net, session, globalShortcut, ipcMain, Notification, shell } = require("electron");
 const path = require("node:path");
 const url = require("node:url");
 const media = require("./media");
@@ -82,6 +82,16 @@ function createWindow() {
     win.webContents.on("console-message", (_event, level, message, line, sourceId) => {
         const tag = ["verbose", "info", "warning", "error"][level] ?? "info";
         console.log(`[renderer:${tag}] ${message}${sourceId ? ` (${sourceId}:${line})` : ""}`);
+    });
+
+    // A web link the app opens (Linking.openURL is window.open on web, e.g. a deleted song's YouTube page) goes to the
+    // system browser. Electron's default would open it in a new app window that shares this preload bridge, which no
+    // outside page should get. Nothing in the app needs a second window, so every request is denied here.
+    win.webContents.setWindowOpenHandler(({ url: target }) => {
+        if (/^https?:\/\//i.test(target)) {
+            shell.openExternal(target).catch((error) => console.warn(`Opening ${target} in the browser failed:`, error));
+        }
+        return { action: "deny" };
     });
 
     // SHUFFULL_DEVTOOLS=1 pnpm desktop:run — opens devtools for network/OPFS inspection.

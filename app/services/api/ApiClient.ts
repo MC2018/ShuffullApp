@@ -1,5 +1,5 @@
 import axios, { AxiosHeaders, AxiosInstance } from "axios";
-import { AuthenticateResponse, AuthenticateResponseSchema, Capabilities, CapabilitiesSchema, CreateSongRequestPayload, ChangedSongKeysSchema, ChangedSongPageSchema, CreatePlaylistResponseSchema, FeedCursor, KeepResponse, KeepResponseSchema, ListenStatsResponse, ListenStatsResponseSchema, Playlist, PlaylistListResponseSchema, Recap, RecapSchema, RecordListensResponse, RecordListensResponseSchema, RetagResponse, RetagResponseSchema, RetagStaleResponse, RetagStaleResponseSchema, SongListResponseSchema, SongRequest, SongRequestListSchema, SongRequestSchema, SongRequestSearchResponseSchema, SongRequestSearchResult, SongRetagWireItem, Tag, TagListResponseSchema, UserResponseSchema, UserSongKeysSchema, UserSongPageSchema } from "./models";
+import { AuthenticateResponse, AuthenticateResponseSchema, Capabilities, CapabilitiesSchema, CreateSongRequestPayload, ChangedSongKeysSchema, ChangedSongPageSchema, CreatePlaylistResponseSchema, DeletedSongsPage, DeletedSongsPageSchema, FeedCursor, KeepResponse, KeepResponseSchema, ListenStatsResponse, ListenStatsResponseSchema, Playlist, PlaylistListResponseSchema, Recap, RecapSchema, RecordListensResponse, RecordListensResponseSchema, RetagResponse, RetagResponseSchema, RetagStaleResponse, RetagStaleResponseSchema, SongListResponseSchema, SongRequest, SongRequestListSchema, SongRequestSchema, SongRequestSearchResponseSchema, SongRequestSearchResult, SongRetagWireItem, Tag, TagListResponseSchema, UserResponseSchema, UserSongKeysSchema, UserSongPageSchema } from "./models";
 import { ApiStatusFailureError } from "./errors";
 import { RecordListenPayload, UpdateSongLastPlayedRequest, UpdateSongMetadataPayload } from "../db/models";
 import { log } from "../../tools/log";
@@ -80,6 +80,14 @@ export class ApiClient {
     // it. A 409 means it is already requested (or the user has too many open), with the reason in { error }.
     public async songRequestCreate(payload: CreateSongRequestPayload): Promise<SongRequest> {
         return this.request("post", "/api/v1/song-requests", { body: payload, schema: SongRequestSchema, note: "create" });
+    }
+
+    // Any user: one page of the songs they deleted, newest first (ShuffullApp#59). Pass the previous page's nextBefore
+    // to get the next one. Read straight from the server, not synced: an API from before it answers 404.
+    public async songGetDeleted(before?: string): Promise<DeletedSongsPage> {
+        return this.request("get", "/api/v1/songs/deleted", {
+            params: before != null ? { before } : undefined, timeout: BULK_TIMEOUT_MS, schema: DeletedSongsPageSchema
+        });
     }
 
     // Any user: their most recent song requests (the API's last 50), newest first.
