@@ -166,6 +166,41 @@ export class DeviceIdentity {
     }
 }
 
+/**
+ * The Settings device-name field's save rules, kept out of the screen so they can be tested. The screen saves on
+ * blur and again when it closes (Back with the keyboard up doesn't blur first), and Done blurs too, so `take` must
+ * hand out each edit once, and only an edit that changes the cleaned name.
+ */
+export class DeviceNameDraft {
+    private typedText: string | undefined;
+    private savedName = "";
+
+    /** The stored name has been read. Returns the text to show, or undefined when the user has already typed. */
+    loaded(name: string | undefined): string | undefined {
+        this.savedName = name ?? "";
+        return this.typedText == undefined ? this.savedName : undefined;
+    }
+
+    typed(text: string): void {
+        this.typedText = text;
+    }
+
+    /** The text to save now, or undefined when there is nothing new. An empty result means "use the default". */
+    take(): string | undefined {
+        const text = this.typedText;
+        if (text == undefined) {
+            return undefined;
+        }
+        const cleaned = cleanDeviceName(text) ?? "";
+        if (cleaned === this.savedName) {
+            return undefined;
+        }
+        this.savedName = cleaned;
+        this.typedText = undefined;
+        return text;
+    }
+}
+
 /** Why a check-in is sent. A new session covers both the app starting signed in and a fresh login. */
 export type CheckInTrigger = "session" | "foreground" | "rename";
 

@@ -3,7 +3,7 @@ import { Platform, ScrollView, Switch, View } from "react-native";
 import { router } from "expo-router";
 import { IconButton, ListRow, Screen, Text, TextField } from "@/app/components/ui";
 import { deviceIdentity, renameDevice } from "@/app/services/device";
-import { cleanDeviceName, DEVICE_NAME_MAX_LENGTH } from "@/app/tools/device";
+import { DEVICE_NAME_MAX_LENGTH, DeviceNameDraft } from "@/app/tools/device";
 import { log } from "@/app/tools/log";
 import { useTheme } from "@/app/theme";
 import { MediaManager } from "@/app/services/media-manager";
@@ -110,33 +110,28 @@ function useDeviceNameField() {
     const [value, setValueState] = useState("");
     const [loaded, setLoaded] = useState(false);
     const defaultName = deviceIdentity.defaultName();
-    // Refs, so the unmount cleanup sees the latest text, and a save started once (Done also blurs) isn't sent twice.
-    const typed = useRef<string | undefined>(undefined);
-    const saved = useRef("");
+    // A ref, so the unmount cleanup sees the latest text. The save rules are DeviceNameDraft's.
+    const draft = useRef(new DeviceNameDraft()).current;
 
     const setValue = useCallback((text: string) => {
-        typed.current = text;
+        draft.typed(text);
         setValueState(text);
-    }, []);
+    }, [draft]);
 
     const save = useCallback(() => {
-        const text = typed.current;
-        if (text == undefined || (cleanDeviceName(text) ?? "") === saved.current) {
-            return;
+        const text = draft.take();
+        if (text != undefined) {
+            renameDevice(text).catch(e => log.warn("device", "could not save the device name", e));
         }
-        // Cleared: the field shows the default as its placeholder, not as text.
-        saved.current = cleanDeviceName(text) ?? "";
-        typed.current = undefined;
-        renameDevice(text).catch(e => log.warn("device", "could not save the device name", e));
-    }, []);
+    }, [draft]);
 
     useEffect(() => {
         let live = true;
         deviceIdentity.customName()
             .then(name => {
-                saved.current = name ?? "";
-                if (live && typed.current == undefined) {
-                    setValueState(name ?? "");
+                const shown = draft.loaded(name);
+                if (live && shown != undefined) {
+                    setValueState(shown);
                 }
             })
             .catch(e => log.warn("device", "could not read the device name", e))
@@ -145,7 +140,7 @@ function useDeviceNameField() {
             live = false;
             save();
         };
-    }, [save]);
+    }, [draft, save]);
 
     return { value, setValue, save, loaded, defaultName };
 }

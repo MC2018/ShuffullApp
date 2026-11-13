@@ -6,6 +6,7 @@ import {
     DeviceCheckIn,
     DeviceEnvironment,
     DeviceIdentity,
+    DeviceNameDraft,
     FOREGROUND_CHECK_IN_INTERVAL_MS,
     isValidDeviceId,
     KeyValueStore,
@@ -238,14 +239,77 @@ describe("device check-in", () => {
         expect(sent).toHaveLength(3);
     });
 
-    it("a rename check-in carries the new name, even while another is on its way", async () => {
-        const { subject, device, sent } = checkIn();
+    it("a rename check-in waits for one on its way, so the server ends on the new name", async () => {
+        const { identity: device } = identity();
+        const sent: string[] = [];
+        let release!: () => void;
+        const held = new Promise<void>(resolve => { release = resolve; });
+        const send = vi.fn(async (_deviceId: string, body: DeviceCheckInBody) => {
+            sent.push(body.name);
+            if (sent.length === 1) {
+                await held;
+            }
+        });
+        const subject = new DeviceCheckIn({ identity: device, platform: "android", send });
 
         const first = subject.checkIn("session");
+        await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(1));
         await device.rename("Living room");
         const second = subject.checkIn("rename");
-        await Promise.all([first, second]);
+        await new Promise(resolve => setTimeout(resolve, 0));
 
-        expect(sent.at(-1)?.body.name).toBe("Living room");
+        expect(send).toHaveBeenCalledTimes(1);
+        release();
+        expect(await Promise.all([first, second])).toEqual([true, true]);
+        expect(sent).toEqual(["Pixel 8", "Living room"]);
+    });
+});
+
+describe("DeviceNameDraft (the Settings field)", () => {
+    it("shows the stored name, and saves an edit once even when Done and the blur both save", () => {
+        const draft = new DeviceNameDraft();
+
+        expect(draft.loaded("Pixel 8")).toBe("Pixel 8");
+        draft.typed("Kitchen tablet");
+
+        expect(draft.take()).toBe("Kitchen tablet");
+        expect(draft.take()).toBeUndefined();
+    });
+
+    it("saves nothing when nothing was typed, or the edit cleans to the saved name", () => {
+        const draft = new DeviceNameDraft();
+        draft.loaded("Kitchen tablet");
+
+        expect(draft.take()).toBeUndefined();
+        draft.typed("  Kitchen tablet ");
+        expect(draft.take()).toBeUndefined();
+    });
+
+    it("saves a cleared field, which means the default, and then nothing more", () => {
+        const draft = new DeviceNameDraft();
+        draft.loaded("Kitchen tablet");
+
+        draft.typed("   ");
+        expect(draft.take()).toBe("   ");
+        draft.typed("");
+        expect(draft.take()).toBeUndefined();
+    });
+
+    it("a load that arrives after typing doesn't replace the text, but still counts as saved", () => {
+        const draft = new DeviceNameDraft();
+
+        draft.typed("Living room");
+        expect(draft.loaded("Living room")).toBeUndefined();
+        expect(draft.take()).toBeUndefined();
+        draft.typed("Den");
+        expect(draft.take()).toBe("Den");
+    });
+
+    it("with no stored name, the field starts empty and an empty edit saves nothing", () => {
+        const draft = new DeviceNameDraft();
+
+        expect(draft.loaded(undefined)).toBe("");
+        draft.typed("");
+        expect(draft.take()).toBeUndefined();
     });
 });

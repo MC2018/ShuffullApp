@@ -73,7 +73,7 @@ export function startDeviceCheckIn(api: ApiClient): () => void {
 
 /** Renames this device and, when signed in, tells the server at once. Returns the name now in use. */
 export async function renameDevice(name: string): Promise<string> {
-    const now = await deviceIdentity.rename(name);
+    const nameInUse = await deviceIdentity.rename(name);
     void activeCheckIn?.checkIn("rename");
-    return now;
+    return nameInUse;
 }
