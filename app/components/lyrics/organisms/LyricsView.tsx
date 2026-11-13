@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { LayoutChangeEvent, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useProgress } from "react-native-track-player";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -76,7 +76,9 @@ function SyncedLyrics({ song, lrc }: { song: Song; lrc: string }) {
     const positionMs = position * 1000 + manualOffsetMs;
     const active = activeLineIndex(lines, positionMs);
 
-    const scrollToActive = (animated: boolean) => {
+    // Memoised on `active` alone (everything else it reads is a ref), so the effect below still fires only when the
+    // active line changes, not on every progress tick.
+    const scrollToActive = useCallback((animated: boolean) => {
         if (active < 0) {
             return;
         }
@@ -86,7 +88,7 @@ function SyncedLyrics({ song, lrc }: { song: Song; lrc: string }) {
         }
         const y = Math.max(0, layout.y - containerHeight.current / 2 + layout.h / 2);
         scrollRef.current?.scrollTo({ y, animated });
-    };
+    }, [active]);
 
     // Keep the active line centered. Instant on the first successful scroll, animated afterwards.
     useEffect(() => {
@@ -94,7 +96,7 @@ function SyncedLyrics({ song, lrc }: { song: Song; lrc: string }) {
         if (!didInitialJump.current && lineLayouts.current[active] && containerHeight.current) {
             didInitialJump.current = true;
         }
-    }, [active]);
+    }, [active, scrollToActive]);
 
     const nudge = async (deltaMs: number) => {
         const next = manualOffsetMs + deltaMs;

@@ -82,7 +82,7 @@ export default function NowPlayingScreen() {
         return () => {
             cancelled = true;
         };
-    }, [songId]);
+    }, [db, songId]);
 
     const closeLyrics = useCallback(() => {
         setShowLyrics(false);

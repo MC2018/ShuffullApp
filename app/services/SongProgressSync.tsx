@@ -34,7 +34,7 @@ export default function SongProgressSync() {
         // (not playing, not downloading); queued requests go out on the next foreground/play instead.
 
         return () => clearInterval(interval);
-    }, []);
+    }, [db]);
 
     return <></>;
 }
