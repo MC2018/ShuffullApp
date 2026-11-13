@@ -38,6 +38,7 @@ import m0033 from './0033_add_hook_start_percent.sql';
 import m0034 from './0034_add_listen_stats.sql';
 import m0035 from './0035_add_play_next_intents.sql';
 import m0036 from './0036_add_genre_jam_user_id.sql';
+import m0037 from './0037_add_listen_device_id.sql';
 
   export default {
     journal,
@@ -78,7 +79,8 @@ m0032,
 m0033,
 m0034,
 m0035,
-m0036
+m0036,
+m0037
     }
   }
   
