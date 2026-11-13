@@ -63,4 +63,18 @@ describe("startAuditionMode", () => {
         expect(player.playAuditionSong).not.toHaveBeenCalled();
         expect(useAuditionMode.getState().snapshot).toBeUndefined();
     });
+
+    it("begins nothing when its screen closes while it is still stopping the last deck", async () => {
+        await startAuditionMode(db, "mix-1", new AbortController().signal);
+        vi.clearAllMocks();
+
+        const abort = new AbortController();
+        const starting = startAuditionMode(db, "mix-2", abort.signal);
+        abort.abort();
+
+        expect(await starting).toBeUndefined();
+        expect(player.endAuditionMode).toHaveBeenCalledTimes(1);
+        expect(player.beginAuditionMode).not.toHaveBeenCalled();
+        expect(player.playAuditionSong).not.toHaveBeenCalled();
+    });
 });
