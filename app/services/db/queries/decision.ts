@@ -57,8 +57,9 @@ export async function recordKeep(db: GenericDb, userId: string, songId: string):
 
 /**
  * Stamps a song as played at `playedAt` and queues the stamp, creating the local UserSong row if there is none yet (the
- * server creates its own from the stamp). Returns the row. This is what makes an audition song "heard" (deriveAuditionRowState), so it is the write a mix's purge
- * ends up keying off. The normal player calls it as a song starts; audition mode only once its heard rule is met.
+ * server creates its own from the stamp). Returns the row. This is what makes an audition song "heard"
+ * (deriveAuditionRowState), so it is the write a mix's purge ends up keying off. The normal player calls it as a song
+ * starts; audition mode only once its heard rule is met.
  */
 export async function recordPlayed(db: GenericDb, userId: string, songId: string, playedAt: Date): Promise<UserSong> {
     return await withTransaction(db, async tx => {

@@ -224,7 +224,8 @@ export class SyncManager {
     private static readonly senders: Record<PushedRequestType, (sync: SyncManager, requests: DbModels.Request[]) => Promise<unknown>> = {
         [RequestType.UpdateSongLastPlayed]: (sync, requests) =>
             sync.api.userSongUpdateLastPlayed(requests as DbModels.UpdateSongLastPlayedRequest[]),
-        // No longer queued (last-played creates the server row, Shuffull#2). Kept so rows older builds queued still drain.
+        // No longer queued (last-played creates the server row, Shuffull#2). Kept so rows older builds queued still drain;
+        // removing it is Shuffull#126.
         [RequestType.CreateUserSong]: (sync, requests) =>
             sync.api.userSongCreateMany((requests as DbModels.CreateUserSongRequest[]).map(x => x.songId)),
         // Processed individually, so each batch is a single song; loop defensively all the same.
