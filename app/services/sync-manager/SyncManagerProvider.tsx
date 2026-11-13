@@ -7,7 +7,7 @@ import { logout } from "../auth/auth";
 import { logoutUnlessReplaced } from "../auth/passwordChange";
 import { useServerReachability } from "../connectivity/serverReachability";
 import { reconcilePlayNext, startPlayNext } from "../song-requests/playNext";
-import { startDeviceCheckIn } from "../device";
+import { checkInDeviceOnReconnect, startDeviceCheckIn } from "../device";
 import { SyncManager } from "./SyncManager";
 
 interface SyncManagerProviderProps {
@@ -44,6 +44,7 @@ export default function SyncManagerProvider({ userId }: SyncManagerProviderProps
         const network = addNetworkStateListener(({ isInternetReachable }) => {
             if (isInternetReachable === true) {
                 instance.syncNow();
+                checkInDeviceOnReconnect();
             } else if (isInternetReachable === false) {
                 useServerReachability.getState().setReachability("unreachable");
             }

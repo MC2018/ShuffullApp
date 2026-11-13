@@ -39,6 +39,8 @@ export const STORAGE_KEYS = {
     // This install's id, a UUID made on first launch (services/device, ShuffullApp#58). Never removed: logging out
     // keeps it, so the same install stays the same device across accounts and sessions.
     DEVICE_ID: "DEVICE_ID",
-    // The name the user gave this device in Settings. Unset means the default (tools/device defaultDeviceName).
+    // The name the user gave this device in Settings. Unset means the default (tools/device defaultDeviceName). Logging
+    // out or switching accounts keeps it, on purpose: it names the device, not the account. Only clearing it in
+    // Settings removes it.
     DEVICE_NAME: "DEVICE_NAME",
 };

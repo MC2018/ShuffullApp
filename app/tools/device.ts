@@ -8,7 +8,10 @@ import type { DeviceCheckInBody } from "../services/api/models";
 export const DEVICE_ID_MAX_LENGTH = 64;
 export const DEVICE_NAME_MAX_LENGTH = 64;
 
-/** A check-in on coming to the foreground is skipped if one succeeded this recently. Other triggers always send. */
+/**
+ * A check-in on coming to the foreground or getting the network back is skipped if one succeeded this recently. Other
+ * triggers always send.
+ */
 export const FOREGROUND_CHECK_IN_INTERVAL_MS = 5 * 60_000;
 
 /** The facts a default name is made from. */
@@ -201,8 +204,13 @@ export class DeviceNameDraft {
     }
 }
 
-/** Why a check-in is sent. A new session covers both the app starting signed in and a fresh login. */
-export type CheckInTrigger = "session" | "foreground" | "rename";
+/**
+ * Why a check-in is sent. A new session covers both the app starting signed in and a fresh login. A reconnect retries
+ * one that failed offline: on web and desktop the app may never leave the foreground again.
+ */
+export type CheckInTrigger = "session" | "foreground" | "reconnect" | "rename";
+
+const THROTTLED: ReadonlySet<CheckInTrigger> = new Set(["foreground", "reconnect"]);
 
 export interface DeviceCheckInDeps {
     identity: Pick<DeviceIdentity, "id" | "name">;
@@ -219,7 +227,7 @@ export interface DeviceCheckInDeps {
  * to `onError` and left for the next trigger. It goes through no outbox, because a missed check-in loses nothing; the
  * next one carries the same facts.
  *
- * A foreground check-in is skipped within FOREGROUND_CHECK_IN_INTERVAL_MS of the last one that succeeded, or while
+ * A foreground or reconnect check-in is skipped within FOREGROUND_CHECK_IN_INTERVAL_MS of the last one that succeeded, or while
  * one is already on its way. A session or rename check-in always sends, after any one still on its way, so the name
  * it reads is the newest.
  */
@@ -234,7 +242,7 @@ export class DeviceCheckIn {
 
     /** Sends a check-in unless the throttle skips it. Resolves whether one was sent and succeeded; never rejects. */
     checkIn(trigger: CheckInTrigger): Promise<boolean> {
-        if (trigger === "foreground") {
+        if (THROTTLED.has(trigger)) {
             if (this.inFlight != undefined) {
                 return this.inFlight;
             }

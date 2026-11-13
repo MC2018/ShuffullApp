@@ -71,6 +71,11 @@ export function startDeviceCheckIn(api: ApiClient): () => void {
     };
 }
 
+/** The network is back: retries a check-in that failed offline, throttled like a foreground. */
+export function checkInDeviceOnReconnect(): void {
+    void activeCheckIn?.checkIn("reconnect");
+}
+
 /** Renames this device and, when signed in, tells the server at once. Returns the name now in use. */
 export async function renameDevice(name: string): Promise<string> {
     const nameInUse = await deviceIdentity.rename(name);

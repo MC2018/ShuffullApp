@@ -229,6 +229,29 @@ describe("device check-in", () => {
         expect(sent).toHaveLength(2);
     });
 
+    it("a reconnect retries a check-in that failed offline, and is throttled like a foreground after a success", async () => {
+        let failing = true;
+        const { subject, sent, advance } = checkIn({ fail: () => failing });
+
+        expect(await subject.checkIn("session")).toBe(false);
+        failing = false;
+        expect(await subject.checkIn("reconnect")).toBe(true);
+        expect(await subject.checkIn("reconnect")).toBe(false);
+        expect(await subject.checkIn("foreground")).toBe(false);
+
+        advance(FOREGROUND_CHECK_IN_INTERVAL_MS);
+        expect(await subject.checkIn("reconnect")).toBe(true);
+        expect(sent).toHaveLength(3);
+    });
+
+    it("a reconnect while a check-in is on its way sends nothing more", async () => {
+        const { subject, sent } = checkIn();
+
+        await Promise.all([subject.checkIn("session"), subject.checkIn("reconnect")]);
+
+        expect(sent).toHaveLength(1);
+    });
+
     it("session and rename check-ins are never throttled", async () => {
         const { subject, sent } = checkIn();
 
