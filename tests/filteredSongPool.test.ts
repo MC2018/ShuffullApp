@@ -12,7 +12,7 @@ import { SongFilters, SongFilterType } from "@/app/types/SongFilters";
  * Runs the real SQL against an in-memory better-sqlite3, so the json_each/whitelist logic is genuinely
  * exercised rather than mocked.
  */
-function makeDb(): GenericDb {
+function makeDb(): { db: GenericDb; sqlite: Database.Database } {
     const sqlite = new Database(":memory:");
     sqlite.exec(`
         CREATE TABLE songs (
@@ -65,15 +65,14 @@ function makeDb(): GenericDb {
             ('ps1','pl-a','s1'), ('ps2','pl-a','s2'), ('ps3','pl-b','s3');
         INSERT INTO downloaded_songs (downloaded_song_id, song_id) VALUES ('d1','s2');
     `);
-    return drizzle(sqlite) as unknown as GenericDb;
+    // `sqlite` too, for seeding rows with raw SQL.
+    return { db: drizzle(sqlite) as unknown as GenericDb, sqlite };
 }
-
-// The better-sqlite3 handle under the drizzle wrapper, for seeding rows with raw SQL.
-const sqliteOf = (db: GenericDb) => (db as unknown as { $client: Database.Database }).$client;
 
 describe("scoped next-song pool", () => {
     let db: GenericDb;
-    beforeEach(() => { db = makeDb(); });
+    let sqlite: Database.Database;
+    beforeEach(() => { ({ db, sqlite } = makeDb()); });
 
     it("a playlist scope returns that playlist's songs, so playback can continue", async () => {
         const filters = new SongFilters();
@@ -93,7 +92,7 @@ describe("scoped next-song pool", () => {
 
     it("a disliked song is never picked as the next song", async () => {
         // like_status 3 = Dislike.
-        sqliteOf(db).exec(`
+        sqlite.exec(`
             INSERT INTO user_songs (user_id, song_id, last_played, version, like_status)
             VALUES ('u','s1',0,0,3)`);
 
@@ -130,7 +129,7 @@ describe("scoped next-song pool", () => {
         const MIN_VALUE = -62135629200000; // C# DateTime.MinValue as ms since epoch — the server's "never".
 
         it("plays only never-played songs (no user_songs row counts as never)", async () => {
-            sqliteOf(db).exec(played("s1", 1750000000000));
+            sqlite.exec(played("s1", 1750000000000));
 
             const filters = new SongFilters();
             filters.setSoleFilter(SongFilterType.Playlist, ["pl-a"]);
@@ -141,8 +140,8 @@ describe("scoped next-song pool", () => {
         });
 
         it("treats a DateTime.MinValue seed as never played, not as played long ago", async () => {
-            sqliteOf(db).exec(played("s1", 1750000000000));
-            sqliteOf(db).exec(played("s2", MIN_VALUE));
+            sqlite.exec(played("s1", 1750000000000));
+            sqlite.exec(played("s2", MIN_VALUE));
 
             const filters = new SongFilters();
             filters.setSoleFilter(SongFilterType.Playlist, ["pl-a"]);
@@ -153,7 +152,7 @@ describe("scoped next-song pool", () => {
         });
 
         it("leaves an ordinary playlist alone — everything stays in the pool", async () => {
-            sqliteOf(db).exec(played("s1", 1750000000000));
+            sqlite.exec(played("s1", 1750000000000));
 
             const filters = new SongFilters();
             filters.setSoleFilter(SongFilterType.Playlist, ["pl-a"]);
@@ -163,8 +162,8 @@ describe("scoped next-song pool", () => {
         });
 
         it("falls back to the whole playlist once the cohort is fully heard, rather than stalling playback", async () => {
-            sqliteOf(db).exec(played("s1", 1750000000000));
-            sqliteOf(db).exec(played("s2", 1750000001000));
+            sqlite.exec(played("s1", 1750000000000));
+            sqlite.exec(played("s2", 1750000001000));
 
             const filters = new SongFilters();
             filters.setSoleFilter(SongFilterType.Playlist, ["pl-a"]);
@@ -192,7 +191,7 @@ describe("scoped next-song pool", () => {
     describe("heaviness band", () => {
         beforeEach(() => {
             // s1..s3 from makeDb have no heaviness; these two are the only rated songs.
-            sqliteOf(db).exec(`
+            sqlite.exec(`
                 INSERT INTO songs (song_id, file_extension, file_hash, name, heaviness) VALUES
                     ('e5','mp3','h5','Heaviness Five',5),
                     ('e9','mp3','h9','Heaviness Nine',9)`);
@@ -238,7 +237,7 @@ describe("scoped next-song pool", () => {
      */
     describe("audition songs outside their cohort", () => {
         beforeEach(() => {
-            sqliteOf(db).exec(`
+            sqlite.exec(`
                 INSERT INTO songs (song_id, file_extension, file_hash, name, exploratory, heaviness)
                     VALUES ('x1','mp3','hx','Audition Track',1,5);
                 INSERT INTO playlist_songs (playlist_song_id, playlist_id, song_id) VALUES ('psx','pl-x','x1');
