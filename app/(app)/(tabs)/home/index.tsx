@@ -10,6 +10,7 @@ import { Downloader } from "@/app/services/downloader/Downloader";
 import { useActiveSong, useIsPlaybackActive } from "@/app/services/media-manager/mediaManager";
 import { MediaManager } from "@/app/services/media-manager";
 import { logout } from "@/app/services/auth/auth";
+import { useCurrentUser } from "@/app/services/auth/CurrentUserProvider";
 import { jamSummary, launchJam } from "@/app/services/genre-jam";
 import PlayerBar, { totalPlayerBarHeight } from "@/app/components/music-control/organisms/PlayerBar";
 import { AlbumArt, Card, IconButton, Screen, SectionHeader, Text } from "@/app/components/ui";
@@ -26,6 +27,7 @@ type ArtSource = ImageURISource | { uri: string };
 export default function HomeScreen() {
     const theme = useTheme();
     const db = useDb();
+    const userId = useCurrentUser();
     const { songId } = useActiveSong();
     const isPlaying = useIsPlaybackActive();
     const [details, setDetails] = useState<SongDetails | null>(null);
@@ -63,7 +65,7 @@ export default function HomeScreen() {
         useCallback(() => {
             let cancelled = false;
             (async () => {
-                const all = await DbQueries.getGenreJams(db);
+                const all = await DbQueries.getGenreJams(db, userId);
                 if (!cancelled) {
                     setJams(all);
                 }
@@ -71,7 +73,7 @@ export default function HomeScreen() {
             return () => {
                 cancelled = true;
             };
-        }, [db]),
+        }, [db, userId]),
     );
 
     const togglePlay = async () => {

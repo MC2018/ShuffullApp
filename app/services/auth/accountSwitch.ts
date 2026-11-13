@@ -1,6 +1,7 @@
 import { STORAGE_KEYS } from "@/app/constants/storageKeys";
 import { GenericDb } from "@/app/services/db/GenericDb";
 import { Song } from "@/app/services/db/models";
+import { claimUnownedGenreJams } from "@/app/services/db/queries/genreJam";
 import { resetPlaylistVersions } from "@/app/services/db/queries/playlist";
 import { clearSongCache, getSongsWithLocalFiles } from "@/app/services/db/queries/song";
 import { hasOtherUser, setAllUserVersions } from "@/app/services/db/queries/user";
@@ -60,7 +61,9 @@ export const SONG_CACHE_STORAGE_KEYS = [
  * What it never touches is the previous account's own rows. Its outbox, dead letters and unfinished listens are user
  * decisions the server may not have yet. They are keyed by user id, and the outbox only ever sends the logged-in
  * user's rows, so they wait on the device and go out the next time that account logs in. None of them needs a local
- * song row to be sent: each carries its song id.
+ * song row to be sent: each carries its song id. Its genre jams stay too (ShuffullApp#199): they exist only on this
+ * device, and they are read only for the account that made them, so the new account doesn't see them and the old one
+ * gets them back when it returns.
  *
  * What it does reset is how far each account has synced. The user-songs feed and the playlist fetch are incremental:
  * a sync asks only for what changed since the user's stored version and fetches only playlists whose version moved,
@@ -73,6 +76,10 @@ export const SONG_CACHE_STORAGE_KEYS = [
 export async function claimSongCache(deps: AccountSwitchDeps, userId: string, hostAddress: string): Promise<boolean> {
     const { db, storage } = deps;
     const owner = await storage.getItem(STORAGE_KEYS.SONG_CACHE_USER_ID);
+
+    // Before the owner can change: a jam from before jams had an account is the owner's. On a device that never
+    // recorded one, it goes to whoever logs in first, who saw it before this build as every account did.
+    await claimUnownedGenreJams(db, owner ?? userId);
 
     if (!(await belongsToAnotherAccount(db, owner, userId))) {
         await recordOwner(storage, userId, hostAddress);
@@ -125,9 +132,16 @@ export async function claimSongCache(deps: AccountSwitchDeps, userId: string, ho
  * Records `userId` as the song cache's owner if no one is recorded yet. For a session restored at app start, which is
  * the account the cache has been syncing for. Without it, a device updated from a build before ShuffullApp#193 that
  * still holds another account's users row would clear on that same account's next login (belongsToAnotherAccount).
+ *
+ * Also hands the owner any genre jam that has no account yet: one made before ShuffullApp#199, or one a database
+ * rebuild carried over from that older schema. Until then no account sees it.
  */
-export async function adoptSongCache(storage: AccountSwitchStorage, userId: string, hostAddress: string): Promise<void> {
-    if ((await storage.getItem(STORAGE_KEYS.SONG_CACHE_USER_ID)) == null) {
+export async function adoptSongCache(
+    db: GenericDb, storage: AccountSwitchStorage, userId: string, hostAddress: string,
+): Promise<void> {
+    const owner = await storage.getItem(STORAGE_KEYS.SONG_CACHE_USER_ID);
+    await claimUnownedGenreJams(db, owner ?? userId);
+    if (owner == null) {
         await recordOwner(storage, userId, hostAddress);
     }
 }

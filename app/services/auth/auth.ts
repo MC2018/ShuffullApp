@@ -33,9 +33,10 @@ export async function restoreSession(): Promise<void> {
 
     const apiClient = new ApiClient(hostAddress, localSessionData.token);
     await AsyncStorage.setItem(STORAGE_KEYS.CURRENT_USER_ID, localSessionData.userId);
-    // A device updated from a build that never recorded whose songs it holds: they are this session's.
-    await adoptSongCache(AsyncStorage, localSessionData.userId, hostAddress)
-        .catch((e) => log.warn("auth", "Recording whose songs this device holds failed; the next start tries again.", e));
+    // A device updated from a build that never recorded whose songs it holds: they are this session's. Genre jams with no
+    // account go to whoever the songs are recorded as belonging to, which is this session only when no one is yet.
+    await adoptSongCache(getDb(), AsyncStorage, localSessionData.userId, hostAddress)
+        .catch((e) => log.warn("auth", "Recording whose songs and jams this device holds failed; the next start tries again.", e));
     useAuthStore.getState().setSession({ userId: localSessionData.userId, apiClient, hostAddress });
 }
 
@@ -91,7 +92,7 @@ async function claimSongCacheForLogin(userId: string, hostAddress: string): Prom
             deleteSongFiles: song => Downloader.deleteLocalSongFiles(song),
         }, userId, hostAddress);
     } catch (e) {
-        log.error("auth", "Clearing the last account's songs failed; they stay in the library until the next login.", e);
+        log.error("auth", "Claiming this device's songs and genre jams for this account failed; the last account's songs stay in the library until the next login.", e);
     }
 }
 

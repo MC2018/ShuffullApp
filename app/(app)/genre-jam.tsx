@@ -9,7 +9,7 @@ import { useDb } from "@/app/services/db/DbProvider";
 import { useCurrentUser } from "@/app/services/auth/CurrentUserProvider";
 import { generateId } from "@/app/tools";
 import { TagType } from "@/app/services/db/schema";
-import { GenreJam } from "@/app/services/db/models";
+import { OwnedGenreJam } from "@/app/services/db/models";
 import { WhitelistSetting } from "@/app/services/db/types";
 import { launchJam } from "@/app/services/genre-jam";
 import PlayerBar, { totalPlayerBarHeight } from "@/app/components/music-control/organisms/PlayerBar";
@@ -83,7 +83,7 @@ export default function GenreJamEditor() {
 
             // When editing, overlay the saved jam's include/exclude (and mood) selections onto the catalogs so
             // every chip reflects how the jam was last saved.
-            const editing = editingId ? await DbQueries.getGenreJam(db, editingId) : undefined;
+            const editing = editingId ? await DbQueries.getGenreJam(db, userId, editingId) : undefined;
             const toItems = (arr: { id: string; name: string }[], jamKey: keyof WhitelistSetting): FilterItem[] => {
                 const inc = new Set(editing?.whitelists?.[jamKey] ?? []);
                 const exc = new Set(editing?.blacklists?.[jamKey] ?? []);
@@ -144,7 +144,7 @@ export default function GenreJamEditor() {
     };
     const toggleExpanded = (cat: Category) => setExpanded((prev) => ({ ...prev, [cat]: !prev[cat] }));
 
-    const buildJam = (name: string): GenreJam => {
+    const buildJam = (name: string): OwnedGenreJam => {
         const whitelists = emptyWhitelist();
         const blacklists = emptyWhitelist();
         for (const cat of CATEGORIES) {
@@ -161,6 +161,7 @@ export default function GenreJamEditor() {
         blacklists.themeIds = themes.filter((t) => t.status === "exclude").map((t) => t.id);
         return {
             genreJamId: editingId ?? generateId(),
+            userId,
             name,
             whitelists,
             blacklists,

@@ -59,8 +59,8 @@ export default function LibraryScreen() {
     }, [db, userId]);
 
     const loadJams = useCallback(async () => {
-        setJams(await DbQueries.getGenreJams(db));
-    }, [db]);
+        setJams(await DbQueries.getGenreJams(db, userId));
+    }, [db, userId]);
 
     // Songs the server flagged as "maybe drop this", from the last synced listen stats. Null until they've synced.
     const [maybeDropCount, setMaybeDropCount] = React.useState<number | null>(null);
@@ -92,7 +92,7 @@ export default function LibraryScreen() {
                 text: "Delete",
                 style: "destructive",
                 onPress: async () => {
-                    await DbQueries.deleteGenreJam(db, jam.genreJamId);
+                    await DbQueries.deleteGenreJam(db, userId, jam.genreJamId);
                     loadJams().catch((e) => log.warn("library", "Loading genre jams failed.", e));
                 },
             },

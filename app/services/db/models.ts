@@ -63,4 +63,6 @@ export type RetagModel = Schema.RetagModel;
 export type DownloadQueue = typeof Schema.downloadQueueTable.$inferSelect;
 export type DownloadedSong = typeof Schema.downloadedSongTable.$inferSelect;
 export type GenreJam = typeof Schema.genreJamTable.$inferSelect;
+// A jam as the app writes one: always with its account. Only a jam from before ShuffullApp#199 has none.
+export type OwnedGenreJam = GenreJam & { userId: string };
 export type PlayNextIntent = typeof Schema.playNextIntentTable.$inferSelect;

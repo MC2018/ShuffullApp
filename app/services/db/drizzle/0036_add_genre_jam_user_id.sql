@@ -1,0 +1,1 @@
+ALTER TABLE `genre_jam` ADD `user_id` text;
