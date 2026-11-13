@@ -10,6 +10,8 @@ import {
     ChangedSongKeysSchema,
     ChangedSongPageSchema,
     CreatePlaylistResponseSchema,
+    DeletedSongSchema,
+    DeletedSongsPageSchema,
     KeepResponseSchema,
     ListenStatsResponseSchema,
     PlaylistListResponseSchema,
@@ -494,5 +496,40 @@ describe("API contract: song requests (ShuffullApp#107)", () => {
 
         expect([sent[0].method, sent[0].url]).toEqual(["delete", "/api/v1/song-requests/request-3"]);
         expect(cancelled).toMatchObject({ songRequestId: "request-3", status: SongRequestStatus.Pending, artists: ["PSY"], durationSeconds: 252 });
+    });
+});
+
+describe("API contract: deleted songs (ShuffullApp#59)", () => {
+    const originalAdapter = axios.defaults.adapter;
+    afterEach(() => { axios.defaults.adapter = originalAdapter; });
+
+    function stubbedClient(data: unknown) {
+        const sent: InternalAxiosRequestConfig[] = [];
+        axios.defaults.adapter = async (config) => {
+            sent.push(config);
+            return { data, status: 200, statusText: "OK", headers: {}, config };
+        };
+        return { api: new ApiClient("http://api", "t"), sent };
+    }
+
+    it("GET /songs/deleted: every field read, nulls on an old record, the cursor passed back", async () => {
+        const raw = golden("songs-deleted") as { songs: object[]; nextBefore: string };
+        expect(unsentFields(DeletedSongsPageSchema, raw)).toEqual([]);
+        for (const row of raw.songs) {
+            expect(unsentFields(DeletedSongSchema, row)).toEqual([]);
+        }
+
+        const { api, sent } = stubbedClient(raw);
+        const first = await api.songGetDeleted();
+        await api.songGetDeleted(first.nextBefore ?? undefined);
+
+        expect([sent[0].method, sent[0].url, sent[0].params]).toEqual(["get", "/api/v1/songs/deleted", undefined]);
+        expect(sent[1].params).toEqual({ before: raw.nextBefore });
+        expect(first.songs.map(s => [s.songId, s.artistNames, s.externalSongId, s.playlistName])).toEqual([
+            ["song-full", "Billy Squier, Burnard", "dQw4w9WgXcQ", "Audition · week of Oct 20"],
+            ["song-sparse", null, null, null],
+        ]);
+        expect(first.songs[0].deletedAt).toBeInstanceOf(Date);
+        expect(first.songs[0].deletedAt.toISOString()).toBe("2026-10-02T08:00:00.000Z");
     });
 });
