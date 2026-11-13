@@ -10,22 +10,41 @@ import { MONTH_NAMES } from "./recap";
 /** A safety stop for the page loop: 50 pages of the API's 500 is far more than anyone has deleted. */
 export const MAX_DELETED_PAGES = 50;
 
+/** What loadAllDeletedSongs read: the songs, and whether that is all of them. */
+export interface DeletedSongsLoad {
+    songs: DeletedSong[];
+    /**
+     * False when the loop stopped while the server still had more: at the page cap, or when the server handed back the
+     * cursor it was just given. The screen then says the list is cut off rather than calling it the whole list.
+     */
+    complete: boolean;
+}
+
 /**
- * Every deleted song, newest first, by following the API's cursor until its last page. Stops early if the server ever
- * hands back the cursor it was just given, so a server bug can't loop it forever.
+ * Every deleted song, newest first, by following the API's cursor until its last page. Stops early at
+ * MAX_DELETED_PAGES, or if the server ever hands back the cursor it was just given, so a server bug can't loop it
+ * forever; either way it says the list isn't complete.
  */
-export async function loadAllDeletedSongs(fetchPage: (before?: string) => Promise<DeletedSongsPage>): Promise<DeletedSong[]> {
+export async function loadAllDeletedSongs(fetchPage: (before?: string) => Promise<DeletedSongsPage>): Promise<DeletedSongsLoad> {
     const songs: DeletedSong[] = [];
     let before: string | undefined;
     for (let page = 0; page < MAX_DELETED_PAGES; page++) {
         const result = await fetchPage(before);
         songs.push(...result.songs);
-        if (result.nextBefore == null || result.nextBefore === before) {
+        if (result.nextBefore == null) {
+            return { songs, complete: true };
+        }
+        if (result.nextBefore === before) {
             break;
         }
         before = result.nextBefore;
     }
-    return songs;
+    return { songs, complete: false };
+}
+
+/** The footer under a cut-off list. Search only sees what was loaded, so it says that too. */
+export function describeDeletedSongsCutOff(loaded: number): string {
+    return `The list stops at your newest ${loaded} deleted songs. Older ones aren't shown or searched.`;
 }
 
 /** The songs whose name, artists or mix contain the search text, ignoring case. Empty text keeps them all. */
