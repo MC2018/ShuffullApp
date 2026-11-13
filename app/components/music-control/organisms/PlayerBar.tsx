@@ -9,7 +9,7 @@ import { Song } from "@/app/services/db/models";
 import { Downloader } from "@/app/services/downloader/Downloader";
 import { SongDetails } from "@/app/services/db/types";
 import { MediaManager } from "@/app/services/media-manager";
-import { AlbumArt, IconButton, Text } from "@/app/components/ui";
+import { AlbumArt, IconButton, MarqueeText, Text } from "@/app/components/ui";
 import { useTheme } from "@/app/theme";
 import { useServerReachability } from "@/app/services/connectivity/serverReachability";
 
@@ -118,9 +118,7 @@ export default function PlayerBar({ floating = false }: { floating?: boolean }) 
             <Pressable style={{ flexDirection: "row", alignItems: "center", gap: theme.space.sm, flex: 1, minWidth: 0 }} onPress={() => router.push("/now-playing")}>
                 <AlbumArt source={albumArt} size={40} radius={theme.radius.sm} />
                 <View style={{ flex: 1, minWidth: 0 }}>
-                    <Text variant="label" numberOfLines={1}>
-                        {songInfo.song.name}
-                    </Text>
+                    <MarqueeText variant="label">{songInfo.song.name}</MarqueeText>
                     <Text variant="caption" color={issue || finishedAuditionId || isOffline ? "accent" : "textMuted"} numberOfLines={1}>
                         {caption}
                     </Text>

@@ -42,7 +42,11 @@ export function auditionStartSeconds(durationSeconds: number, hookStartPercent: 
     return latest > 0 ? Math.min(durationSeconds * fraction, latest) : 0;
 }
 
-/** Where the deck starts a song: lap 1 at its start point (auditionStartSeconds), lap 2 from the top. */
+/**
+ * Where the deck starts a song: lap 1 at its start point (auditionStartSeconds), lap 2 from the top. Outside the app
+ * (home, lock screen) every song starts from the top (ShuffullApp#179): nobody is flicking through a deck there, they
+ * are listening to music, and a song that starts a third of the way in is just a song with its opening missing.
+ */
 export type AuditionStart = "startPoint" | "top";
 
 export interface AuditionPort {
@@ -60,6 +64,30 @@ export interface AuditionPort {
     /** Stamps the song as played. The only write that makes a song "heard" by time. */
     markHeard(songId: string): Promise<void>;
     prefetch(songIds: string[]): void;
+    /** Whether the app is on screen. Off screen (home, lock screen) the deck plays on, and starts songs from the top. */
+    inForeground(): boolean;
+    /**
+     * Keeps the mix's quick-skipped songs on the device (ShuffullApp#177), so the next deck deals them last instead
+     * of first. Called with the whole list each time it changes; an empty list means nothing is left to replay. Never
+     * a DB write: a quick skip must not make a song look heard.
+     */
+    rememberQuickSkips(songIds: string[]): void;
+}
+
+/**
+ * Reads a stored quick-skip list back. Anything that isn't a list of strings counts as no list: losing it only puts
+ * the skipped songs back in their old place, it never deletes anything.
+ */
+export function parseQuickSkips(raw: string | null | undefined): string[] {
+    if (!raw) {
+        return [];
+    }
+    try {
+        const value: unknown = JSON.parse(raw);
+        return Array.isArray(value) ? value.filter((id): id is string => typeof id === "string") : [];
+    } catch {
+        return [];
+    }
 }
 
 type Entry = { songId: string; lap: 1 | 2 };
@@ -103,6 +131,8 @@ export interface AuditionSnapshot {
 }
 
 export class AuditionSession {
+    // The deck's songs in the order they were dealt; lap 2 follows it too.
+    private readonly order: string[];
     private readonly entries: Entry[];
     private readonly lap1Length: number;
     private readonly songs = new Map<string, SongProgress>();
@@ -117,14 +147,23 @@ export class AuditionSession {
     // The database writes, in order. A stamp is not awaited by the deck, but it must land before the rating that
     // follows it: for a song with no UserSong row yet, both would otherwise try to create it.
     private writes: Promise<void> = Promise.resolve();
+    // The quick-skip list last handed to the port, joined, so an unchanged list isn't written again.
+    private remembered: string | undefined;
 
-    /** `songIds` are the mix's unheard songs, so none of them has a rating or a Keep yet. */
+    /**
+     * `songIds` are the mix's unheard songs, so none of them has a rating or a Keep yet. `quickSkipped` are the ones
+     * an earlier deck quick-skipped on its first pass (ShuffullApp#177): they skip lap 1 and wait at the back, in
+     * lap 2, as if this were the same sitting. Ids not in `songIds` are ignored.
+     */
     constructor(
         songIds: string[],
         private readonly port: AuditionPort,
         private readonly now: () => number = Date.now,
+        quickSkipped: readonly string[] = [],
     ) {
-        this.entries = songIds.map(songId => ({ songId, lap: 1 as const }));
+        const skipped = new Set(quickSkipped);
+        this.order = [...songIds];
+        this.entries = songIds.filter(songId => !skipped.has(songId)).map(songId => ({ songId, lap: 1 as const }));
         this.lap1Length = this.entries.length;
         for (const songId of songIds) {
             this.songs.set(songId, {
@@ -133,10 +172,14 @@ export class AuditionSession {
                 durationSeconds: undefined,
                 heard: false,
                 stamped: false,
-                quickSkippedInLap1: false,
+                quickSkippedInLap1: skipped.has(songId),
                 likeStatus: LikeStatus.Neutral,
                 kept: false,
             });
+        }
+        // Only remembered songs left: the first pass is already done, so go straight to lap 2.
+        if (this.entries.length === 0) {
+            this.buildLap2();
         }
         this.finished = this.entries.length === 0;
     }
@@ -175,6 +218,8 @@ export class AuditionSession {
 
     start(): Promise<void> {
         return this.run(async () => {
+            // Drops remembered ids that are no longer in the deck (heard elsewhere, or gone from the mix).
+            this.rememberQuickSkips();
             if (!this.finished) {
                 await this.loadCurrent();
             }
@@ -387,12 +432,14 @@ export class AuditionSession {
         }
         progress.heard = true;
         progress.stamped = true;
+        this.rememberQuickSkips();
         this.emit();
         void this.write(() => this.port.markHeard(songId)).catch(error => {
             // Not heard after all, as far as the database knows: let a later tick or verdict try again. Failing
             // this way only ever leaves a song unheard, which replays it; it never makes one purgeable.
             progress.stamped = false;
             progress.heard = false;
+            this.rememberQuickSkips();
             log.warn("audition", `could not mark ${songId} heard:`, error);
         });
     }
@@ -434,6 +481,7 @@ export class AuditionSession {
             if (entry.lap === 1) {
                 // Quick skip on the first pass: not heard, it comes round again in lap 2.
                 progress.quickSkippedInLap1 = true;
+                this.rememberQuickSkips();
             } else {
                 // A second quick skip is a verdict of its own: the song had its chance.
                 this.markHeard(entry.songId);
@@ -442,18 +490,7 @@ export class AuditionSession {
 
         this.index++;
         if (this.index >= this.entries.length && !this.lap2Built) {
-            this.lap2Built = true;
-            const lap2 = this.entries
-                .slice(0, this.lap1Length)
-                .filter(e => {
-                    const p = this.songs.get(e.songId)!;
-                    return p.quickSkippedInLap1 && !p.heard;
-                })
-                .map(e => ({ songId: e.songId, lap: 2 as const }));
-            if (lap2.length > 0) {
-                this.entries.push(...lap2);
-                this.notice = { kind: "lap2", count: lap2.length };
-            }
+            this.buildLap2();
         }
 
         if (this.index >= this.entries.length) {
@@ -462,6 +499,33 @@ export class AuditionSession {
         }
 
         await this.loadCurrent();
+    }
+
+    /** The songs still waiting for lap 2: quick-skipped on the first pass, in this deck or an earlier one, and unheard. */
+    private pendingQuickSkips(): string[] {
+        return this.order.filter(songId => {
+            const progress = this.songs.get(songId)!;
+            return progress.quickSkippedInLap1 && !progress.heard;
+        });
+    }
+
+    private buildLap2() {
+        this.lap2Built = true;
+        const lap2 = this.pendingQuickSkips().map(songId => ({ songId, lap: 2 as const }));
+        if (lap2.length > 0) {
+            this.entries.push(...lap2);
+            this.notice = { kind: "lap2", count: lap2.length };
+        }
+    }
+
+    private rememberQuickSkips() {
+        const songIds = this.pendingQuickSkips();
+        const joined = songIds.join("\n");
+        if (joined === this.remembered) {
+            return;
+        }
+        this.remembered = joined;
+        this.port.rememberQuickSkips(songIds);
     }
 
     private async finish() {
@@ -480,7 +544,7 @@ export class AuditionSession {
         }
         this.emit();
         this.port.prefetch(this.entries.slice(this.index + 1, this.index + 1 + PREFETCH_AHEAD).map(e => e.songId));
-        await this.port.load(entry.songId, entry.lap === 1 ? "startPoint" : "top");
+        await this.port.load(entry.songId, entry.lap === 1 && this.port.inForeground() ? "startPoint" : "top");
     }
 
     private summary(): AuditionSummary {
