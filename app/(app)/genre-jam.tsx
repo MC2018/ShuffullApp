@@ -9,7 +9,7 @@ import { useDb } from "@/app/services/db/DbProvider";
 import { useCurrentUser } from "@/app/services/auth/CurrentUserProvider";
 import { generateId } from "@/app/tools";
 import { TagType } from "@/app/services/db/schema";
-import { GenreJam } from "@/app/services/db/models";
+import { OwnedGenreJam } from "@/app/services/db/models";
 import { WhitelistSetting } from "@/app/services/db/types";
 import { launchJam } from "@/app/services/genre-jam";
 import PlayerBar, { totalPlayerBarHeight } from "@/app/components/music-control/organisms/PlayerBar";
@@ -144,7 +144,7 @@ export default function GenreJamEditor() {
     };
     const toggleExpanded = (cat: Category) => setExpanded((prev) => ({ ...prev, [cat]: !prev[cat] }));
 
-    const buildJam = (name: string): GenreJam => {
+    const buildJam = (name: string): OwnedGenreJam => {
         const whitelists = emptyWhitelist();
         const blacklists = emptyWhitelist();
         for (const cat of CATEGORIES) {

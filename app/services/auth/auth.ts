@@ -91,7 +91,7 @@ async function claimSongCacheForLogin(userId: string, hostAddress: string): Prom
             deleteSongFiles: song => Downloader.deleteLocalSongFiles(song),
         }, userId, hostAddress);
     } catch (e) {
-        log.error("auth", "Clearing the last account's songs failed; they stay in the library until the next login.", e);
+        log.error("auth", "Claiming this device's songs and genre jams for this account failed; the last account's songs stay in the library until the next login.", e);
     }
 }
 

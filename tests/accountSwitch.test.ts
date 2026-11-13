@@ -11,7 +11,7 @@ import { STORAGE_KEYS } from "@/app/constants/storageKeys";
 import { RequestType } from "@/app/enums";
 import { getAllSongDetails, getRandomSongId, updateSongs } from "@/app/services/db/queries/song";
 import { getRequests } from "@/app/services/db/queries/request";
-import { addGenreJam, getGenreJams } from "@/app/services/db/queries/genreJam";
+import { addGenreJam, deleteGenreJam, getGenreJam, getGenreJams, updateGenreJam } from "@/app/services/db/queries/genreJam";
 import { FEED_START, playlistsToFetch } from "@/app/services/sync-manager/syncLogic";
 import {
     artistTable, deadLetterRequestTable, downloadedSongTable, downloadQueueTable, genreJamTable, listenStatTable,
@@ -107,7 +107,7 @@ async function seedUnsentDecisions(db: GenericDb, userId: string, songId: string
 const NO_FILTERS = { artistIds: [], playlistIds: [], genreIds: [], timePeriodIds: [], languageIds: [], moodIds: [], themeIds: [] };
 
 // A saved genre jam. A null user is one made before jams had an account (ShuffullApp#199).
-function jam(genreJamId: string, userId: string | null) {
+function jam<U extends string | null>(genreJamId: string, userId: U) {
     return { genreJamId, userId, name: `Jam ${genreJamId}`, whitelists: NO_FILTERS, blacklists: NO_FILTERS, heavinessMin: null, heavinessMax: null };
 }
 
@@ -370,6 +370,16 @@ describe("claimSongCache (ShuffullApp#193)", () => {
             expect(await jamIds(db, B)).toEqual(["b-jam"]);
         });
 
+        it("B can't read, edit or delete A's jam by its id", async () => {
+            await addGenreJam(db, jam("a-jam", A));
+
+            expect(await getGenreJam(db, B, "a-jam")).toBeUndefined();
+            await updateGenreJam(db, { ...jam("a-jam", B), name: "Renamed by B" });
+            await deleteGenreJam(db, B, "a-jam");
+
+            expect(await getGenreJam(db, A, "a-jam")).toEqual(jam("a-jam", A));
+        });
+
         it("A logging back in keeps A's jams", async () => {
             await addGenreJam(db, jam("a-jam", A));
             const { storage } = makeStorage({ [STORAGE_KEYS.SONG_CACHE_USER_ID]: A });
@@ -381,7 +391,7 @@ describe("claimSongCache (ShuffullApp#193)", () => {
 
         // A jam from before this build has no account. Whoever the device's songs belong to made it, so it goes to them.
         it("upgrading with A signed in: the restored session gets A's existing jams", async () => {
-            await addGenreJam(db, jam("old", null));
+            await db.insert(genreJamTable).values(jam("old", null));
             const { storage } = makeStorage();
 
             await adoptSongCache(db, storage, A, HOST);
@@ -390,7 +400,7 @@ describe("claimSongCache (ShuffullApp#193)", () => {
         });
 
         it("upgrading signed out: A logging in gets A's existing jams", async () => {
-            await addGenreJam(db, jam("old", null));
+            await db.insert(genreJamTable).values(jam("old", null));
             const { storage } = makeStorage();
 
             expect(await claimSongCache(deps(storage), A, HOST)).toBe(false);
@@ -400,7 +410,7 @@ describe("claimSongCache (ShuffullApp#193)", () => {
 
         it("an unowned jam on a device that holds A's songs stays A's when B logs in", async () => {
             // A jam a database rebuild carried over from the older schema, after A's songs were already recorded as A's.
-            await addGenreJam(db, jam("old", null));
+            await db.insert(genreJamTable).values(jam("old", null));
             const { storage } = makeStorage({ [STORAGE_KEYS.SONG_CACHE_USER_ID]: A });
 
             expect(await claimSongCache(deps(storage), B, HOST)).toBe(true);
@@ -410,7 +420,7 @@ describe("claimSongCache (ShuffullApp#193)", () => {
         });
 
         it("with no owner ever recorded, the first account to log in gets the unowned jams, as before it saw them", async () => {
-            await addGenreJam(db, jam("old", null));
+            await db.insert(genreJamTable).values(jam("old", null));
             const { storage } = makeStorage();
 
             expect(await claimSongCache(deps(storage), B, HOST)).toBe(true);

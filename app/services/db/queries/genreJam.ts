@@ -1,12 +1,12 @@
 import { GenericDb } from "../GenericDb";
-import { GenreJam } from "../models";
+import { GenreJam, OwnedGenreJam } from "../models";
 import { genreJamTable } from "../schema";
 import { and, eq, asc, isNull } from "drizzle-orm";
 
 // Every jam belongs to the account that made it (ShuffullApp#199). Reads, updates and deletes take that account, so
 // one account on a shared device never sees or changes another's.
 
-export async function addGenreJam(db: GenericDb, genreJam: GenreJam): Promise<void> {
+export async function addGenreJam(db: GenericDb, genreJam: OwnedGenreJam): Promise<void> {
     await db.insert(genreJamTable).values([genreJam]).onConflictDoNothing();
 }
 
@@ -27,11 +27,7 @@ export async function getGenreJams(db: GenericDb, userId: string): Promise<Genre
     return await db.select().from(genreJamTable).where(eq(genreJamTable.userId, userId)).orderBy(asc(genreJamTable.name));
 }
 
-export async function updateGenreJam(db: GenericDb, genreJam: GenreJam): Promise<void> {
-    if (genreJam.userId == null) {
-        throw new Error("A genre jam must name the account it belongs to.");
-    }
-
+export async function updateGenreJam(db: GenericDb, genreJam: OwnedGenreJam): Promise<void> {
     await db
         .update(genreJamTable)
         .set({
