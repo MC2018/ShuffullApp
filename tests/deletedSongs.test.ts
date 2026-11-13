@@ -5,6 +5,7 @@ import {
     MAX_DELETED_PAGES,
     describeDeletedDate,
     describeDeletedSong,
+    describeDeletedSongsCutOff,
     describeDeletedSongsFailure,
     filterDeletedSongs,
     loadAllDeletedSongs,
@@ -30,34 +31,62 @@ describe("loadAllDeletedSongs (ShuffullApp#59)", () => {
         };
         const asked: (string | undefined)[] = [];
 
-        const songs = await loadAllDeletedSongs(async (before) => {
+        const { songs, complete } = await loadAllDeletedSongs(async (before) => {
             asked.push(before);
             return pages[before ?? "first"];
         });
 
         expect(songs.map((s) => s.songId)).toEqual(["a", "b", "c", "d"]);
         expect(asked).toEqual([undefined, "c1", "c2"]);
+        expect(complete).toBe(true);
     });
 
-    it("stops when the server repeats the cursor it was given", async () => {
+    it("stops when the server repeats the cursor it was given, and says the list isn't complete", async () => {
         let calls = 0;
-        const songs = await loadAllDeletedSongs(async (before) => {
+        const { songs, complete } = await loadAllDeletedSongs(async (before) => {
             calls++;
             return { songs: [song(`s${calls}`)], nextBefore: before ?? "same" };
         });
 
         expect(calls).toBe(2);
         expect(songs).toHaveLength(2);
+        expect(complete).toBe(false);
     });
 
-    it("stops after the page cap", async () => {
+    it("stops after the page cap, keeps what it read, and says the list is cut off", async () => {
         let calls = 0;
-        await loadAllDeletedSongs(async () => ({ songs: [], nextBefore: `c${++calls}` }));
+        const { songs, complete } = await loadAllDeletedSongs(async () => {
+            calls++;
+            return { songs: [song(`s${calls}`)], nextBefore: `c${calls}` };
+        });
+
         expect(calls).toBe(MAX_DELETED_PAGES);
+        expect(songs).toHaveLength(MAX_DELETED_PAGES);
+        expect(songs[0].songId).toBe("s1");
+        expect(complete).toBe(false);
+    });
+
+    it("is complete when the last page lands exactly on the cap", async () => {
+        let calls = 0;
+        const { complete } = await loadAllDeletedSongs(async () => {
+            calls++;
+            return { songs: [song(`s${calls}`)], nextBefore: calls === MAX_DELETED_PAGES ? null : `c${calls}` };
+        });
+
+        expect(calls).toBe(MAX_DELETED_PAGES);
+        expect(complete).toBe(true);
     });
 
     it("passes a failure through", async () => {
         await expect(loadAllDeletedSongs(async () => { throw new Error("down"); })).rejects.toThrow("down");
+    });
+});
+
+describe("describeDeletedSongsCutOff", () => {
+    it("says how many were loaded and that older ones aren't shown or searched", () => {
+        expect(describeDeletedSongsCutOff(25000))
+            .toBe("The list stops at your newest 25,000 deleted songs. Older ones aren't shown or searched.");
+        expect(describeDeletedSongsCutOff(1)).toBe("The list stops at your newest 1 deleted song. Older ones aren't shown or searched.");
     });
 });
 

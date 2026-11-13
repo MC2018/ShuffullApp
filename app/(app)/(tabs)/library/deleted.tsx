@@ -8,6 +8,7 @@ import { Button, ListRow, Screen, Text, TextField } from "@/app/components/ui";
 import { useTheme } from "@/app/theme";
 import {
     describeDeletedSong,
+    describeDeletedSongsCutOff,
     describeDeletedSongsFailure,
     filterDeletedSongs,
     loadAllDeletedSongs,
@@ -16,7 +17,10 @@ import {
 import { openExternalUrl } from "@/app/tools/externalLink";
 import { log } from "@/app/tools/log";
 
-type LoadState = { status: "loading" } | { status: "failed"; message: string } | { status: "loaded"; songs: DeletedSong[] };
+type LoadState =
+    | { status: "loading" }
+    | { status: "failed"; message: string }
+    | { status: "loaded"; songs: DeletedSong[]; complete: boolean };
 
 // Library › Deleted songs (ShuffullApp#59): what the server deleted for you, so a song you regret losing can be found
 // again. Today that is the songs nobody kept when you deleted an audition mix. A list to look at: tapping a song opens
@@ -34,9 +38,9 @@ export default function DeletedSongsScreen() {
         const seq = ++loadSeq.current;
         setState({ status: "loading" });
         try {
-            const songs = await loadAllDeletedSongs((before) => api.songGetDeleted(before));
+            const { songs, complete } = await loadAllDeletedSongs((before) => api.songGetDeleted(before));
             if (seq === loadSeq.current) {
-                setState({ status: "loaded", songs });
+                setState({ status: "loaded", songs, complete });
             }
         } catch (error) {
             log.warn("library", "Loading deleted songs failed.", error);
@@ -56,6 +60,7 @@ export default function DeletedSongsScreen() {
     }, [load]);
 
     const songs = useMemo(() => (state.status === "loaded" ? state.songs : []), [state]);
+    const cutOff = state.status === "loaded" && !state.complete;
     const shown = useMemo(() => filterDeletedSongs(songs, query), [songs, query]);
     const now = new Date();
     const openIcon = <Ionicons name="open-outline" size={18} color={theme.color.textFaint} />;
@@ -79,6 +84,13 @@ export default function DeletedSongsScreen() {
                 keyExtractor={(item) => item.songId}
                 showsVerticalScrollIndicator={false}
                 keyboardShouldPersistTaps="handled"
+                ListFooterComponent={
+                    cutOff ? (
+                        <Text variant="caption" color="textMuted" style={{ marginTop: theme.space.sm }}>
+                            {describeDeletedSongsCutOff(songs.length)}
+                        </Text>
+                    ) : null
+                }
                 ListEmptyComponent={
                     <Text variant="body" color="textFaint">
                         {songs.length === 0 ? "Nothing deleted yet." : "No deleted song matches that."}
@@ -107,7 +119,7 @@ export default function DeletedSongsScreen() {
                 </Text>
                 <Text variant="caption" color="textMuted" style={{ marginBottom: theme.space.sm }}>
                     Songs removed when you deleted an audition mix without keeping them. Tap one to open it on YouTube.
-                    {state.status === "loaded" && songs.length > 0 ? ` ${songs.length} in all.` : ""}
+                    {state.status === "loaded" && songs.length > 0 ? ` ${songs.length} ${cutOff ? "loaded" : "in all"}.` : ""}
                 </Text>
                 {state.status === "loaded" && songs.length > 0 && (
                     <TextField

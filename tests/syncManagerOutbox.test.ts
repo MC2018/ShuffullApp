@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
@@ -604,5 +604,75 @@ describe("SyncManager: listens go through the outbox and are read, never dropped
         await makeManager(db, api).sync();
 
         expect(await getRequests(db, USER)).toHaveLength(1);
+    });
+});
+
+describe("SyncManager.stopAll between two outbox batches (ShuffullApp#193, ShuffullApp#200)", () => {
+    let db: GenericDb;
+    let api: ReturnType<typeof makeApi>;
+    let syncError: ReturnType<typeof vi.fn<(...args: unknown[]) => void>>;
+
+    beforeEach(async () => {
+        db = makeDb();
+        api = makeApi();
+        syncError = vi.fn<(...args: unknown[]) => void>();
+        vi.spyOn(console, "error").mockImplementation(syncError);
+        vi.spyOn(console, "info").mockImplementation(() => {});
+        // Two ratings: SetSongLikeStatus goes one row per batch, so these are two outbox batches.
+        const at = (ms: number) => new Date(Date.now() - 60_000 + ms);
+        await addRequests(db, [
+            { requestId: "first", timeRequested: at(0), requestType: RequestType.SetSongLikeStatus, userId: USER, songId: "s1", likeStatus: LikeStatus.Like },
+            { requestId: "second", timeRequested: at(1), requestType: RequestType.SetSongLikeStatus, userId: USER, songId: "s2", likeStatus: LikeStatus.Like },
+        ]);
+    });
+
+    afterEach(() => vi.restoreAllMocks());
+
+    // A sync for the old account held inside its first batch's send, as a slow network would hold it while the user
+    // logs in as someone else.
+    async function startSyncHeldInFirstBatch() {
+        let release!: () => void;
+        const gate = new Promise<void>(resolve => { release = resolve; });
+        let reached!: () => void;
+        const held = new Promise<void>(resolve => { reached = resolve; });
+        api.userSongSetLikeStatus.mockImplementationOnce(async () => {
+            reached();
+            await gate;
+        });
+        const manager = makeManager(db, api);
+        const running = manager.sync();
+        await held;
+        return { manager, running, release };
+    }
+
+    it("without a stop, the held sync sends both batches and pulls", async () => {
+        // The control: shows the second batch really would go, so the test below proves the stop held it back.
+        const { manager, running, release } = await startSyncHeldInFirstBatch();
+        release();
+        await running;
+
+        expect(api.userSongSetLikeStatus.mock.calls).toEqual([["s1", LikeStatus.Like], ["s2", LikeStatus.Like]]);
+        expect(await getRequests(db, USER)).toHaveLength(0);
+        expect(manager.overallSync).toHaveBeenCalledOnce();
+    });
+
+    it("finishes the batch in flight, deletes it, and stops before sending the next one or pulling", async () => {
+        const { manager, running, release } = await startSyncHeldInFirstBatch();
+
+        const stopped = SyncManager.stopAll(60_000);
+        release();
+
+        expect(await stopped).toBe(true);
+        await running;
+        // The first batch was sent, so its row is gone: a stop never falls between a send and its delete.
+        expect(api.userSongSetLikeStatus.mock.calls).toEqual([["s1", LikeStatus.Like]]);
+        // The second was never sent and stays queued for its own account.
+        expect((await getRequests(db, USER)).map(x => x.requestId)).toEqual(["second"]);
+        expect(await getDeadLetterRequests(db, USER)).toHaveLength(0);
+        expect(manager.overallSync).not.toHaveBeenCalled();
+        // A stop is not a failure: nothing logged as one, and no backoff.
+        expect(syncError).not.toHaveBeenCalled();
+        expect(manager.failedSyncs).toBe(0);
+        expect(manager.ticksToSkip).toBe(0);
     });
 });
