@@ -1,0 +1,19 @@
+{
+  "songId": "song-full",
+  "positionSeconds": 42.5,
+  "isPlaying": true,
+  "scope": {
+    "kind": "playlist",
+    "playlistId": "playlist-full",
+    "tags": [
+      "Rock"
+    ]
+  },
+  "history": [
+    "song-old",
+    "song-sparse"
+  ],
+  "queuedNext": [
+    "song-next"
+  ]
+}

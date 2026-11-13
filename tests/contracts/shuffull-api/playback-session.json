@@ -1,0 +1,31 @@
+{
+  "deviceId": "device-1",
+  "songId": "song-full",
+  "positionSeconds": 42.5,
+  "positionAt": "2026-10-02T08:00:00.000001Z",
+  "isPlaying": false,
+  "estimatedPositionSeconds": 42.5,
+  "scope": {
+    "kind": "playlist",
+    "playlistId": "playlist-full",
+    "tags": [
+      "Rock"
+    ]
+  },
+  "history": [
+    "song-old",
+    "song-sparse"
+  ],
+  "queuedNext": [
+    "song-next"
+  ],
+  "updatedAt": "2026-10-02T08:00:00.000001Z",
+  "takenOverBy": "device-2",
+  "takenOverAt": "2026-10-02T08:00:00.000001Z",
+  "command": {
+    "commandId": "cmd-1",
+    "kind": "seek",
+    "seekSeconds": 90,
+    "at": "2026-10-02T08:00:00.000001Z"
+  }
+}
