@@ -8,6 +8,7 @@ import { Button, ListRow, Screen, Text, TextField } from "@/app/components/ui";
 import { useTheme } from "@/app/theme";
 import {
     describeDeletedSong,
+    describeDeletedSongsCount,
     describeDeletedSongsCutOff,
     describeDeletedSongsFailure,
     filterDeletedSongs,
@@ -119,7 +120,7 @@ export default function DeletedSongsScreen() {
                 </Text>
                 <Text variant="caption" color="textMuted" style={{ marginBottom: theme.space.sm }}>
                     Songs removed when you deleted an audition mix without keeping them. Tap one to open it on YouTube.
-                    {state.status === "loaded" && songs.length > 0 ? ` ${songs.length} ${cutOff ? "loaded" : "in all"}.` : ""}
+                    {state.status === "loaded" && songs.length > 0 ? ` ${describeDeletedSongsCount(songs.length, state.complete)}` : ""}
                 </Text>
                 {state.status === "loaded" && songs.length > 0 && (
                     <TextField

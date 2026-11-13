@@ -8,6 +8,7 @@ import type { GenericDb } from "@/app/services/db/GenericDb";
 import type { Song } from "@/app/services/db/models";
 import { adoptSongCache, claimSongCache, SONG_CACHE_STORAGE_KEYS, type AccountSwitchStorage } from "@/app/services/auth/accountSwitch";
 import { STORAGE_KEYS } from "@/app/constants/storageKeys";
+import { SongFilters, SongFilterType } from "@/app/types/SongFilters";
 import { RequestType } from "@/app/enums";
 import { getAllSongDetails, getRandomSongId, updateSongs } from "@/app/services/db/queries/song";
 import { getRequests } from "@/app/services/db/queries/request";
@@ -459,6 +460,46 @@ describe("claimSongCache (ShuffullApp#193)", () => {
             expect(await claimSongCache(deps(storage), B, HOST)).toBe(true);
 
             expect(await jamIds(db, B)).toEqual(["old"]);
+        });
+    });
+
+    describe("the current playback scope (ShuffullApp#204)", () => {
+        // What A was playing when B logged in: one of A's genre jams, with a heaviness band, or A's playlist.
+        const jamScope = () => {
+            const filters = SongFilters.fromGenreJam({
+                ...jam("a-jam", A), whitelists: { ...NO_FILTERS, genreIds: ["rock"] }, heavinessMin: 6, heavinessMax: 9,
+            }, false);
+            return JSON.stringify(filters);
+        };
+        const playlistScope = () => {
+            const filters = new SongFilters();
+            filters.setSoleFilter(SongFilterType.Playlist, [`playlist-${A}`]);
+            return JSON.stringify(filters);
+        };
+
+        it.each([
+            ["a genre jam", jamScope],
+            ["a playlist", playlistScope],
+        ] as const)("A playing %s, then B: the current scope is no longer A's, and goes only once playback stopped", async (_what, scope) => {
+            const { map, storage } = makeStorage({ [STORAGE_KEYS.SONG_CACHE_USER_ID]: A, [STORAGE_KEYS.CURRENT_SONG_FILTERS]: scope() });
+            let scopeAtStop: string | undefined;
+
+            expect(await claimSongCache({
+                ...deps(storage),
+                stopPlayback: async () => { scopeAtStop = map.get(STORAGE_KEYS.CURRENT_SONG_FILTERS); },
+            }, B, HOST)).toBe(true);
+
+            expect(scopeAtStop).toBe(scope());
+            // Gone, so getSongFilters starts B on a fresh scope: the whole library, not a jam.
+            expect(map.has(STORAGE_KEYS.CURRENT_SONG_FILTERS)).toBe(false);
+        });
+
+        it("A logging back in keeps A's scope", async () => {
+            const { map, storage } = makeStorage({ [STORAGE_KEYS.SONG_CACHE_USER_ID]: A, [STORAGE_KEYS.CURRENT_SONG_FILTERS]: jamScope() });
+
+            expect(await claimSongCache(deps(storage), A, HOST)).toBe(false);
+
+            expect(map.get(STORAGE_KEYS.CURRENT_SONG_FILTERS)).toBe(jamScope());
         });
     });
 
