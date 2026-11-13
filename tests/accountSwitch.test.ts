@@ -268,27 +268,42 @@ describe("claimSongCache (ShuffullApp#193)", () => {
         expect((await db.select().from(userTable))[0].version).toEqual(new Date(FEED_START));
     });
 
-    // The steps run files, then the transaction, then the storage keys, then the owner. A run that dies anywhere before
-    // the owner leaves it as it was, and the next login finishes the job.
+    // The steps run the playback scope, then files, then the transaction, then the song-sync keys, then the owner. A run
+    // that dies anywhere before the owner leaves it as it was, and the next login finishes the job. The scope is reset
+    // even so: the login carries on after a failed clear, and B mustn't play on A's genre jam meanwhile (ShuffullApp#204).
     it.each([
         ["deleting a file", "files"],
         ["resetting the song-sync keys", "keys"],
     ] as const)("a clear that fails while %s leaves the owner unchanged, and the next login clears again", async (_what, failAt) => {
-        const { map, storage } = makeStorage({ [STORAGE_KEYS.SONG_CACHE_USER_ID]: A, [STORAGE_KEYS.SONG_SYNC_CURSOR]: "c" });
+        const { map, storage } = makeStorage({
+            [STORAGE_KEYS.SONG_CACHE_USER_ID]: A,
+            [STORAGE_KEYS.SONG_SYNC_CURSOR]: "c",
+            [STORAGE_KEYS.CURRENT_SONG_FILTERS]: JSON.stringify(SongFilters.fromGenreJam(jam("a-jam", A), false)),
+        });
         const failing = { ...deps(storage) };
         if (failAt === "files") {
             failing.deleteSongFiles = async () => { throw new Error("disk gone"); };
         } else {
-            failing.storage = { ...storage, removeItem: async () => { throw new Error("storage gone"); } };
+            failing.storage = {
+                ...storage,
+                removeItem: async key => {
+                    if (key !== STORAGE_KEYS.CURRENT_SONG_FILTERS) {
+                        throw new Error("storage gone");
+                    }
+                    await storage.removeItem(key);
+                },
+            };
         }
 
         await expect(claimSongCache(failing, B, HOST)).rejects.toThrow();
         expect(map.get(STORAGE_KEYS.SONG_CACHE_USER_ID)).toBe(A);
         expect(await count(db, songTable)).toBe(failAt === "files" ? 3 : 0);
+        expect(map.has(STORAGE_KEYS.CURRENT_SONG_FILTERS)).toBe(false);
 
         expect(await claimSongCache(deps(storage), B, HOST)).toBe(true);
         expect(await count(db, songTable)).toBe(0);
         expect(map.has(STORAGE_KEYS.SONG_SYNC_CURSOR)).toBe(false);
+        expect(map.has(STORAGE_KEYS.CURRENT_SONG_FILTERS)).toBe(false);
         expect(map.get(STORAGE_KEYS.SONG_CACHE_USER_ID)).toBe(B);
     });
 
