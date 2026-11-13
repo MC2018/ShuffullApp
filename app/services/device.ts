@@ -12,12 +12,11 @@ import { desktopShell } from "./desktopShell";
 // in tools/device.ts.
 
 function environment(): DeviceEnvironment {
-    const constants = Platform.constants as { Model?: string };
     return {
         os: Platform.OS,
         desktop: desktopShell() != undefined,
-        model: Platform.OS === "android" ? constants.Model : undefined,
-        isPad: Platform.OS === "ios" ? (Platform as { isPad?: boolean }).isPad === true : undefined,
+        model: Platform.OS === "android" ? Platform.constants.Model : undefined,
+        isPad: Platform.OS === "ios" ? Platform.isPad : undefined,
         userAgent: typeof navigator === "undefined" ? undefined : navigator.userAgent,
     };
 }

@@ -4,13 +4,13 @@ import {
     cleanDeviceName,
     defaultDeviceName,
     DeviceCheckIn,
-    DeviceCheckInBody,
     DeviceEnvironment,
     DeviceIdentity,
     FOREGROUND_CHECK_IN_INTERVAL_MS,
     isValidDeviceId,
     KeyValueStore,
 } from "@/app/tools/device";
+import type { DeviceCheckInBody } from "@/app/services/api/models";
 
 // Device identity and check-in (ShuffullApp#58).
 
@@ -146,6 +146,10 @@ describe("device name", () => {
         expect(cleanDeviceName("x".repeat(80))).toBe("x".repeat(64));
         expect(cleanDeviceName(" \n ")).toBeUndefined();
         expect(cleanDeviceName(null)).toBeUndefined();
+        // An emoji across the 64-unit cut would leave half a surrogate pair, which the API can't read.
+        const atTheCut = "x".repeat(63) + "\u{1F3B5}";
+        expect(cleanDeviceName(atTheCut)).toBe("x".repeat(63));
+        expect(cleanDeviceName("x".repeat(62) + "\u{1F3B5}")).toBe("x".repeat(62) + "\u{1F3B5}");
     });
 
     it("is the default until renamed, the new name after, and the default again once cleared", async () => {

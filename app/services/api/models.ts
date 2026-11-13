@@ -164,6 +164,12 @@ export const RetagStaleResponseSchema = z.object({
 export type RetagStaleResponse = z.infer<typeof RetagStaleResponseSchema>;
 
 // PUT /api/v1/devices/{deviceId} (Shuffull#132): the caller's row for this install, as the check-in left it.
+/** What the app sends in `PUT /api/v1/devices/{deviceId}` (Shuffull#132). */
+export interface DeviceCheckInBody {
+    name: string;
+    platform: string;
+}
+
 export const UserDeviceSchema = z.object({
     deviceId: z.string(),
     name: z.string(),

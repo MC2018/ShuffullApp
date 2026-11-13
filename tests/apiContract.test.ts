@@ -306,14 +306,6 @@ describe("API contract: the listen log (ShuffullApp#57)", () => {
     });
 });
 
-/**
- * What the app sends, against the request bodies the API binds (the `*-request` files and the others the Golden README
- * marks "app sends"). The API reads an unknown key as nothing, so a field renamed on either side would land as a quiet
- * null; these fail instead (shuffull-workspace#92). Requests go through the real ApiClient with axios's adapter stubbed.
- *
- * The listen log above already checks each listen's fields (finishedListen); the listens row here pins only the
- * `{ listens }` envelope and the URL ApiClient puts them under.
- */
 describe("API contract: device check-in (ShuffullApp#58)", () => {
     it("parses the device the API returns, which sends every field the app reads", () => {
         const raw = golden("devices-checkin") as object;
@@ -341,6 +333,14 @@ describe("API contract: device check-in (ShuffullApp#58)", () => {
     });
 });
 
+/**
+ * What the app sends, against the request bodies the API binds (the `*-request` files and the others the Golden README
+ * marks "app sends"). The API reads an unknown key as nothing, so a field renamed on either side would land as a quiet
+ * null; these fail instead (shuffull-workspace#92). Requests go through the real ApiClient with axios's adapter stubbed.
+ *
+ * The listen log above already checks each listen's fields (finishedListen); the listens row here pins only the
+ * `{ listens }` envelope and the URL ApiClient puts them under.
+ */
 describe("API contract: request bodies the app sends (shuffull-workspace#92)", () => {
     /** The body as sent, without its null-valued keys: the API binds an optional field left out and one sent as null alike. */
     const body = (config: InternalAxiosRequestConfig) => withoutNulls(JSON.parse(config.data));

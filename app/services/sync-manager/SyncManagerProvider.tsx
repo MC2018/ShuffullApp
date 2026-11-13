@@ -27,7 +27,8 @@ export default function SyncManagerProvider({ userId }: SyncManagerProviderProps
     useEffect(() => {
         // Play-next intents queue their song once a sync brings it down (ShuffullApp#108).
         const stopPlayNext = startPlayNext(db, api, userId);
-        // Tells the server this install is open: now (a start signed in, or a login) and on each foreground (ShuffullApp#58).
+        // Tells the server this install is open: now (a start signed in, or a login) and on each foreground
+        // (ShuffullApp#58).
         const stopDeviceCheckIn = startDeviceCheckIn(api);
         // A 401 on a token a password change has just replaced isn't this session ending (see logoutUnlessReplaced).
         const instance = new SyncManager(db, api, userId, () => logoutUnlessReplaced(api, logout),

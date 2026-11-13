@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Platform, ScrollView, Switch, View } from "react-native";
 import { router } from "expo-router";
 import { IconButton, ListRow, Screen, Text, TextField } from "@/app/components/ui";
@@ -14,8 +14,8 @@ import { PREFETCH_CACHE_CAP_BYTES } from "@/app/tools/prefetchCache";
 const CAP_MB = Math.round(PREFETCH_CACHE_CAP_BYTES / 1024 / 1024);
 
 // App settings: "Load upcoming songs ahead" (ShuffullApp#124), which fetches the next song or two while the current
-// one plays so a skip starts at once, this device's name (ShuffullApp#58), and Change password (ShuffullApp#158). Development builds also get a Developer
-// section that opens the December recap (ShuffullApp#116) at any time of year.
+// one plays so a skip starts at once, this device's name (ShuffullApp#58), and Change password (ShuffullApp#158).
+// Development builds also get a Developer section that opens the December recap (ShuffullApp#116) at any time of year.
 export default function SettingsScreen() {
     const theme = useTheme();
     const enabled = usePrefetchSetting((state) => state.enabled);
@@ -63,7 +63,6 @@ export default function SettingsScreen() {
                     value={deviceName.value}
                     onChangeText={deviceName.setValue}
                     onBlur={deviceName.save}
-                    onSubmitEditing={deviceName.save}
                     placeholder={deviceName.defaultName}
                     maxLength={DEVICE_NAME_MAX_LENGTH}
                     editable={deviceName.loaded}
@@ -102,40 +101,51 @@ export default function SettingsScreen() {
     );
 }
 
-/** The device name field: the name the user chose (empty = the default), saved and sent when editing ends. */
+/**
+ * The device name field: the name the user chose (empty = the default). It is saved and sent when the field loses
+ * focus, and when the screen closes with an edit unsaved: on a phone, tapping Back with the keyboard up doesn't blur
+ * the field before the screen goes.
+ */
 function useDeviceNameField() {
-    const [value, setValue] = useState("");
-    const [saved, setSaved] = useState("");
+    const [value, setValueState] = useState("");
     const [loaded, setLoaded] = useState(false);
     const defaultName = deviceIdentity.defaultName();
+    // Refs, so the unmount cleanup sees the latest text, and a save started once (Done also blurs) isn't sent twice.
+    const typed = useRef<string | undefined>(undefined);
+    const saved = useRef("");
+
+    const setValue = useCallback((text: string) => {
+        typed.current = text;
+        setValueState(text);
+    }, []);
+
+    const save = useCallback(() => {
+        const text = typed.current;
+        if (text == undefined || (cleanDeviceName(text) ?? "") === saved.current) {
+            return;
+        }
+        // Cleared: the field shows the default as its placeholder, not as text.
+        saved.current = cleanDeviceName(text) ?? "";
+        typed.current = undefined;
+        renameDevice(text).catch(e => log.warn("device", "could not save the device name", e));
+    }, []);
 
     useEffect(() => {
         let live = true;
         deviceIdentity.customName()
             .then(name => {
-                if (live) {
-                    setValue(name ?? "");
-                    setSaved(name ?? "");
+                saved.current = name ?? "";
+                if (live && typed.current == undefined) {
+                    setValueState(name ?? "");
                 }
             })
             .catch(e => log.warn("device", "could not read the device name", e))
             .finally(() => live && setLoaded(true));
-        return () => { live = false; };
-    }, []);
-
-    const save = () => {
-        if (!loaded || (cleanDeviceName(value) ?? "") === saved) {
-            return;
-        }
-        renameDevice(value)
-            .then(name => {
-                // Cleared: the field shows the default as its placeholder, not as text.
-                const custom = cleanDeviceName(value) == undefined ? "" : name;
-                setValue(custom);
-                setSaved(custom);
-            })
-            .catch(e => log.warn("device", "could not save the device name", e));
-    };
+        return () => {
+            live = false;
+            save();
+        };
+    }, [save]);
 
     return { value, setValue, save, loaded, defaultName };
 }

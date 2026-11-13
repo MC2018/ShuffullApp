@@ -2,6 +2,8 @@
 // server both. services/device.ts wires them to AsyncStorage, the platform and the API. Nothing here imports React
 // Native, so the tests run it as is.
 
+import type { DeviceCheckInBody } from "../services/api/models";
+
 /** The API's limits (Shuffull's UserDevice): longer, or holding a control character, is a 400. */
 export const DEVICE_ID_MAX_LENGTH = 64;
 export const DEVICE_NAME_MAX_LENGTH = 64;
@@ -54,7 +56,9 @@ export function browserName(userAgent: string | null | undefined): string | unde
  * nothing is left, which means "no name": the default is used instead.
  */
 export function cleanDeviceName(name: string | null | undefined): string | undefined {
-    const cleaned = (name ?? "").replace(/\p{Cc}/gu, "").trim().slice(0, DEVICE_NAME_MAX_LENGTH).trim();
+    // The cut counts UTF-16 units, like the API's limit, so an emoji across it would leave half a pair: drop that half.
+    const cleaned = (name ?? "").replace(/\p{Cc}/gu, "").trim().slice(0, DEVICE_NAME_MAX_LENGTH)
+        .replace(/[\uD800-\uDBFF]$/, "").trim();
     return cleaned.length > 0 ? cleaned : undefined;
 }
 
@@ -160,12 +164,6 @@ export class DeviceIdentity {
         }
         return id;
     }
-}
-
-/** What the API takes in `PUT /api/v1/devices/{deviceId}`. */
-export interface DeviceCheckInBody {
-    name: string;
-    platform: string;
 }
 
 /** Why a check-in is sent. A new session covers both the app starting signed in and a fresh login. */
