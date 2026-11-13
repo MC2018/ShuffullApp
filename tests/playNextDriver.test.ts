@@ -33,7 +33,7 @@ vi.mock("expo-router", () => ({ useFocusEffect: () => {} }));
 vi.mock("@/app/services/api/ApiProvider", () => ({ useApi: () => null }));
 
 const { useActiveSong: activeSong } = await import("@/app/services/media-manager/mediaManager");
-const { attachPlayNextRequest, cancelPlayNext, playNowOrNext, reconcilePlayNext, recordPlayNext, startPlayNext, usePlayNext } =
+const { attachPlayNextRequest, cancelPlayNext, cancelPlayNextForSong, libraryPlayNextKey, playLibrarySongNext, playNowOrNext, reconcilePlayNext, recordPlayNext, startPlayNext, usePlayNext } =
     await import("@/app/services/song-requests/playNext");
 const { applySongRequest, currentSongRequests, refreshSongRequests } = await import("@/app/services/song-requests/useSongRequests");
 
@@ -207,6 +207,71 @@ describe("play-next driver", () => {
         await addSong(db, "s1");
         await reconcilePlayNext({ readRequests: true });
         expect(queueNext).toHaveBeenLastCalledWith(["s1"]);
+    });
+
+    // ShuffullApp#25: "Play next" on the song page, for a song already in the library.
+    it("play next on a library song queues it at once, keyed by its song id, and needs no request", async () => {
+        await addSong(db, "s1");
+        expect(await playLibrarySongNext({ songId: "s1", name: "Song s1" })).toBeNull();
+
+        expect(await getPlayNextIntents(db, USER)).toMatchObject([
+            { externalSongId: libraryPlayNextKey("s1"), songId: "s1", songRequestId: null, title: "Song s1" },
+        ]);
+        expect(queueNext).toHaveBeenLastCalledWith(["s1"]);
+        expect(api.songRequestListMine).not.toHaveBeenCalled();
+        expect(showAlert).not.toHaveBeenCalled();
+    });
+
+    it("play next on the song playing now saves nothing and says why", async () => {
+        await addSong(db, "playing");
+        expect(await playLibrarySongNext({ songId: "playing", name: "Song playing" })).toBe("It's playing now.");
+        expect(await getPlayNextIntents(db, USER)).toEqual([]);
+    });
+
+    it("library play-nexts play in the order they were asked for", async () => {
+        await addSong(db, "s1");
+        await addSong(db, "s2");
+        await playLibrarySongNext({ songId: "s1", name: "Song s1" });
+        await new Promise((resolve) => setTimeout(resolve, 2)); // created_at is in milliseconds
+        await playLibrarySongNext({ songId: "s2", name: "Song s2" });
+        expect(queueNext).toHaveBeenLastCalledWith(["s1", "s2"]);
+    });
+
+    it("taking a song off play next drops every row that names it, from either screen, and unqueues it", async () => {
+        await addSong(db, "s1");
+        await recordPlayNext(result({ songId: "s1", inLibrary: true, inUserLibrary: true }), { songId: "s1", songRequestId: null });
+        await playLibrarySongNext({ songId: "s1", name: "Song s1" });
+        expect(await getPlayNextIntents(db, USER)).toHaveLength(2);
+
+        await cancelPlayNextForSong("s1");
+        expect(await getPlayNextIntents(db, USER)).toEqual([]);
+        expect(usePlayNext.getState().intents).toEqual([]);
+        expect(unqueue).toHaveBeenCalledWith("s1");
+    });
+
+    it("puts play-next songs back when a new song starts, since a new scope empties the queue", async () => {
+        await addSong(db, "s1");
+        await playLibrarySongNext({ songId: "s1", name: "Song s1" });
+        queueNext.mockClear();
+
+        // The user taps another song in a playlist: the media manager cleared its queue and started that song.
+        activeSong.setState({ songId: "picked" });
+        await vi.waitFor(() => expect(queueNext).toHaveBeenCalledWith(["s1"]));
+        expect(await getPlayNextIntents(db, USER)).toHaveLength(1);
+    });
+
+    it("when one play-next song starts, the others are put back and it is not", async () => {
+        await addSong(db, "s1");
+        await addSong(db, "s2");
+        await playLibrarySongNext({ songId: "s1", name: "Song s1" });
+        await new Promise((resolve) => setTimeout(resolve, 2));
+        await playLibrarySongNext({ songId: "s2", name: "Song s2" });
+        queueNext.mockClear();
+
+        activeSong.setState({ songId: "s1" });
+        await vi.waitFor(() => expect(queueNext).toHaveBeenCalledWith(["s2"]));
+        expect(await getPlayNextIntents(db, USER)).toMatchObject([{ songId: "s2" }]);
+        expect(queueNext).not.toHaveBeenCalledWith(expect.arrayContaining(["s1"]));
     });
 
     it("queues nothing for a session that has stopped", async () => {
