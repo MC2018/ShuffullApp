@@ -277,7 +277,8 @@ interface ResultsProps {
 
 function SearchResults({ search, rows, requests, onRetry, onRequest, onPlay, onPlayNext }: ResultsProps) {
     const theme = useTheme();
-    const playNextIdList = usePlayNext(useShallow((state) => state.intents.map((i) => i.externalSongId)));
+    // A song asked for from its library page is keyed by its song id (libraryPlayNextKey), not its source id, so match both.
+    const playNextIdList = usePlayNext(useShallow((state) => state.intents.flatMap((i) => i.songId == null ? [i.externalSongId] : [i.externalSongId, i.songId])));
     const playNextIds = useMemo(() => new Set(playNextIdList), [playNextIdList]);
     switch (search.status) {
         case "idle":
@@ -311,7 +312,7 @@ function SearchResults({ search, rows, requests, onRetry, onRequest, onPlay, onP
                             row={rows[result.externalSongId]}
                             onRequest={() => onRequest(result)}
                             onPlay={() => onPlay(result)}
-                            playsNext={playNextIds.has(result.externalSongId)}
+                            playsNext={[result.externalSongId, ownedSongIdFor(result)].some((id) => id != null && playNextIds.has(id))}
                             onPlayNext={() => onPlayNext(result)}
                         />
                     ))}

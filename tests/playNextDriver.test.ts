@@ -33,7 +33,7 @@ vi.mock("expo-router", () => ({ useFocusEffect: () => {} }));
 vi.mock("@/app/services/api/ApiProvider", () => ({ useApi: () => null }));
 
 const { useActiveSong: activeSong } = await import("@/app/services/media-manager/mediaManager");
-const { attachPlayNextRequest, cancelPlayNext, cancelPlayNextForSong, libraryPlayNextKey, playLibrarySongNext, playNowOrNext, reconcilePlayNext, recordPlayNext, startPlayNext, usePlayNext } =
+const { attachPlayNextRequest, cancelPlayNext, cancelPlayNextForSong, libraryPlayNextKey, playLibrarySongNext, playNowOrNext, reconcilePlayNext, recordPlayNext, savePlayNext, startPlayNext, usePlayNext } =
     await import("@/app/services/song-requests/playNext");
 const { applySongRequest, currentSongRequests, refreshSongRequests } = await import("@/app/services/song-requests/useSongRequests");
 
@@ -231,16 +231,34 @@ describe("play-next driver", () => {
     it("library play-nexts play in the order they were asked for", async () => {
         await addSong(db, "s1");
         await addSong(db, "s2");
+        vi.useFakeTimers({ toFake: ["Date"], now: Date.now() });
         await playLibrarySongNext({ songId: "s1", name: "Song s1" });
-        await new Promise((resolve) => setTimeout(resolve, 2)); // created_at is in milliseconds
+        vi.setSystemTime(Date.now() + 1); // created_at is in milliseconds
         await playLibrarySongNext({ songId: "s2", name: "Song s2" });
         expect(queueNext).toHaveBeenLastCalledWith(["s1", "s2"]);
     });
 
+    it("asking for a song from both screens keeps one row, whichever asked first", async () => {
+        await addSong(db, "s1");
+        const owned = result({ songId: "s1", inLibrary: true, inUserLibrary: true });
+
+        await playLibrarySongNext({ songId: "s1", name: "Song s1" });
+        expect(await savePlayNext(owned, { songId: "s1", songRequestId: null })).toBeNull();
+        expect(await getPlayNextIntents(db, USER)).toMatchObject([{ externalSongId: libraryPlayNextKey("s1") }]);
+
+        await cancelPlayNextForSong("s1");
+        await savePlayNext(owned, { songId: "s1", songRequestId: null });
+        await playLibrarySongNext({ songId: "s1", name: "Song s1" });
+        expect(await getPlayNextIntents(db, USER)).toMatchObject([{ externalSongId: "yt-1" }]);
+        expect(usePlayNext.getState().intents).toHaveLength(1);
+    });
+
     it("taking a song off play next drops every row that names it, from either screen, and unqueues it", async () => {
         await addSong(db, "s1");
-        await recordPlayNext(result({ songId: "s1", inLibrary: true, inUserLibrary: true }), { songId: "s1", songRequestId: null });
+        // A request row learns its song only once the request completes, so it can't be matched at the tap.
+        await recordPlayNext(result());
         await playLibrarySongNext({ songId: "s1", name: "Song s1" });
+        await attachPlayNextRequest(request(SongRequestStatus.Completed));
         expect(await getPlayNextIntents(db, USER)).toHaveLength(2);
 
         await cancelPlayNextForSong("s1");
@@ -263,8 +281,9 @@ describe("play-next driver", () => {
     it("when one play-next song starts, the others are put back and it is not", async () => {
         await addSong(db, "s1");
         await addSong(db, "s2");
+        vi.useFakeTimers({ toFake: ["Date"], now: Date.now() });
         await playLibrarySongNext({ songId: "s1", name: "Song s1" });
-        await new Promise((resolve) => setTimeout(resolve, 2));
+        vi.setSystemTime(Date.now() + 1);
         await playLibrarySongNext({ songId: "s2", name: "Song s2" });
         queueNext.mockClear();
 

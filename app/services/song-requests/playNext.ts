@@ -66,12 +66,12 @@ export function startPlayNext(db: GenericDb, api: ApiClient, userId: string): ()
         const songId = state.songId;
         const { intents } = usePlayNext.getState();
         if (intents.some(i => i.songId === songId)) {
-            void lock.run(() => clearPlayed(s, songId)).catch(e => log.warn("play-next", "clearing a played intent failed", e));
+            void lock.run(() => dropIntentsForSong(s, songId)).catch(e => log.warn("play-next", "clearing a played intent failed", e));
         }
         if (intents.some(i => i.songId !== songId)) {
             // Tapping a song in a playlist, or starting a genre jam, is a new scope, and a new scope empties the queue.
             // Put the other play-next songs back now (ShuffullApp#25) rather than at the next sync, which would let a
-            // shuffle pick play first. Runs after clearPlayed (one lock), and queueNext is idempotent, so on a plain
+            // shuffle pick play first. Runs after dropIntentsForSong (one lock), and queueNext is idempotent, so on a plain
             // skip this costs a read and changes nothing.
             void reconcilePlayNext({ readRequests: false });
         }
@@ -89,7 +89,7 @@ export function startPlayNext(db: GenericDb, api: ApiClient, userId: string): ()
 // Drops every intent for the song, once it starts playing or the user takes it off (cancelPlayNextForSong). Also takes
 // the song off the queue: a reconcile that ran between skip taking it off the queue and the song starting
 // (loading a track takes a moment) will have put it back, and it would play again straight after itself.
-async function clearPlayed(s: Session, songId: string): Promise<void> {
+async function dropIntentsForSong(s: Session, songId: string): Promise<void> {
     for (const intent of await DbQueries.getPlayNextIntents(s.db, s.userId)) {
         if (intent.songId === songId) {
             await DbQueries.deletePlayNextIntent(s.db, intent);
@@ -168,7 +168,7 @@ async function reconcile(s: Session, readRequests: boolean): Promise<void> {
 export type KnownPlayNextSong = { songId: string; songRequestId: string | null };
 
 /** What an intent row needs to name its song: the key it is stored under, and what "Up next" calls it. */
-export type PlayNextSong = Pick<SongRequestSearchResult, "externalSongId" | "title">;
+export type PlayNextSong = Pick<PlayNextIntent, "externalSongId" | "title">;
 
 /**
  * The tap on "Request & play next". Writes the intent and nothing else, so it is saved before the request is filed:
@@ -181,6 +181,13 @@ export function recordPlayNext(result: PlayNextSong, known?: KnownPlayNextSong):
         return Promise.reject(new Error("Not signed in."));
     }
     return lock.run(async () => {
+        // The library and the request search key their rows their own way, so asking for one song from both would
+        // otherwise leave two rows: "Up next" would count it twice, and taking one off would leave the other.
+        const songId = known?.songId;
+        if (songId != null && (await DbQueries.getPlayNextIntents(s.db, s.userId)).some(i => i.songId === songId)) {
+            await reload(s);
+            return;
+        }
         await DbQueries.savePlayNextIntent(s.db, {
             userId: s.userId,
             externalSongId: result.externalSongId,
@@ -271,15 +278,15 @@ export async function playLibrarySongNext(song: { songId: string; name: string }
 }
 
 /**
- * Takes a song off play-next, whichever screen asked for it: the library and the request search each key their row
- * their own way, so this drops every row that names the song.
+ * Takes a song off play-next, whichever screen asked for it. recordPlayNext keeps one row per known song, but a request
+ * row only learns its song later, so one song can still have a row from each screen; this drops every row that names it.
  */
 export async function cancelPlayNextForSong(songId: string): Promise<void> {
     const s = session;
     if (s == null) {
         return;
     }
-    await lock.run(() => clearPlayed(s, songId));
+    await lock.run(() => dropIntentsForSong(s, songId));
 }
 
 /** Drops the intent for a song: filing its request failed, or the user changed their mind. */
