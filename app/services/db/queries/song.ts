@@ -605,6 +605,25 @@ export async function purgeSongs(db: GenericDb, songIds: string[]): Promise<Song
     return purged;
 }
 
+// Empties the song cache every account on this device shares: the songs, their artists and tags, what is downloaded or
+// queued for download, and play history. None of these tables has a user column, so after another account logs in
+// they would hold the last account's library (ShuffullApp#193). Leaves the media files: read the songs and delete
+// their files before calling this, while the rows still say which files they are.
+//
+// Per-user rows stay: playlists, user songs, the outbox, dead letters, open listens, listen stats and play-next
+// intents are all keyed by user, and the outbox and listens hold decisions not yet on the server. Genre jams stay too:
+// the user made them, and they exist nowhere else.
+export async function clearSongCache(db: GenericDb): Promise<void> {
+    await db.delete(downloadQueueTable);
+    await db.delete(downloadedSongTable);
+    await db.delete(recentlyPlayedSongTable);
+    await db.delete(songTagTable);
+    await db.delete(songArtistTable);
+    await db.delete(tagTable);
+    await db.delete(artistTable);
+    await db.delete(songTable);
+}
+
 // Which of these file hashes a local song still uses. Media is stored by hash, so a purged song's file may belong
 // to another song too (the same audio re-imported under a new id).
 export async function fileHashesInUse(db: GenericDb, fileHashes: string[]): Promise<Set<string>> {

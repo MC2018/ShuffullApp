@@ -7,6 +7,8 @@ import { localSessionDataTable } from "../db/schema";
 import { ApiClient } from "../api/ApiClient";
 import { AuthenticateResponse } from "../api/models";
 import { MediaManager } from "../media-manager";
+import { Downloader } from "../downloader/Downloader";
+import { claimSongCache } from "./accountSwitch";
 import { useAuthStore } from "./authStore";
 import { sendPasswordChange } from "./passwordChange";
 import { log } from "@/app/tools/log";
@@ -36,6 +38,7 @@ export async function restoreSession(): Promise<void> {
 // Persist the session envelope returned by authenticate/create/password change and flip the store to authenticated.
 async function bootstrapSession(authResponse: AuthenticateResponse, hostAddress: string): Promise<void> {
     const db = getDb();
+    await claimSongCacheForLogin(authResponse.user.userId, hostAddress);
 
     await db.insert(localSessionDataTable).values([{
         userId: authResponse.user.userId,
@@ -59,6 +62,22 @@ async function bootstrapSession(authResponse: AuthenticateResponse, hostAddress:
     await AsyncStorage.setItem(STORAGE_KEYS.CURRENT_USER_ID, localSessionData.userId);
     const apiClient = new ApiClient(hostAddress, authResponse.token);
     useAuthStore.getState().setSession({ userId: localSessionData.userId, apiClient, hostAddress });
+}
+
+// Before the session exists, so no sync starts while another account's songs are still in the cache. A failure here
+// doesn't stop the login: the library stays mixed, as before this check existed, and the next login tries again,
+// since the cache's owner is recorded only once a clear has finished.
+async function claimSongCacheForLogin(userId: string, hostAddress: string): Promise<void> {
+    try {
+        await claimSongCache({
+            db: getDb(),
+            storage: AsyncStorage,
+            stopPlayback: () => MediaManager.clear(),
+            deleteSongFiles: song => Downloader.deleteLocalSongFiles(song),
+        }, userId, hostAddress);
+    } catch (e) {
+        log.error("auth", "Clearing the last account's songs failed; they stay in the library until the next login.", e);
+    }
 }
 
 export async function login(username: string, password: string, hostAddress: string): Promise<void> {
