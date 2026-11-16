@@ -2,6 +2,7 @@ const { app, BrowserWindow, protocol, net, session, globalShortcut, ipcMain, Not
 const path = require("node:path");
 const url = require("node:url");
 const media = require("./media");
+const { startMediaKeyRouter } = require("./mediaKeys");
 
 /**
  * Global rating shortcuts.
@@ -53,6 +54,8 @@ const SCHEME = "app";
 const MEDIA_ROOT = path.join(app.getPath("userData"), "media");
 // "Load upcoming songs ahead" (ShuffullApp#137). A sibling of MEDIA_ROOT, never inside it, so Downloads can't see it.
 const PREFETCH_ROOT = path.join(app.getPath("userData"), "prefetch");
+// Set once the media-key router is up (see app.whenReady); stopped on quit.
+let mediaKeyRouter = null;
 
 // Must be declared before `ready`. `standard` gives normal URL parsing, `secure` makes it a secure context
 // (the part OPFS cares about), `supportFetchAPI` lets the wasm/worker assets be fetched.
@@ -200,6 +203,14 @@ app.whenReady().then(() => {
         }
     }
 
+    // Media keys go to the player used last, not the first one Cinnamon saw (desktop/mediaKeys.js). Optional:
+    // if it can't start, the keys keep Cinnamon's default behaviour and the app is otherwise unaffected.
+    startMediaKeyRouter()
+        .then((router) => {
+            mediaKeyRouter = router;
+        })
+        .catch((err) => console.warn(`[media-keys] not routing media keys: ${err.message}`));
+
     app.on("activate", () => {
         if (BrowserWindow.getAllWindows().length === 0) createWindow();
     });
@@ -207,7 +218,10 @@ app.whenReady().then(() => {
 
 // Global shortcuts are process-wide OS grabs; releasing them on quit stops a crashed/closed instance holding
 // Super+Alt+L hostage for every other app.
-app.on("will-quit", () => globalShortcut.unregisterAll());
+app.on("will-quit", () => {
+    globalShortcut.unregisterAll();
+    mediaKeyRouter?.stop();
+});
 
 app.on("window-all-closed", () => {
     if (process.platform !== "darwin") app.quit();
