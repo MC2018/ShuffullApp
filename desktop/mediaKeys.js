@@ -131,15 +131,23 @@ class MediaKeyRouter {
 /**
  * Connects, grabs the keys and starts routing. Resolves with `{ stop }`, or null where it can't apply (not Linux,
  * no session bus). Rejects if the bus or the grab fails; the caller logs that and carries on without it.
+ *
+ * `connect` and `platform` exist for the tests, which drive this with a fake bus.
  */
-async function startMediaKeyRouter({ log = console } = {}) {
-    if (process.platform !== "linux" || !process.env.DBUS_SESSION_BUS_ADDRESS) {
+async function startMediaKeyRouter({
+    log = console,
+    connect = () => SessionBus.connect(),
+    platform = process.platform,
+    hasBus = Boolean(process.env.DBUS_SESSION_BUS_ADDRESS),
+    ownPid = process.pid,
+} = {}) {
+    if (platform !== "linux" || !hasBus) {
         return null;
     }
 
-    const bus = await SessionBus.connect();
+    const bus = await connect();
     // Chromium names this window's player after the browser (main) process id.
-    const router = new MediaKeyRouter({ preferred: `${MPRIS_PREFIX}chromium.instance${process.pid}` });
+    const router = new MediaKeyRouter({ preferred: `${MPRIS_PREFIX}chromium.instance${ownPid}` });
     // PropertiesChanged arrives from a unique name (":1.42"); this maps it back to the player names it owns.
     const ownerNames = new Map();
 
@@ -232,7 +240,8 @@ async function startMediaKeyRouter({ log = console } = {}) {
         await bus.addMatch(`type='signal',interface='${MEDIA_KEYS_IFACE}',member='MediaPlayerKeyPressed'`);
 
         const [names] = await bus.call({ ...BUS, member: "ListNames" });
-        await Promise.all(names.filter((n) => n.startsWith(MPRIS_PREFIX)).map((n) => track(n)));
+        // Not awaited: a slow player must not hold up the grab. Each read already logs its own failure.
+        names.filter((n) => n.startsWith(MPRIS_PREFIX)).forEach((n) => track(n));
 
         await grab();
     } catch (err) {
@@ -250,4 +259,4 @@ async function startMediaKeyRouter({ log = console } = {}) {
     };
 }
 
-module.exports = { MediaKeyRouter, startMediaKeyRouter, KEY_METHODS, SETTLE_MS };
+module.exports = { MediaKeyRouter, startMediaKeyRouter, SETTLE_MS };

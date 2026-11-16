@@ -16,6 +16,8 @@ const { EventEmitter } = require("node:events");
 
 const MESSAGE_TYPE = { METHOD_CALL: 1, METHOD_RETURN: 2, ERROR: 3, SIGNAL: 4 };
 const FLAG_NO_REPLY_EXPECTED = 0x1;
+// libdbus defaults to 25 s. Every call here is a local property read or a key press, so 5 s is already generous.
+const CALL_TIMEOUT_MS = 5000;
 
 const HEADER_FIELD = { PATH: 1, INTERFACE: 2, MEMBER: 3, ERROR_NAME: 4, REPLY_SERIAL: 5, DESTINATION: 6, SENDER: 7, SIGNATURE: 8 };
 
@@ -404,6 +406,7 @@ class SessionBus extends EventEmitter {
                 return;
             }
             this.pending.delete(message.replySerial);
+            clearTimeout(waiter.timer);
             if (message.type === MESSAGE_TYPE.ERROR) {
                 const err = new Error(`${message.errorName}: ${message.body[0] ?? ""}`);
                 err.dbusName = message.errorName;
@@ -427,15 +430,23 @@ class SessionBus extends EventEmitter {
         }
     }
 
-    /** Calls a method and resolves with the reply's body (an array of its values). */
-    call({ destination, path, iface, member, signature = "", body = [] }) {
+    /**
+     * Calls a method and resolves with the reply's body (an array of its values). Rejects after `timeoutMs`: the
+     * session bus sets no reply timeout of its own, so a frozen peer would otherwise leave the call pending forever.
+     */
+    call({ destination, path, iface, member, signature = "", body = [], timeoutMs = CALL_TIMEOUT_MS }) {
         if (this.closed) {
             return Promise.reject(new Error("D-Bus connection is closed"));
         }
         const serial = ++this.serial;
         const bytes = encodeMessage({ type: MESSAGE_TYPE.METHOD_CALL, serial, destination, path, iface, member, signature, body });
         return new Promise((resolve, reject) => {
-            this.pending.set(serial, { resolve, reject });
+            const timer = setTimeout(() => {
+                this.pending.delete(serial);
+                reject(new Error(`${iface}.${member} on ${destination} got no reply within ${timeoutMs} ms`));
+            }, timeoutMs);
+            timer.unref?.();
+            this.pending.set(serial, { resolve, reject, timer });
             this.socket.write(bytes);
         });
     }
@@ -456,7 +467,8 @@ class SessionBus extends EventEmitter {
             return;
         }
         this.closed = true;
-        for (const { reject } of this.pending.values()) {
+        for (const { reject, timer } of this.pending.values()) {
+            clearTimeout(timer);
             reject(new Error("D-Bus connection closed"));
         }
         this.pending.clear();
@@ -470,4 +482,4 @@ class SessionBus extends EventEmitter {
     }
 }
 
-module.exports = { SessionBus, encodeMessage, decodeMessage, messageLength, splitTypes, socketPathFromAddress, MESSAGE_TYPE };
+module.exports = { SessionBus, encodeMessage, decodeMessage, messageLength, socketPathFromAddress, MESSAGE_TYPE };

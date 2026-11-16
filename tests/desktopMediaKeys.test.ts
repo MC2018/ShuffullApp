@@ -1,10 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createRequire } from "node:module";
 import { EventEmitter } from "node:events";
 
 // desktop/*.js are the Electron main process's CommonJS modules; neither imports Electron, so they run here.
 const require = createRequire(import.meta.url);
-const { MediaKeyRouter, SETTLE_MS } = require("../desktop/mediaKeys.js");
+const { MediaKeyRouter, SETTLE_MS, startMediaKeyRouter } = require("../desktop/mediaKeys.js");
 const dbus = require("../desktop/dbus.js");
 
 const OWN = "org.mpris.MediaPlayer2.chromium.instance1";
@@ -241,5 +241,160 @@ describe("SessionBus framing", () => {
 
         socket.emit("close");
         await expect(orphaned).rejects.toThrow("closed");
+    });
+
+    it("times out a call that never gets a reply, and forgets it", async () => {
+        vi.useFakeTimers();
+        try {
+            const { bus } = fakeBus();
+            const hung = bus.call({ destination: "x.y", path: "/", iface: "x.y", member: "Get", timeoutMs: 1000 });
+            const assertion = expect(hung).rejects.toThrow("x.y.Get on x.y got no reply within 1000 ms");
+            await vi.advanceTimersByTimeAsync(1000);
+            await assertion;
+            expect(bus.pending.size).toBe(0);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+});
+
+describe("startMediaKeyRouter: the bus wiring", () => {
+    const PLAYER_PATH = "/org/mpris/MediaPlayer2";
+    const PLAYER_IFACE = "org.mpris.MediaPlayer2.Player";
+    const KEYS_PATH = "/org/gnome/SettingsDaemon/MediaKeys";
+    const KEYS_IFACE = "org.gnome.SettingsDaemon.MediaKeys";
+    const OWN_PID = 1; // so our own player is OWN
+
+    type Call = { destination?: string; path?: string; iface?: string; member: string; body?: unknown[] };
+
+    class FakeBus extends EventEmitter {
+        calls: Call[] = [];
+        owners: Record<string, string> = { [OWN]: ":1.10", [YT]: ":1.20" };
+        statuses: Record<string, string> = { [OWN]: "Paused", [YT]: "Paused" };
+        failGrab = false;
+        closed = false;
+
+        call(opts: Call) {
+            this.calls.push(opts);
+            switch (opts.member) {
+                case "ListNames": return Promise.resolve([[...Object.keys(this.owners), "org.freedesktop.Notifications"]]);
+                case "GetNameOwner": return Promise.resolve([this.owners[opts.body![0] as string]]);
+                case "Get": return Promise.resolve([this.statuses[opts.destination!]]);
+                case "GrabMediaPlayerKeys": return this.failGrab ? Promise.reject(new Error("ServiceUnknown")) : Promise.resolve([]);
+                default: return Promise.resolve([]);
+            }
+        }
+        addMatch(rule: string) {
+            return this.call({ member: "AddMatch", body: [rule] });
+        }
+        close() {
+            this.closed = true;
+            this.emit("close");
+        }
+        status(sender: string, PlaybackStatus: string, iface = PLAYER_IFACE) {
+            this.emit("signal", { iface: "org.freedesktop.DBus.Properties", member: "PropertiesChanged", path: PLAYER_PATH, sender, body: [iface, { PlaybackStatus }, []] });
+        }
+        key(key: string, app = "Shuffull") {
+            this.emit("signal", { iface: KEYS_IFACE, member: "MediaPlayerKeyPressed", path: KEYS_PATH, body: [app, key] });
+        }
+        ownerChanged(name: string, oldOwner: string, newOwner: string) {
+            this.emit("signal", { iface: "org.freedesktop.DBus", member: "NameOwnerChanged", path: "/org/freedesktop/DBus", body: [name, oldOwner, newOwner] });
+        }
+        playerCalls() {
+            return this.calls.filter((c) => c.iface === PLAYER_IFACE).map((c) => `${c.destination} ${c.member}`);
+        }
+        grabs() {
+            return this.calls.filter((c) => c.member === "GrabMediaPlayerKeys");
+        }
+    }
+
+    const quiet = { log: () => {}, warn: () => {} };
+    let bus: FakeBus;
+
+    async function start() {
+        const handle = await startMediaKeyRouter({ log: quiet, connect: async () => bus, platform: "linux", hasBus: true, ownPid: OWN_PID });
+        await vi.advanceTimersByTimeAsync(0); // let the initial status reads land
+        return handle;
+    }
+    const settle = () => vi.advanceTimersByTimeAsync(SETTLED);
+
+    beforeEach(() => {
+        vi.useFakeTimers();
+        bus = new FakeBus();
+    });
+    afterEach(() => vi.useRealTimers());
+
+    it("grabs the keys as Shuffull once its match rules are in", async () => {
+        await start();
+        expect(bus.grabs()).toEqual([expect.objectContaining({ path: KEYS_PATH, iface: KEYS_IFACE, body: ["Shuffull", 0] })]);
+        const lastMatch = bus.calls.map((c) => c.member).lastIndexOf("AddMatch");
+        expect(lastMatch).toBeLessThan(bus.calls.findIndex((c) => c.member === "GrabMediaPlayerKeys"));
+    });
+
+    it("sends each key to the player whose status changed last, found by its unique name", async () => {
+        await start();
+        bus.status(":1.20", "Playing");
+        await settle();
+        bus.key("Next");
+        bus.status(":1.10", "Playing");
+        await settle();
+        bus.key("Play");
+        bus.key("Previous");
+        expect(bus.playerCalls()).toEqual([`${YT} Next`, `${OWN} PlayPause`, `${OWN} Previous`]);
+    });
+
+    it("ignores presses for another app, keys it has no method for, and other interfaces' changes", async () => {
+        await start();
+        bus.status(":1.20", "Playing");
+        await settle();
+        bus.status(":1.10", "Playing", "org.mpris.MediaPlayer2");
+        await settle();
+        bus.key("Next", "Rhythmbox");
+        bus.key("Rewind");
+        bus.key("Pause");
+        expect(bus.playerCalls()).toEqual([`${YT} Pause`]);
+    });
+
+    it("follows players that appear and quit", async () => {
+        await start();
+        bus.status(":1.10", "Playing");
+        await settle();
+
+        const NEW = "org.mpris.MediaPlayer2.vlc";
+        bus.owners[NEW] = ":1.30";
+        bus.statuses[NEW] = "Playing";
+        bus.ownerChanged(NEW, "", ":1.30");
+        await settle();
+        bus.key("Next");
+
+        bus.ownerChanged(NEW, ":1.30", "");
+        bus.key("Next");
+        expect(bus.playerCalls()).toEqual([`${NEW} Next`, `${OWN} Next`]);
+    });
+
+    it("grabs again when Cinnamon's daemon restarts", async () => {
+        await start();
+        bus.ownerChanged("org.gnome.SettingsDaemon", ":1.5", "");
+        bus.ownerChanged("org.gnome.SettingsDaemon", "", ":1.99");
+        expect(bus.grabs()).toHaveLength(2);
+    });
+
+    it("does nothing off Linux or without a session bus", async () => {
+        const connect = vi.fn();
+        expect(await startMediaKeyRouter({ log: quiet, connect, platform: "win32", hasBus: true })).toBeNull();
+        expect(await startMediaKeyRouter({ log: quiet, connect, platform: "linux", hasBus: false })).toBeNull();
+        expect(connect).not.toHaveBeenCalled();
+    });
+
+    it("closes the bus and rejects when the grab fails", async () => {
+        bus.failGrab = true;
+        await expect(startMediaKeyRouter({ log: quiet, connect: async () => bus, platform: "linux", hasBus: true })).rejects.toThrow("ServiceUnknown");
+        expect(bus.closed).toBe(true);
+    });
+
+    it("stop() closes the bus, which drops the grab", async () => {
+        const handle = await start();
+        handle.stop();
+        expect(bus.closed).toBe(true);
     });
 });
