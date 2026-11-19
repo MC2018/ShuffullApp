@@ -1,5 +1,5 @@
 import axios, { AxiosHeaders, AxiosInstance } from "axios";
-import { AuthenticateResponse, AuthenticateResponseSchema, ChangedSongKeysSchema, ChangedSongPageSchema, CreatePlaylistResponseSchema, FeedCursor, GenreJam, GenreJamListResponseSchema, KeepResponse, KeepResponseSchema, ListenStatsResponse, ListenStatsResponseSchema, Playlist, PlaylistListResponseSchema, Recap, RecapSchema, RecordListensResponse, RecordListensResponseSchema, RetagResponse, RetagStaleResponse, SaveGenreJamResponseSchema, SongListResponseSchema, SongRetagWireItem, Tag, TagListResponseSchema, UserResponseSchema, UserSongKeysSchema, UserSongPageSchema } from "./models";
+import { AuthenticateResponse, AuthenticateResponseSchema, ChangedSongKeysSchema, ChangedSongPageSchema, CreatePlaylistResponseSchema, FeedCursor, GenreJam, GenreJamListResponseSchema, KeepResponse, KeepResponseSchema, ListenStatsResponse, ListenStatsResponseSchema, Playlist, PlaylistListResponseSchema, Recap, RecapSchema, RecordListensResponse, RecordListensResponseSchema, RetagResponse, RetagStaleResponse, SongListResponseSchema, SongRetagWireItem, Tag, TagListResponseSchema, UserResponseSchema, UserSongKeysSchema, UserSongPageSchema } from "./models";
 import { ApiStatusFailureError } from "./errors";
 import { RecordListenPayload, SaveGenreJamPayload, UpdateSongLastPlayedRequest, UpdateSongMetadataPayload } from "../db/models";
 
@@ -233,8 +233,10 @@ export class ApiClient {
         }
     }
 
-    // Creates or replaces one Genre Jam under the id the app chose for it.
-    public async genreJamSave(jam: SaveGenreJamPayload): Promise<GenreJam> {
+    // Creates or replaces one Genre Jam under the id the app chose for it. The saved jam the server sends back isn't
+    // read: the next pull brings it, and a response that failed to parse would otherwise read as a 500 and stall the
+    // outbox behind a save the server already made.
+    public async genreJamSave(jam: SaveGenreJamPayload): Promise<void> {
         const endpoint = `/api/v1/genre-jams/${encodeURIComponent(jam.genreJamId)}`;
         console.log(`[API] Calling endpoint: ${endpoint} (save)`);
         try {
@@ -252,7 +254,7 @@ export class ApiClient {
                 throw new ApiStatusFailureError(endpoint, response);
             }
 
-            return SaveGenreJamResponseSchema.parse(response.data).genreJam;
+            console.log(`[API] Endpoint ${endpoint} succeeded`);
         } catch (error) {
             console.log(`[API] Endpoint ${endpoint} (save) failed with error:`, error);
             throw error;

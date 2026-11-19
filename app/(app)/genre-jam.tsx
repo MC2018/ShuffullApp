@@ -8,7 +8,7 @@ import DbQueries from "@/app/services/db/queries";
 import { useDb } from "@/app/services/db/DbProvider";
 import { useCurrentUser } from "@/app/services/auth/CurrentUserProvider";
 import { generateId } from "@/app/tools";
-import { TagType } from "@/app/services/db/schema";
+import { GENRE_JAM_MAX_NAME_LENGTH, TagType } from "@/app/services/db/schema";
 import { GenreJam } from "@/app/services/db/models";
 import { WhitelistSetting } from "@/app/services/db/types";
 import { launchJam } from "@/app/services/genre-jam";
@@ -322,7 +322,7 @@ export default function GenreJamEditor() {
                 })}
 
                 <SectionHeader title={editingId ? "Update this jam" : "Save this jam"} />
-                <TextField placeholder="Jam name (e.g. Late Night)" value={jamName} onChangeText={setJamName} autoCapitalize="words" />
+                <TextField placeholder="Jam name (e.g. Late Night)" value={jamName} onChangeText={setJamName} autoCapitalize="words" maxLength={GENRE_JAM_MAX_NAME_LENGTH} />
                 <Button
                     label={saved ? "Saved ✓" : editingId ? "Save changes" : "Save jam"}
                     variant="ghost"

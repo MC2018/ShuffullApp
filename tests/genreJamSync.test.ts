@@ -8,6 +8,7 @@ import type { GenericDb } from "@/app/services/db/GenericDb";
 import { getRequests } from "@/app/services/db/queries/request";
 import { deleteGenreJam, getGenreJam, getGenreJams, replaceGenreJams, saveGenreJam } from "@/app/services/db/queries/genreJam";
 import { RequestType } from "@/app/enums";
+import { GENRE_JAM_MAX_NAME_LENGTH } from "@/app/services/db/schema";
 
 /** ShuffullApp#214: a Genre Jam save or delete is the local row AND its outbox row, written together. */
 const USER = "u1";
@@ -49,6 +50,14 @@ describe("saving and deleting a Genre Jam queues it for the server", () => {
         ]);
     });
 
+    it("a name past the server's limit is cut to it, here and in the queued save", async () => {
+        await saveGenreJam(db, jam("jam-1", `  ${"a".repeat(120)}  `));
+
+        const expected = "a".repeat(GENRE_JAM_MAX_NAME_LENGTH);
+        expect((await getGenreJams(db, USER)).map(x => x.name)).toEqual([expected]);
+        expect((await getRequests(db, USER)).map(x => (x.payload as { name: string }).name)).toEqual([expected]);
+    });
+
     it("a save whose outbox row can't be written leaves no jam behind", async () => {
         await db.run(sql`create trigger refuse_requests before insert on requests begin select raise(abort, 'outbox refused'); end`);
 
@@ -78,6 +87,14 @@ describe("replaceGenreJams: what a sync writes", () => {
 
         expect((await getGenreJams(db, USER)).map(x => x.genreJamId)).toEqual(["jam-a", "jam-b"]);
         expect(await getRequests(db, USER)).toHaveLength(queued);
+    });
+
+    it("writes more jams than one statement can hold", async () => {
+        const many = Array.from({ length: 600 }, (_, i) => jam(`jam-${String(i).padStart(3, "0")}`, `Jam ${String(i).padStart(3, "0")}`));
+
+        await replaceGenreJams(db, USER, many);
+
+        expect(await getGenreJams(db, USER)).toHaveLength(600);
     });
 
     it("leaves other accounts' jams alone, unless one holds an id the server just gave this user", async () => {

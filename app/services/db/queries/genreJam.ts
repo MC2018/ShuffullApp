@@ -1,7 +1,8 @@
 import { GenericDb } from "../GenericDb";
 import { GenreJam } from "../models";
-import { genreJamTable } from "../schema";
+import { GENRE_JAM_MAX_NAME_LENGTH, genreJamTable, SaveGenreJamPayload } from "../schema";
 import { withTransaction } from "../transaction";
+import { chunkIds, chunkRows } from "./_chunk";
 import { addRequests } from "./request";
 import { RequestType } from "@/app/enums";
 import { generateId } from "@/app/tools/pure";
@@ -30,31 +31,20 @@ export async function getGenreJams(db: GenericDb, userId: string): Promise<Genre
 
 /** Creates or replaces a jam on this device and queues the same save for the server. */
 export async function saveGenreJam(db: GenericDb, jam: GenreJam): Promise<void> {
+    // The server refuses a name past its limit for good, so the jam would never leave this device.
+    const { userId, ...fields } = { ...jam, name: jam.name.trim().slice(0, GENRE_JAM_MAX_NAME_LENGTH) };
+    const payload: SaveGenreJamPayload = fields;
     await withTransaction(db, async tx => {
-        await tx.insert(genreJamTable).values([jam]).onConflictDoUpdate({
+        await tx.insert(genreJamTable).values([{ ...payload, userId }]).onConflictDoUpdate({
             target: genreJamTable.genreJamId,
-            set: {
-                userId: jam.userId,
-                name: jam.name,
-                whitelists: jam.whitelists,
-                blacklists: jam.blacklists,
-                heavinessMin: jam.heavinessMin,
-                heavinessMax: jam.heavinessMax,
-            },
+            set: { ...payload, userId },
         });
         await addRequests(tx, [{
             requestId: generateId(),
             timeRequested: new Date(),
             requestType: RequestType.SaveGenreJam,
-            userId: jam.userId,
-            payload: {
-                genreJamId: jam.genreJamId,
-                name: jam.name,
-                whitelists: jam.whitelists,
-                blacklists: jam.blacklists,
-                heavinessMin: jam.heavinessMin,
-                heavinessMax: jam.heavinessMax,
-            },
+            userId,
+            payload,
         }]);
     });
 }
@@ -81,6 +71,10 @@ export async function replaceGenreJams(db: GenericDb, userId: string, jams: Genr
         return;
     }
     // A jam id is unique on its own, so a row another account left on this device under one of these ids gives way.
-    await db.delete(genreJamTable).where(inArray(genreJamTable.genreJamId, jams.map(x => x.genreJamId)));
-    await db.insert(genreJamTable).values(jams);
+    for (const ids of chunkIds(jams.map(x => x.genreJamId))) {
+        await db.delete(genreJamTable).where(inArray(genreJamTable.genreJamId, ids));
+    }
+    for (const rows of chunkRows(jams)) {
+        await db.insert(genreJamTable).values(rows);
+    }
 }

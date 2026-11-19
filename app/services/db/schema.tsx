@@ -202,6 +202,9 @@ export interface DeletePlaylistPayload {
 // listenId, so a resend after a lost response comes back "duplicate" instead of counting twice.
 export type ListenEndReason = "finished" | "skipped" | "previous" | "stopped";
 export type ListenContext = "playlist" | "audition" | "genreJam" | "other";
+// The longest jam name the server takes (Shuffull's GenreJam.MaxNameLength). A longer one would be refused for good.
+export const GENRE_JAM_MAX_NAME_LENGTH = 100;
+
 // A Genre Jam save, exactly as PUT /api/v1/genre-jams/{id} takes it plus the id: the whole jam, so a resend changes
 // nothing and the last save to arrive wins.
 export interface SaveGenreJamPayload {
