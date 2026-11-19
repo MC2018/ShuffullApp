@@ -90,7 +90,7 @@ describe("showAlert (web)", () => {
 
     it("logs a failing async button instead of leaving an unhandled rejection", async () => {
         const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
-        showAlert("Delete", undefined, [{ text: "Delete", onPress: () => Promise.reject(new Error("boom")) as unknown as void }]);
+        showAlert("Delete", undefined, [{ text: "Delete", onPress: async () => { throw new Error("boom"); } }]);
         pressDialogButton(current().id, 0);
         await new Promise((r) => setTimeout(r, 0));
         expect(warn).toHaveBeenCalledOnce();

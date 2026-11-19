@@ -1,4 +1,4 @@
-import { Modal, Pressable, View } from "react-native";
+import { Modal, Pressable, StyleSheet, View } from "react-native";
 import { useTheme } from "@/app/theme";
 import { Button, Text } from "@/app/components/ui";
 import { dismissDialog, pressDialogButton, useDialogQueue } from "@/app/tools/dialogQueue";
@@ -19,21 +19,18 @@ export default function DialogHost() {
 
     return (
         <Modal transparent visible onRequestClose={() => dismissDialog(dialog.id)}>
-            <Pressable
-                accessibilityLabel="Dismiss"
-                onPress={() => dismissDialog(dialog.id)}
+            <View
                 style={{
                     flex: 1,
                     alignItems: "center",
                     justifyContent: "center",
                     padding: theme.space.xl,
-                    backgroundColor: "rgba(0,0,0,0.55)",
+                    backgroundColor: theme.color.scrim,
                 }}
             >
-                {/* A Pressable that does nothing, so a click on the card doesn't reach the backdrop. */}
-                <Pressable
+                <Pressable style={StyleSheet.absoluteFill} accessibilityLabel="Dismiss" onPress={() => dismissDialog(dialog.id)} />
+                <View
                     accessibilityRole="alert"
-                    onPress={() => undefined}
                     style={[
                         {
                             width: "100%",
@@ -61,8 +58,8 @@ export default function DialogHost() {
                             />
                         ))}
                     </View>
-                </Pressable>
-            </Pressable>
+                </View>
+            </View>
         </Modal>
     );
 }

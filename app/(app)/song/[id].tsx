@@ -205,12 +205,13 @@ export default function SongScreen() {
         }
         // Saved and queued. Reloading the screen is separate: if it fails, the edit still stands, so it must not
         // be reported as a failed save (ShuffullApp#209: a missing album-art helper on desktop did exactly that).
-        setEditing(false);
+        // The editor closes after the reload either way, so the view opens on the new values when it works.
         try {
             await refresh();
         } catch (e) {
             console.warn("[song] edit saved, but reloading the screen failed:", e);
         } finally {
+            setEditing(false);
             setSaving(false);
         }
     }
