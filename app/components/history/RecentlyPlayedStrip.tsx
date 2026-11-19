@@ -3,7 +3,9 @@ import { router } from "expo-router";
 import { PlayHistoryItem } from "@/app/services/db/queries/playHistory";
 import { AlbumArt, SectionHeader, Text } from "@/app/components/ui";
 import { useTheme } from "@/app/theme";
-import { usePlayHistory, useSongArt } from "./usePlayHistory";
+import { useSongArt } from "@/app/components/ui/useSongArt";
+import { latestDistinctSongs } from "@/app/tools/playHistory";
+import { usePlayHistory } from "./usePlayHistory";
 
 const CARD = 112;
 /** Songs on the strip. The full list is one tap away, so this only has to answer "what was that song just now?". */
@@ -38,8 +40,7 @@ export default function RecentlyPlayedStrip() {
     const theme = useTheme();
     const { plays } = usePlayHistory(STRIP_READ);
 
-    const seen = new Set<string>();
-    const latest = plays.filter((x) => !seen.has(x.song.songId) && seen.add(x.song.songId)).slice(0, STRIP_SONGS);
+    const latest = latestDistinctSongs(plays, (x) => x.song.songId, STRIP_SONGS);
     if (latest.length === 0) {
         return null;
     }

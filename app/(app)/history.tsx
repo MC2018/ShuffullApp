@@ -14,7 +14,7 @@ import { groupPlaysByDay, PLAY_HISTORY_LIMIT } from "@/app/tools/playHistory";
 // play ends.
 export default function HistoryScreen() {
     const theme = useTheme();
-    const { plays, loaded } = usePlayHistory();
+    const { plays, loaded, failed } = usePlayHistory();
     // `plays` is a new array on every reload, and a reload is when "today" can have moved on.
     const sections = useMemo(() => groupPlaysByDay(plays, (x) => x.play.startedAt, new Date()), [plays]);
 
@@ -26,7 +26,7 @@ export default function HistoryScreen() {
                     <Text variant="screenTitle">Recently played</Text>
                 </View>
                 <Text variant="caption" color="textMuted" style={{ marginBottom: theme.space.sm }}>
-                    The last {PLAY_HISTORY_LIMIT} songs played on this device. Tap one to open it.
+                    Your last {PLAY_HISTORY_LIMIT} plays on this device. Tap one to open it.
                 </Text>
                 <SectionList
                     style={{ flex: 1 }}
@@ -41,9 +41,11 @@ export default function HistoryScreen() {
                     )}
                     renderItem={({ item }) => <PlayHistoryRow item={item} />}
                     ListEmptyComponent={
-                        loaded ? (
+                        failed || loaded ? (
                             <Text variant="body" color="textFaint" style={{ marginTop: theme.space.lg }}>
-                                Nothing yet. Songs show up here once they finish or you skip past them.
+                                {failed
+                                    ? "Couldn't load your history. It will try again when you come back to this screen."
+                                    : "Nothing yet. Songs show up here once they finish or you skip past them."}
                             </Text>
                         ) : null
                     }

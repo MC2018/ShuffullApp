@@ -5,7 +5,7 @@ import { PlayHistoryItem } from "@/app/services/db/queries/playHistory";
 import { AlbumArt, ListRow, Text } from "@/app/components/ui";
 import { useTheme } from "@/app/theme";
 import { describePlayRow, formatPlayTime } from "@/app/tools/playHistory";
-import { useSongArt } from "./usePlayHistory";
+import { useSongArt } from "@/app/components/ui/useSongArt";
 
 /**
  * One play on the Recently played screen: art, title, "artists · how it ended · where from", and the time it started.

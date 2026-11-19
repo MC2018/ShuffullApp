@@ -111,3 +111,20 @@ export function groupPlaysByDay<T>(plays: T[], startedAt: (play: T) => Date, now
     }
     return sections;
 }
+
+/** The first `count` plays of distinct songs, in order: a song played several times keeps only its latest play. */
+export function latestDistinctSongs<T>(plays: T[], songId: (play: T) => string, count: number): T[] {
+    const seen = new Set<string>();
+    const latest: T[] = [];
+    for (const play of plays) {
+        if (latest.length >= count) {
+            break;
+        }
+        const id = songId(play);
+        if (!seen.has(id)) {
+            seen.add(id);
+            latest.push(play);
+        }
+    }
+    return latest;
+}

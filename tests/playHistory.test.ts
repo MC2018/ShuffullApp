@@ -16,6 +16,7 @@ import {
     describePlayRow,
     formatPlayTime,
     groupPlaysByDay,
+    latestDistinctSongs,
     PLAY_HISTORY_LIMIT,
 } from "@/app/tools/playHistory";
 
@@ -196,5 +197,12 @@ describe("play history: wording", () => {
         const sections = groupPlaysByDay(plays, x => x, now);
 
         expect(sections.map(x => [x.title, x.data.length])).toEqual([["Today", 2], ["Yesterday", 1], ["Monday", 1]]);
+    });
+
+    it("keeps each song's latest play once, in order, up to the count", () => {
+        const plays = ["a", "b", "a", "c", "b", "d"];
+
+        expect(latestDistinctSongs(plays, x => x, 10)).toEqual(["a", "b", "c", "d"]);
+        expect(latestDistinctSongs(plays, x => x, 2)).toEqual(["a", "b"]);
     });
 });
