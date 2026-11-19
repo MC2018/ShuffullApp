@@ -4,6 +4,24 @@ const url = require("node:url");
 const media = require("./media");
 
 /**
+ * App name, and the data dir it would otherwise move.
+ *
+ * main.js runs through Electron's default app (no package.json of its own), so the name defaults to "Electron".
+ * Chromium hands that name to PulseAudio/PipeWire as the stream's `application.name`, and PipeWire remembers
+ * "this app plays on that speaker" by that name, so a per-app output rule would also catch every other Electron
+ * app. Hence the rename. It must run before anything reads a path or starts audio.
+ *
+ * The trap: the default `userData` is derived from the app name, so the rename alone would move it from
+ * ~/.config/Electron to ~/.config/Shuffull, and the app would open logged out, with an empty library and no
+ * downloads (the local DB lives in OPFS under userData). Pin it to the folder every existing install uses.
+ *
+ * Not fixable here: `application.icon_name` stays "electron". Chromium sets it, and the PULSE_PROP env vars don't
+ * override it. The X11 window class also stays "electron", which the installed .desktop entry matches on.
+ */
+app.setName("Shuffull");
+app.setPath("userData", path.join(app.getPath("appData"), "Electron"));
+
+/**
  * Global rating shortcuts.
  *
  * NO SUPER-BASED ACCELERATORS. This is the trap that made the first attempt (Super+Alt+…) silently do nothing:
