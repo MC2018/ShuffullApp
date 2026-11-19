@@ -7,6 +7,7 @@ import { DbProvider } from "./services/db/DbProvider";
 import DownloaderProvider from "./services/downloader/DownloaderProvider";
 import { SessionBootstrap } from "./services/auth/SessionBootstrap";
 import { ThemeProvider, color } from "./theme";
+import DialogHost from "./components/common/DialogHost";
 
 // react-navigation's theme drives the scene/card backgrounds shown during transitions. Its default is light,
 // so a nested transition (e.g. a push inside a tab) briefly reveals a white scene behind the sliding card,
@@ -42,6 +43,7 @@ export default function RootLayout() {
                                     <Stack.Screen name="notification.click" />
                                 </Stack>
                             </View>
+                            <DialogHost />
                         </NavThemeProvider>
                     </SafeAreaProvider>
                 </DownloaderProvider>
