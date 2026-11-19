@@ -4,6 +4,7 @@ import { GenericDb } from "../GenericDb";
 import { OpenListen, RecordListenPayload, RecordListenRequest } from "../models";
 import { listenTable } from "../schema";
 import { withTransaction } from "../transaction";
+import { recordPlay } from "./playHistory";
 import { addRequestIfAbsent } from "./request";
 
 // Writes or refreshes the open listen's checkpoint. Plain db, not a transaction of its own: a checkpoint caught in a
@@ -23,9 +24,10 @@ export async function getOpenListens(db: GenericDb): Promise<OpenListen[]> {
     return await db.select().from(listenTable);
 }
 
-// Closes a listen: drops its open row and queues the finished listen in the outbox, together, so a crash can neither
-// lose it nor leave it open to be recovered and sent twice. The outbox row's id is the listen's, so a second close of
-// the same listen is ignored here, and a resend after a lost response comes back "duplicate" from the server.
+// Closes a listen: drops its open row, queues the finished listen in the outbox and adds it to the play history
+// (Recently played), together, so a crash can neither lose it nor leave it open to be recovered and sent twice. The
+// outbox and history rows' ids are the listen's, so a second close of the same listen is ignored here, and a resend
+// after a lost response comes back "duplicate" from the server.
 export async function closeListen(db: GenericDb, listen: RecordListenPayload, now: Date = new Date()): Promise<void> {
     const request: RecordListenRequest = {
         requestId: listen.listenId,
@@ -39,5 +41,6 @@ export async function closeListen(db: GenericDb, listen: RecordListenPayload, no
     await withTransaction(db, async tx => {
         await tx.delete(listenTable).where(eq(listenTable.listenId, listen.listenId));
         await addRequestIfAbsent(tx, request);
+        await recordPlay(tx, listen);
     });
 }

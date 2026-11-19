@@ -7,6 +7,7 @@ import * as genreJam from "./genreJam";
 import * as listen from "./listen";
 import * as listenStats from "./listenStats";
 import * as localSessionData from "./localSessionData";
+import * as playHistory from "./playHistory";
 import * as playlist from "./playlist";
 import * as recentlyPlayedSong from "./recentlyPlayedSong";
 import * as request from "./request";
@@ -25,6 +26,7 @@ const DbQueries = {
     ...listen,
     ...listenStats,
     ...localSessionData,
+    ...playHistory,
     ...playlist,
     ...recentlyPlayedSong,
     ...request,

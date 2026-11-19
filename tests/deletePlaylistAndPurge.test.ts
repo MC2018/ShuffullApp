@@ -46,6 +46,7 @@ function makeDb(): GenericDb {
         CREATE TABLE recently_played_songs (
             recently_played_song_id TEXT PRIMARY KEY, song_id TEXT NOT NULL, timestamp_seconds INTEGER, last_played INTEGER NOT NULL
         );
+        CREATE TABLE play_history ( listen_id TEXT PRIMARY KEY, user_id TEXT NOT NULL, song_id TEXT NOT NULL );
     `);
     return drizzle(sqlite) as unknown as GenericDb;
 }
