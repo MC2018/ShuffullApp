@@ -270,6 +270,29 @@ export const listenTable = sqliteTable("listens", {
     checkpointedAt: integer("checkpointed_at", { mode: "timestamp_ms" }).notNull(),
 });
 
+// What this device played, newest first: the Recently played screen. One row per closed listen, written in the same
+// transaction that queues it (closeListen), so every play the server hears about is here too. Unlike
+// recently_played_songs - the player's back/forward list, wiped whenever a new playlist or audition starts - nothing
+// clears this but a song purge and the cap (PLAY_HISTORY_LIMIT per user). Local only: other devices' plays are on the
+// server, not here, and a schema rebuild drops it (recovery.ts does not preserve it; losing it costs no user data).
+export const playHistoryTable = sqliteTable("play_history", {
+    // The listen's id, so a listen closed twice is recorded once.
+    listenId: text("listen_id").primaryKey(),
+    userId: text("user_id").notNull(),
+    songId: text("song_id").notNull(),
+    startedAt: integer("started_at", { mode: "timestamp_ms" }).notNull(),
+    endedAt: integer("ended_at", { mode: "timestamp_ms" }).notNull(),
+    secondsListened: real("seconds_listened").notNull(),
+    songDurationSeconds: real("song_duration_seconds"),
+    endReason: text("end_reason").$type<ListenEndReason>().notNull(),
+    context: text("context").$type<ListenContext>().notNull(),
+    playlistId: text("playlist_id"),
+}, (table) => {
+    return {
+        userStartedIndex: index("idx_play_history_user_started").on(table.userId, table.startedAt),
+    };
+});
+
 // The server's per-song listen stats (GET /api/v1/listens/stats, ShuffullApp#115) as of the last refresh, so song
 // details and the "Maybe drop this" list work offline. A cache, not data: every refresh replaces the user's rows, and
 // a schema rebuild may drop it, since the next sync fetches it again. No foreign key to songs: the server keeps

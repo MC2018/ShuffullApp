@@ -162,6 +162,15 @@ export default function NowPlayingScreen() {
                 </Text>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: theme.space.sm }}>
                     {details ? <SongDownloadControl song={details.song} /> : null}
+                    {/* The songs before this one. The player's own back button can't reach past the playlist or
+                        audition you started last; this list can. */}
+                    <IconButton
+                        name="time-outline"
+                        size={22}
+                        color={theme.color.textMuted}
+                        onPress={() => router.push("/history")}
+                        accessibilityLabel="Recently played"
+                    />
                     <IconButton
                         name="information-circle-outline"
                         size={22}

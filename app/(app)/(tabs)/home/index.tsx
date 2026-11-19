@@ -16,6 +16,7 @@ import { AlbumArt, Card, IconButton, Screen, SectionHeader, Text } from "@/app/c
 import AppVersion from "@/app/components/common/AppVersion";
 import { useTheme } from "@/app/theme";
 import { useRecapButton } from "@/app/services/recap/useRecapButton";
+import RecentlyPlayedStrip from "@/app/components/history/RecentlyPlayedStrip";
 
 const defaultArt: ImageURISource = require("@/assets/images/default-album-art.jpg");
 type ArtSource = ImageURISource | { uri: string };
@@ -126,6 +127,8 @@ export default function HomeScreen() {
                         </Card>
                     </Pressable>
                 ) : null}
+
+                <RecentlyPlayedStrip />
 
                 <SectionHeader title="Start something" />
                 <Pressable onPress={() => router.push("/genre-jam")}>

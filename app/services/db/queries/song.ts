@@ -1,7 +1,7 @@
 import { SongFilters } from "@/app/types/SongFilters";
 import { GenericDb } from "../GenericDb";
 import { Song, UpdateSongMetadataPayload } from "../models";
-import { artistTable, downloadedSongTable, downloadQueueTable, playlistSongTable, recentlyPlayedSongTable, songArtistTable, songTable, songTagTable, tagTable, userSongTable } from "../schema";
+import { artistTable, downloadedSongTable, downloadQueueTable, playHistoryTable, playlistSongTable, recentlyPlayedSongTable, songArtistTable, songTable, songTagTable, tagTable, userSongTable } from "../schema";
 import { eq, inArray, sql, asc } from "drizzle-orm";
 import { SongDetails } from "../types";
 // Import the dependency-free helper directly (not via @/app/tools, which re-exports React-Native-bound utils)
@@ -599,6 +599,7 @@ export async function purgeSongs(db: GenericDb, songIds: string[]): Promise<Song
         await db.delete(downloadedSongTable).where(inArray(downloadedSongTable.songId, idChunk));
         await db.delete(downloadQueueTable).where(inArray(downloadQueueTable.songId, idChunk));
         await db.delete(recentlyPlayedSongTable).where(inArray(recentlyPlayedSongTable.songId, idChunk));
+        await db.delete(playHistoryTable).where(inArray(playHistoryTable.songId, idChunk));
         await db.delete(songTable).where(inArray(songTable.songId, idChunk));
     }
     return purged;
