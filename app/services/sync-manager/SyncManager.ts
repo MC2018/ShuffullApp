@@ -12,7 +12,7 @@ import { Downloader } from "@/app/services/downloader/Downloader";
 import { STORAGE_KEYS } from "@/app/constants/storageKeys";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { ListenStatsAttempt, listenStatsDue } from "@/app/tools/listenStats";
-import { collectNewSongIds, FEED_START, failedKeeps, failedListens, groupRequestsIntoBatches, holdBehindRefused, keepsDueForRetry, markRefused, OUTBOX_MAX_BATCH_SIZE, pageFeed, partitionRejectedRequests, playlistDeleteHold, playlistsToFetch, pendingSongMisses, SONG_FIELDS_REVISION, SONG_LIST_MAX_IDS, songFeedStart, songReconcileDue, SongReconcileState, songsGoneFromServer, summarizeRetagFailures, SYNC_INTERVAL_MS, syncTicksToSkip, toRetagItems, withoutPendingDeletes } from "@/app/services/sync-manager/syncLogic";
+import { collectNewSongIds, FEED_START, failedKeeps, failedListens, groupRequestsIntoBatches, holdBehindRefused, keepsDueForRetry, markRefused, mergeGenreJams, OUTBOX_MAX_BATCH_SIZE, pageFeed, partitionRejectedRequests, playlistDeleteHold, playlistsToFetch, pendingSongMisses, SONG_FIELDS_REVISION, SONG_LIST_MAX_IDS, songFeedStart, songReconcileDue, SongReconcileState, songsGoneFromServer, summarizeRetagFailures, SYNC_INTERVAL_MS, syncTicksToSkip, toRetagItems, withoutPendingDeletes } from "@/app/services/sync-manager/syncLogic";
 
 /** What one outbox batch came back with: the status sync() acts on, and the error text when it failed. */
 interface RunResult {
@@ -221,6 +221,19 @@ export class SyncManager {
                 });
             case RequestType.RecordListen:
                 return await this.attempt(() => this.recordListens(requests as DbModels.RecordListenRequest[]));
+            case RequestType.SaveGenreJam:
+                // Processed individually; loop defensively all the same. The local row was written with the request.
+                return await this.attempt(async () => {
+                    for (const request of requests as DbModels.SaveGenreJamRequest[]) {
+                        await this.api.genreJamSave(request.payload);
+                    }
+                });
+            case RequestType.DeleteGenreJam:
+                return await this.attempt(async () => {
+                    for (const request of requests as DbModels.DeleteGenreJamRequest[]) {
+                        await this.api.genreJamDelete(request.payload.genreJamId);
+                    }
+                });
             default:
                 throw new Error("A request type has no method to call.");
         }
@@ -421,6 +434,19 @@ export class SyncManager {
         }
     }
 
+    // The user's jams from the server, or null when the server has no genre-jam endpoint yet (404). Anything else
+    // throws, and fails the sync like any other read.
+    private async fetchGenreJams(): Promise<ApiModels.GenreJam[] | null> {
+        try {
+            return await this.api.genreJamGetAll();
+        } catch (e) {
+            if (statusOfFailure(e) == HttpStatusCode.NotFound) {
+                return null;
+            }
+            throw e;
+        }
+    }
+
     private async overallSync(): Promise<HttpStatusCode> {
         try {
             // ── Phase 1: read local state + fetch over the network (NO write transaction held) ──
@@ -434,6 +460,10 @@ export class SyncManager {
             const accessiblePlaylists = withoutPendingDeletes(
                 await this.api.playlistGetAll(),
                 await DbQueries.getRequests(this.db, this.userId));
+
+            // Genre Jams: the whole (small) list every sync. Null from a server that predates them (404), which leaves
+            // the local jams as they are rather than fail the whole sync.
+            const genreJams = await this.fetchGenreJams();
 
             // Decide which playlists changed (local read) and fetch just those.
             const localPlaylists = await DbQueries.getPlaylists(this.db, this.userId);
@@ -538,6 +568,13 @@ export class SyncManager {
                 }
 
                 await DbQueries.updateUserSongs(tx, updatedUserSongs);
+
+                if (genreJams != null) {
+                    // The outbox read again inside the transaction, so a jam saved or deleted since phase 1 keeps its
+                    // local state until its request is sent (mergeGenreJams).
+                    const merged = mergeGenreJams(genreJams, await DbQueries.getRequests(tx, this.userId));
+                    await DbQueries.replaceGenreJams(tx, this.userId, merged.map(x => ({ ...x, userId: this.userId })));
+                }
 
                 // Changed songs already have artist/tag joins; clear them so a changed set doesn't leave
                 // stale links behind (the batch loop rebuilds them via insert-or-ignore). New songs have none.

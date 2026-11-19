@@ -8,7 +8,7 @@ import os from "os";
 import path from "path";
 import type { GenericDb } from "@/app/services/db/GenericDb";
 import { addRequests, deadLetterRequests, getDeadLetterRequests, getRequests } from "@/app/services/db/queries/request";
-import { addGenreJam, getGenreJams } from "@/app/services/db/queries/genreJam";
+import { getGenreJams, saveGenreJam } from "@/app/services/db/queries/genreJam";
 import { getOpenListens, saveOpenListen } from "@/app/services/db/queries/listen";
 import { prepareDatabase, rebuildKeepingLocalData, restoreRescuedTables } from "@/app/services/db/recovery";
 import { RequestType } from "@/app/enums";
@@ -16,7 +16,7 @@ import { RequestType } from "@/app/enums";
 /**
  * ShuffullApp#92: a migration that fails used to delete the database file outright, and the outbox with it —
  * queued Keeps, Likes and playlist deletes that exist nowhere else until they are sent — plus the dead letters
- * and the user's genre jams.
+ * and the user's genre jams. Genre jams sync now (ShuffullApp#214), so only an unsent one's outbox row is kept.
  *
  * These run against a real database FILE, so "the app was killed" can be shown by closing it and opening it again.
  */
@@ -115,6 +115,7 @@ const deletePlaylist = {
 };
 const jam = {
     genreJamId: "jam-1",
+    userId: "u1",
     name: "Morning",
     whitelists: { artistIds: ["a1"], playlistIds: [], genreIds: [], timePeriodIds: [], languageIds: [], moodIds: [], themeIds: [] },
     blacklists: { artistIds: [], playlistIds: [], genreIds: [], timePeriodIds: [], languageIds: [], moodIds: [], themeIds: [] },
@@ -142,13 +143,12 @@ function insertOldKeep() {
 }
 
 describe("a failed migration rebuilds the database and keeps the data only this device has", () => {
-    it("outbox, dead letters, genre jams and an open listen survive; the server cache is dropped", async () => {
+    it("outbox, dead letters and an open listen survive; the server cache is dropped", async () => {
         const db = asDb(sqlite);
         await migrateLatest();
         await addRequests(db, [keep, deletePlaylist]);
         await addRequests(db, [{ ...keep, requestId: "keep-2", songId: "s9" }]);
         await deadLetterRequests(db, [{ request: { ...keep, requestId: "keep-2", songId: "s9" }, reason: "not in your library" }]);
-        await addGenreJam(db, jam);
         await saveOpenListen(db, openListen);
         sqlite.exec("INSERT INTO users (user_id, username, version) VALUES ('u1', 'max', 0)");
 
@@ -162,7 +162,6 @@ describe("a failed migration rebuilds the database and keeps the data only this 
         expect(dead).toHaveLength(1);
         expect(dead[0]).toMatchObject({ requestId: "keep-2", songId: "s9", reason: "not in your library" });
         expect(dead[0].request).toMatchObject({ requestId: "keep-2", songId: "s9" });
-        expect(await getGenreJams(fresh)).toEqual([expect.objectContaining(jam)]);
         expect(await getOpenListens(fresh)).toEqual([openListen]);
         expect(rescued()).toEqual([]);
     });
@@ -193,17 +192,18 @@ describe("a failed migration rebuilds the database and keeps the data only this 
         expect(row.playlistId).toBeNull();
     });
 
-    it("a genre jam from before the heaviness rename keeps its band under the new column names", async () => {
-        // energy_min/energy_max became heaviness_min/heaviness_max (shuffull-workspace#50). Matched by name only,
-        // the band would be dropped.
+    it("a genre jam isn't carried through, but its unsent save is, so the next sync brings it back", async () => {
         const db = asDb(sqlite);
-        migrateTo(migrationsUpTo("0030_add_dead_letter_requests"));
-        sqlite.prepare(`INSERT INTO genre_jam (genre_jam_id, name, whitelists, blacklists, energy_min, energy_max)
-                        VALUES ('jam-1', 'Morning', ?, ?, 3, 5)`).run(JSON.stringify(jam.whitelists), JSON.stringify(jam.blacklists));
+        await migrateLatest();
+        await saveGenreJam(db, jam);
 
         const fresh = await rebuildKeepingLocalData(db, migrateLatest, deleteFile);
 
-        expect(await getGenreJams(fresh)).toEqual([expect.objectContaining({ genreJamId: "jam-1", heavinessMin: 3, heavinessMax: 5 })]);
+        expect(await getGenreJams(fresh, "u1")).toEqual([]);
+        expect(await getRequests(fresh, "u1")).toEqual([expect.objectContaining({
+            requestType: RequestType.SaveGenreJam,
+            payload: expect.objectContaining({ genreJamId: "jam-1", name: "Morning" }),
+        })]);
         expect(rescued()).toEqual([]);
     });
 
@@ -233,16 +233,33 @@ describe("upgrading across the heaviness rename", () => {
     it("a song's score and a genre jam's band move to the new columns with their values", async () => {
         // Migration 0031 renames songs.energy and genre_jam.energy_min/max (shuffull-workspace#50). Nothing is
         // rebuilt on this path, so the rename itself has to carry the values.
-        const db = asDb(sqlite);
         migrateTo(migrationsUpTo("0030_add_dead_letter_requests"));
         sqlite.prepare("INSERT INTO songs (song_id, file_extension, file_hash, name, energy) VALUES ('s1', '.mp3', 'h', 'Song', 7)").run();
         sqlite.prepare(`INSERT INTO genre_jam (genre_jam_id, name, whitelists, blacklists, energy_min, energy_max)
                         VALUES ('jam-1', 'Morning', ?, ?, 3, 5)`).run(JSON.stringify(jam.whitelists), JSON.stringify(jam.blacklists));
 
-        await migrateLatest();
+        migrateTo(migrationsUpTo("0034_add_listen_stats"));
 
         expect(sqlite.prepare("SELECT heaviness FROM songs WHERE song_id = 's1'").get()).toEqual({ heaviness: 7 });
-        expect(await getGenreJams(db)).toEqual([expect.objectContaining({ genreJamId: "jam-1", heavinessMin: 3, heavinessMax: 5 })]);
+        expect(sqlite.prepare("SELECT heaviness_min, heaviness_max FROM genre_jam WHERE genre_jam_id = 'jam-1'").get())
+            .toEqual({ heaviness_min: 3, heaviness_max: 5 });
+    });
+});
+
+describe("migration 0035 (genre jams sync per user)", () => {
+    it("drops the jams saved before it, which have no owner, and keeps everything else", async () => {
+        const db = asDb(sqlite);
+        migrateTo(migrationsUpTo("0034_add_listen_stats"));
+        sqlite.prepare("INSERT INTO songs (song_id, file_extension, file_hash, name) VALUES ('s1', '.mp3', 'h', 'Song')").run();
+        sqlite.prepare(`INSERT INTO genre_jam (genre_jam_id, name, whitelists, blacklists)
+                        VALUES ('jam-1', 'Morning', ?, ?)`).run(JSON.stringify(jam.whitelists), JSON.stringify(jam.blacklists));
+
+        await migrateLatest();
+
+        expect(sqlite.prepare("SELECT count(*) AS n FROM genre_jam").get()).toEqual({ n: 0 });
+        expect(sqlite.prepare("SELECT count(*) AS n FROM songs").get()).toEqual({ n: 1 });
+        await saveGenreJam(db, jam);
+        expect(await getGenreJams(db, "u1")).toEqual([expect.objectContaining(jam)]);
     });
 });
 
@@ -251,11 +268,10 @@ describe("the preserved rows are never only in memory", () => {
         const db = asDb(sqlite);
         await migrateLatest();
         await addRequests(db, [keep]);
-        await addGenreJam(db, jam);
 
         await expect(rebuildKeepingLocalData(db, async () => { throw new Error("killed mid-migration"); }, deleteFile))
             .rejects.toThrow("killed mid-migration");
-        expect(rescued()).toHaveLength(4); // requests, dead_letter_requests (empty), genre_jam and listens (empty)
+        expect(rescued()).toHaveLength(3); // requests, dead_letter_requests (empty) and listens (empty)
 
         // Next launch: the provider migrates (now it works) and restores whatever is rescued.
         const next = restart();
@@ -263,7 +279,6 @@ describe("the preserved rows are never only in memory", () => {
         await restoreRescuedTables(next);
 
         expect(await getRequests(next, "u1")).toEqual([expect.objectContaining(keep)]);
-        expect(await getGenreJams(next)).toEqual([expect.objectContaining(jam)]);
         expect(rescued()).toEqual([]);
     });
 

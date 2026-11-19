@@ -82,7 +82,7 @@ export default function GenreJamEditor() {
 
             // When editing, overlay the saved jam's include/exclude (and mood) selections onto the catalogs so
             // every chip reflects how the jam was last saved.
-            const editing = editingId ? await DbQueries.getGenreJam(db, editingId) : undefined;
+            const editing = editingId ? await DbQueries.getGenreJam(db, userId, editingId) : undefined;
             const toItems = (arr: { id: string; name: string }[], jamKey: keyof WhitelistSetting): FilterItem[] => {
                 const inc = new Set(editing?.whitelists?.[jamKey] ?? []);
                 const exc = new Set(editing?.blacklists?.[jamKey] ?? []);
@@ -160,6 +160,7 @@ export default function GenreJamEditor() {
         blacklists.themeIds = themes.filter((t) => t.status === "exclude").map((t) => t.id);
         return {
             genreJamId: editingId ?? generateId(),
+            userId,
             name,
             whitelists,
             blacklists,
@@ -177,12 +178,11 @@ export default function GenreJamEditor() {
         if (!name) {
             return;
         }
+        await DbQueries.saveGenreJam(db, buildJam(name));
         if (editingId) {
-            await DbQueries.updateGenreJam(db, buildJam(name));
             router.back();
             return;
         }
-        await DbQueries.addGenreJam(db, buildJam(name));
         setSaved(true);
         setTimeout(() => setSaved(false), 1800);
     };

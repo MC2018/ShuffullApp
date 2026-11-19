@@ -1,7 +1,7 @@
 import axios, { AxiosHeaders, AxiosInstance } from "axios";
-import { AuthenticateResponse, AuthenticateResponseSchema, ChangedSongKeysSchema, ChangedSongPageSchema, CreatePlaylistResponseSchema, FeedCursor, KeepResponse, KeepResponseSchema, ListenStatsResponse, ListenStatsResponseSchema, Playlist, PlaylistListResponseSchema, Recap, RecapSchema, RecordListensResponse, RecordListensResponseSchema, RetagResponse, RetagStaleResponse, SongListResponseSchema, SongRetagWireItem, Tag, TagListResponseSchema, UserResponseSchema, UserSongKeysSchema, UserSongPageSchema } from "./models";
+import { AuthenticateResponse, AuthenticateResponseSchema, ChangedSongKeysSchema, ChangedSongPageSchema, CreatePlaylistResponseSchema, FeedCursor, GenreJam, GenreJamListResponseSchema, KeepResponse, KeepResponseSchema, ListenStatsResponse, ListenStatsResponseSchema, Playlist, PlaylistListResponseSchema, Recap, RecapSchema, RecordListensResponse, RecordListensResponseSchema, RetagResponse, RetagStaleResponse, SaveGenreJamResponseSchema, SongListResponseSchema, SongRetagWireItem, Tag, TagListResponseSchema, UserResponseSchema, UserSongKeysSchema, UserSongPageSchema } from "./models";
 import { ApiStatusFailureError } from "./errors";
-import { RecordListenPayload, UpdateSongLastPlayedRequest, UpdateSongMetadataPayload } from "../db/models";
+import { RecordListenPayload, SaveGenreJamPayload, UpdateSongLastPlayedRequest, UpdateSongMetadataPayload } from "../db/models";
 
 // How long a call may take before it counts as no answer (a 503 to the sync, which then backs off and retries).
 // One 3 s limit for everything was too short for the big calls: a 500-id song list or a 200-song keep on a slow
@@ -198,6 +198,70 @@ export class ApiClient {
 
     public async playlistDelete(playlistId: string): Promise<void> {
         const endpoint = `/api/v1/playlists/${playlistId}`;
+        console.log(`[API] Calling endpoint: ${endpoint} (delete)`);
+        try {
+            const response = await this.client.delete(endpoint);
+
+            if (!isSuccessfulStatus(response.status)) {
+                console.log(`[API] Endpoint ${endpoint} failed with status: ${response.status}`);
+                throw new ApiStatusFailureError(endpoint, response);
+            }
+        } catch (error) {
+            console.log(`[API] Endpoint ${endpoint} (delete) failed with error:`, error);
+            throw error;
+        }
+    }
+
+    // The signed-in user's Genre Jams. A server from before Shuffull's genre-jam endpoints answers 404; the sync then
+    // leaves the local jams as they are (SyncManager.overallSync).
+    public async genreJamGetAll(): Promise<GenreJam[]> {
+        const endpoint = "/api/v1/genre-jams";
+        console.log(`[API] Calling endpoint: ${endpoint}`);
+        try {
+            const response = await this.client.get(endpoint, { timeout: BULK_TIMEOUT_MS });
+
+            if (!isSuccessfulStatus(response.status)) {
+                console.log(`[API] Endpoint ${endpoint} failed with status: ${response.status}`);
+                throw new ApiStatusFailureError(endpoint, response);
+            }
+
+            console.log(`[API] Endpoint ${endpoint} succeeded`);
+            return GenreJamListResponseSchema.parse(response.data).genreJams;
+        } catch (error) {
+            console.log(`[API] Endpoint ${endpoint} failed with error:`, error);
+            throw error;
+        }
+    }
+
+    // Creates or replaces one Genre Jam under the id the app chose for it.
+    public async genreJamSave(jam: SaveGenreJamPayload): Promise<GenreJam> {
+        const endpoint = `/api/v1/genre-jams/${encodeURIComponent(jam.genreJamId)}`;
+        console.log(`[API] Calling endpoint: ${endpoint} (save)`);
+        try {
+            const body = {
+                name: jam.name,
+                whitelists: jam.whitelists,
+                blacklists: jam.blacklists,
+                heavinessMin: jam.heavinessMin,
+                heavinessMax: jam.heavinessMax,
+            };
+            const response = await this.client.put(endpoint, body);
+
+            if (!isSuccessfulStatus(response.status)) {
+                console.log(`[API] Endpoint ${endpoint} failed with status: ${response.status}`);
+                throw new ApiStatusFailureError(endpoint, response);
+            }
+
+            return SaveGenreJamResponseSchema.parse(response.data).genreJam;
+        } catch (error) {
+            console.log(`[API] Endpoint ${endpoint} (save) failed with error:`, error);
+            throw error;
+        }
+    }
+
+    // Deletes one Genre Jam. Deleting one the server doesn't have succeeds too.
+    public async genreJamDelete(genreJamId: string): Promise<void> {
+        const endpoint = `/api/v1/genre-jams/${encodeURIComponent(genreJamId)}`;
         console.log(`[API] Calling endpoint: ${endpoint} (delete)`);
         try {
             const response = await this.client.delete(endpoint);

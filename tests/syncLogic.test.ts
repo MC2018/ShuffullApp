@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { playlistsToFetch, collectNewSongIds, justBefore, nextFeedCursor, pageFeed, pendingSongMisses, SONG_RECONCILE_INTERVAL_MS, SONG_RECONFIRM_INTERVAL_MS, songFeedStart, songReconcileDue, songsGoneFromServer, holdBehindRefused, markRefused, SYNC_MAX_BACKOFF_TICKS, syncTicksToSkip } from "@/app/services/sync-manager/syncLogic";
+import { playlistsToFetch, collectNewSongIds, justBefore, nextFeedCursor, pageFeed, pendingSongMisses, SONG_RECONCILE_INTERVAL_MS, SONG_RECONFIRM_INTERVAL_MS, songFeedStart, songReconcileDue, songsGoneFromServer, holdBehindRefused, markRefused, mergeGenreJams, SYNC_MAX_BACKOFF_TICKS, syncTicksToSkip } from "@/app/services/sync-manager/syncLogic";
 import type { FeedCursor, FeedKey } from "@/app/services/api/models";
 import { RequestType } from "@/app/enums";
 
@@ -386,5 +386,61 @@ describe("holdBehindRefused", () => {
         markRefused([like("x", "x")], refused);
 
         expect(holdBehindRefused([{ requestType: RequestType.DeletePlaylist, playlistId: "x" }], refused).held).toEqual([]);
+    });
+
+    it("a refused Genre Jam save holds that jam's later save and delete, and nothing else", () => {
+        const save = (id: string, genreJamId: string) => ({ id, requestType: RequestType.SaveGenreJam, payload: { genreJamId } });
+        const refused = new Set<string>();
+        markRefused([save("x", "jam-1")], refused);
+
+        const { ready, held } = holdBehindRefused([
+            save("a", "jam-1"),
+            { id: "b", requestType: RequestType.DeleteGenreJam, payload: { genreJamId: "jam-1" } },
+            save("c", "jam-2"),
+            like("d", "jam-1"),
+        ], refused);
+        expect(held.map(x => x.id)).toEqual(["a", "b"]);
+        expect(ready.map(x => x.id)).toEqual(["c", "d"]);
+    });
+});
+
+describe("mergeGenreJams", () => {
+    const filters = (genreIds: string[] = []) =>
+        ({ artistIds: [], playlistIds: [], genreIds, timePeriodIds: [], languageIds: [], moodIds: [], themeIds: [] });
+    const serverJam = (genreJamId: string, name: string) => ({
+        genreJamId, name, whitelists: filters(["tag-rock"]), blacklists: filters(), heavinessMin: 4, heavinessMax: 6,
+        version: new Date("2026-11-19T00:00:00Z"),
+    });
+    const save = (genreJamId: string, name: string) => ({
+        requestType: RequestType.SaveGenreJam,
+        payload: { genreJamId, name, whitelists: filters(), blacklists: filters(), heavinessMin: null, heavinessMax: null },
+    });
+    const del = (genreJamId: string) => ({ requestType: RequestType.DeleteGenreJam, payload: { genreJamId } });
+
+    it("takes the server's jams as they are when nothing about them is queued", () => {
+        expect(mergeGenreJams([serverJam("jam-1", "Loud")], [{ requestType: RequestType.SetSongLikeStatus }])).toEqual([{
+            genreJamId: "jam-1", name: "Loud", whitelists: filters(["tag-rock"]), blacklists: filters(), heavinessMin: 4, heavinessMax: 6,
+        }]);
+    });
+
+    it("keeps a jam saved here but not sent yet, and the last queued edit over the server's copy", () => {
+        const merged = mergeGenreJams(
+            [serverJam("jam-1", "Loud")],
+            [save("jam-1", "Louder"), save("jam-2", "New"), save("jam-1", "Loudest")]);
+
+        expect(merged.map(x => [x.genreJamId, x.name])).toEqual([["jam-1", "Loudest"], ["jam-2", "New"]]);
+        expect(merged[0].heavinessMin).toBeNull();
+    });
+
+    it("leaves out a jam whose delete is still queued, and brings back one saved again after its delete", () => {
+        const merged = mergeGenreJams(
+            [serverJam("jam-1", "Loud"), serverJam("jam-2", "Calm")],
+            [del("jam-1"), del("jam-2"), save("jam-2", "Calm again")]);
+
+        expect(merged.map(x => [x.genreJamId, x.name])).toEqual([["jam-2", "Calm again"]]);
+    });
+
+    it("a jam deleted after its unsent save stays gone", () => {
+        expect(mergeGenreJams([], [save("jam-1", "Loud"), del("jam-1")])).toEqual([]);
     });
 });

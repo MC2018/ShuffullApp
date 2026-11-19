@@ -80,7 +80,7 @@ export const DbProvider = ({ children }: DbProviderProps) => {
         (async () => {
             try {
                 // Same as native: migrate, and on failure rebuild the schema carrying the outbox, dead letters and
-                // genre jams across inside the file (recovery.ts, ShuffullApp#92).
+                // open listens across inside the file (recovery.ts, ShuffullApp#92).
                 await prepareDatabase(await initDbAsync(), runMigrations, resetDbAsync);
             } catch (fatal) {
                 console.error("Database unavailable.", fatal);

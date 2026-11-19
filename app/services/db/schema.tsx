@@ -202,6 +202,22 @@ export interface DeletePlaylistPayload {
 // listenId, so a resend after a lost response comes back "duplicate" instead of counting twice.
 export type ListenEndReason = "finished" | "skipped" | "previous" | "stopped";
 export type ListenContext = "playlist" | "audition" | "genreJam" | "other";
+// A Genre Jam save, exactly as PUT /api/v1/genre-jams/{id} takes it plus the id: the whole jam, so a resend changes
+// nothing and the last save to arrive wins.
+export interface SaveGenreJamPayload {
+    genreJamId: string;
+    name: string;
+    whitelists: WhitelistSetting;
+    blacklists: WhitelistSetting;
+    heavinessMin: number | null;
+    heavinessMax: number | null;
+}
+
+// A Genre Jam delete via DELETE /api/v1/genre-jams/{id}.
+export interface DeleteGenreJamPayload {
+    genreJamId: string;
+}
+
 export interface RecordListenPayload {
     listenId: string;
     songId: string;
@@ -231,7 +247,7 @@ export const requestTable = sqliteTable("requests", {
     likeStatus: integer("like_status"),
     // Structured payload for richer requests (a curator song edit, a re-tag's model tier). Null for the
     // simpler request types; the per-request-type models narrow it (see db/models.ts).
-    payload: text("payload", { mode: "json" }).$type<UpdateSongMetadataPayload | SongRetagPayload | DeletePlaylistPayload | RecordListenPayload>()
+    payload: text("payload", { mode: "json" }).$type<UpdateSongMetadataPayload | SongRetagPayload | DeletePlaylistPayload | RecordListenPayload | SaveGenreJamPayload | DeleteGenreJamPayload>()
 });
 
 // Outbox rows the app gave up sending, kept with the reason instead of deleted. A row lands here when the server
@@ -310,8 +326,11 @@ export const downloadQueueTable = sqliteTable("download_queue", {
     priority: integer("priority").notNull(),
 });
 
+// A saved Genre Jam. Synced per user (ShuffullApp#214): saves and deletes go through the outbox, and every sync replaces
+// the user's rows with the server's list, keeping any jam with a queued save or delete as it is locally.
 export const genreJamTable = sqliteTable("genre_jam", {
     genreJamId: text("genre_jam_id").primaryKey(),
+    userId: text("user_id").notNull(),
     name: text("name").notNull(),
     whitelists: text("whitelists", { mode: "json" }).$type<WhitelistSetting>().notNull(),
     blacklists: text("blacklists", { mode: "json" }).$type<WhitelistSetting>().notNull(),

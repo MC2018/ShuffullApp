@@ -11,7 +11,9 @@ import DbQueries from "@/app/services/db/queries";
 import { localSessionDataTable, playlistSongTable, playlistTable, songTable, userTable } from "@/app/services/db/schema";
 import { enqueueSongRetag, getRequests } from "@/app/services/db/queries/request";
 import { withTransaction } from "@/app/services/db/transaction";
-import { ChangedSongKeysSchema, ChangedSongPageSchema, SongListResponseSchema, type FeedKey } from "@/app/services/api/models";
+import { ApiStatusFailureError } from "@/app/services/api/errors";
+import { getGenreJams, saveGenreJam } from "@/app/services/db/queries/genreJam";
+import { ChangedSongKeysSchema, ChangedSongPageSchema, SongListResponseSchema, type FeedKey, type GenreJam } from "@/app/services/api/models";
 
 const storage = new Map<string, string>();
 vi.mock("@/app/tools", () => import("@/app/tools/pure"));
@@ -81,6 +83,7 @@ function makeApi(changedS1: object) {
     return {
         userGet: vi.fn(async () => ({ userId: USER, username: "max", version: NEW_VERSION, isCurator: false })),
         tagGetAll: vi.fn(async () => []),
+        genreJamGetAll: vi.fn(async (): Promise<GenreJam[]> => []),
         playlistGetAll: vi.fn(async () => [{ playlistId: "p1", version: NEW_VERSION }]),
         playlistGetList: vi.fn(async () => [{
             playlistId: "p1", userId: USER, name: "Renamed", percentUntilReplayable: 0.5,
@@ -113,6 +116,7 @@ function makeHookApi(list: unknown, changed?: unknown) {
     return {
         userGet: vi.fn(async () => ({ userId: USER, username: "max", version: NEW_VERSION, isCurator: false })),
         tagGetAll: vi.fn(async () => []),
+        genreJamGetAll: vi.fn(async (): Promise<GenreJam[]> => []),
         playlistGetAll: vi.fn(async () => [{ playlistId: "p1", version: NEW_VERSION }]),
         playlistGetList: vi.fn(async () => [{
             playlistId: "p1", userId: USER, name: "Audition", percentUntilReplayable: 0.5,
@@ -386,5 +390,61 @@ describe("overallSync: the audition start point (ShuffullApp#126)", () => {
 
         expect(status).toBe(200);
         expect(await startPoints()).toMatchObject({ "song-full": null, "song-sparse": null });
+    });
+});
+
+describe("overallSync: genre jams (ShuffullApp#214)", () => {
+    let db: GenericDb;
+
+    const filters = (genreIds: string[] = []) =>
+        ({ artistIds: [], playlistIds: [], genreIds, timePeriodIds: [], languageIds: [], moodIds: [], themeIds: [] });
+    const serverJam = (genreJamId: string, name: string): GenreJam =>
+        ({ genreJamId, name, whitelists: filters(["tag-rock"]), blacklists: filters(), heavinessMin: null, heavinessMax: null, version: NEW_VERSION });
+
+    beforeEach(async () => {
+        db = makeDb();
+        await seed(db);
+        storage.clear();
+        storage.set("SONG_SYNC_CURSOR", CURSOR);
+    });
+
+    afterEach(() => vi.restoreAllMocks());
+
+    it("the device's jams become the server's, with a save still queued here winning over the server's copy", async () => {
+        await saveGenreJam(db, { genreJamId: "jam-mine", userId: USER, name: "Edited here", whitelists: filters(), blacklists: filters(), heavinessMin: 3, heavinessMax: 5 });
+        const api = makeApi(apiSong("s1", "Changed", "hash-s1-v2"));
+        api.genreJamGetAll.mockImplementation(async () => [serverJam("jam-desktop", "From desktop"), serverJam("jam-mine", "Old name")]);
+
+        const status = await makeManager(db, api).overallSync();
+
+        expect(status).toBe(200);
+        expect((await getGenreJams(db, USER)).map(x => [x.genreJamId, x.name])).toEqual([
+            ["jam-mine", "Edited here"], ["jam-desktop", "From desktop"],
+        ]);
+    });
+
+    it("an API without genre jams (404) leaves the local jams alone and the rest of the sync still lands", async () => {
+        vi.spyOn(console, "log").mockImplementation(() => {});
+        await saveGenreJam(db, { genreJamId: "jam-1", userId: USER, name: "Local", whitelists: filters(), blacklists: filters(), heavinessMin: null, heavinessMax: null });
+        const api = makeApi(apiSong("s1", "Changed", "hash-s1-v2"));
+        api.genreJamGetAll.mockImplementation(async () => { throw new ApiStatusFailureError("/api/v1/genre-jams", { status: 404 }); });
+
+        const status = await makeManager(db, api).overallSync();
+
+        expect(status).toBe(200);
+        expect((await getGenreJams(db, USER)).map(x => x.name)).toEqual(["Local"]);
+        expect((await snapshot(db)).playlists[0].name).toBe("Renamed");
+    });
+
+    it("any other failure fetching jams fails the sync before anything is written", async () => {
+        vi.spyOn(console, "error").mockImplementation(() => {});
+        const before = await snapshot(db);
+        const api = makeApi(apiSong("s1", "Changed", "hash-s1-v2"));
+        api.genreJamGetAll.mockImplementation(async () => { throw new ApiStatusFailureError("/api/v1/genre-jams", { status: 500 }); });
+
+        const status = await makeManager(db, api).overallSync();
+
+        expect(status).not.toBe(200);
+        expect(await snapshot(db)).toEqual(before);
     });
 });
