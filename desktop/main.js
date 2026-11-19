@@ -202,7 +202,7 @@ app.whenReady().then(() => {
     // from one that worked, which matters because a Like spends AI credit on audition songs.
     ipcMain.on("shuffull:notify", (_event, { title, body } = {}) => {
         if (!Notification.isSupported()) return;
-        new Notification({ title: title || "Shuffull", body: body || "" }).show();
+        new Notification({ title: title || app.getName(), body: body || "" }).show();
     });
 
     // Global rating shortcuts. register() returns false when something else already owns the combo; report
