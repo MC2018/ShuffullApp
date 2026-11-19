@@ -357,4 +357,13 @@ export class Downloader {
         const hostAddress = await AsyncStorage.getItem(STORAGE_KEYS.HOST_ADDRESS);
         return `${hostAddress ?? ""}/music/${Downloader.generateSongFileName(song)}`;
     }
+
+    /** The song's album art as an image source: the desktop store's copy if there is one, else the server's. */
+    public static async resolveAlbumArt(song: Song): Promise<{ uri: string }> {
+        const localUri = Downloader.generateLocalAlbumArtUri(song);
+        if (await Downloader.fileExists(localUri)) {
+            return { uri: localUri };
+        }
+        return { uri: await Downloader.generateServerAlbumArtUrl(song) };
+    }
 }
