@@ -12,5 +12,9 @@ export enum RequestType {
     // Delete a playlist via DELETE /playlists/{id}. For an audition playlist the server purges the un-kept songs.
     DeletePlaylist = 8,
     // One finished listen via POST /api/v1/listens. The row's requestId is the listenId; the payload is the wire item.
-    RecordListen = 9
+    RecordListen = 9,
+    // Create or replace a Genre Jam via PUT /api/v1/genre-jams/{id}. The payload is the whole jam.
+    SaveGenreJam = 10,
+    // Delete a Genre Jam via DELETE /api/v1/genre-jams/{id}.
+    DeleteGenreJam = 11
 };

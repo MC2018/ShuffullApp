@@ -9,6 +9,9 @@ import {
     ChangedSongKeysSchema,
     ChangedSongPageSchema,
     CreatePlaylistResponseSchema,
+    GenreJamFiltersSchema,
+    GenreJamListResponseSchema,
+    GenreJamSchema,
     KeepResponseSchema,
     ListenStatsResponseSchema,
     PlaylistListResponseSchema,
@@ -17,6 +20,7 @@ import {
     RecordListensResponseSchema,
     RetagResponse,
     RetagStaleResponse,
+    SaveGenreJamResponseSchema,
     SongListResponseSchema,
     TagListResponseSchema,
     TagSchema,
@@ -27,7 +31,7 @@ import {
 } from "@/app/services/api/models";
 import { TagType } from "@/app/services/db/schema";
 import { LikeStatus, RequestType } from "@/app/enums";
-import { RecordListenPayload, UpdateSongLastPlayedRequest } from "@/app/services/db/models";
+import { RecordListenPayload, SaveGenreJamPayload, UpdateSongLastPlayedRequest } from "@/app/services/db/models";
 import { failedKeeps, failedListens, summarizeRetagFailures } from "@/app/services/sync-manager/syncLogic";
 import { finishedListen } from "@/app/tools/listens";
 import { statsStartedLine } from "@/app/tools/recap";
@@ -135,6 +139,41 @@ describe("API contract: playlists (shuffull-workspace#5)", () => {
 
         expect(unsentFields(PlaylistSchema, raw.playlist)).toEqual([]);
         expect(playlist).toMatchObject({ name: "New playlist", songIds: [], isExploratory: false });
+    });
+});
+
+describe("API contract: genre jams (ShuffullApp#214)", () => {
+    it("GET /genre-jams parses every jam with its filters and heaviness band", () => {
+        const raw = golden("genre-jams") as { genreJams: { whitelists: object }[] };
+        const { genreJams } = GenreJamListResponseSchema.parse(raw);
+
+        expect(unsentFields(GenreJamSchema, raw.genreJams[0])).toEqual([]);
+        expect(unsentFields(GenreJamFiltersSchema, raw.genreJams[0].whitelists)).toEqual([]);
+        expect(genreJams[0]).toMatchObject({
+            genreJamId: "jam-loud",
+            name: "Loud",
+            whitelists: { genreIds: ["tag-rock", "tag-metal"], artistIds: ["a1b2c3d4e5f6g"], moodIds: ["tag-energetic"] },
+            blacklists: { genreIds: ["tag-ballad"], moodIds: ["tag-calm"], artistIds: [] },
+            heavinessMin: 6,
+            heavinessMax: 10,
+        });
+        expect(genreJams[1]).toMatchObject({ genreJamId: "jam-any", heavinessMin: null, heavinessMax: null });
+    });
+
+    it("PUT /genre-jams/{id} returns the saved jam in its envelope", () => {
+        const raw = golden("genre-jams-save") as { genreJam: object };
+        const { genreJam } = SaveGenreJamResponseSchema.parse(raw);
+
+        expect(unsentFields(GenreJamSchema, raw.genreJam)).toEqual([]);
+        expect(genreJam).toMatchObject({ genreJamId: "jam-loud", name: "Loud" });
+    });
+
+    it("a filter list the server leaves out or sends as null reads as empty", () => {
+        const filters = GenreJamFiltersSchema.parse({ genreIds: ["tag-rock"], moodIds: null });
+
+        expect(filters).toEqual({
+            artistIds: [], playlistIds: [], genreIds: ["tag-rock"], timePeriodIds: [], languageIds: [], moodIds: [], themeIds: [],
+        });
     });
 });
 
@@ -342,6 +381,13 @@ describe("API contract: request bodies the app sends (shuffull-workspace#92)", (
         { request: "listens-request", method: "post", url: "/api/v1/listens",
             call: api => api.listenRecord((golden("listens-request") as { listens: RecordListenPayload[] }).listens),
             response: "listens" },
+        // The outbox's payload carries the jam's id too; it goes in the URL, not the body.
+        { request: "genre-jams-save-request", method: "put", url: "/api/v1/genre-jams/jam-loud",
+            call: api => api.genreJamSave({
+                genreJamId: "jam-loud",
+                ...(golden("genre-jams-save-request") as Omit<SaveGenreJamPayload, "genreJamId">),
+            }),
+            response: "genre-jams-save" },
     ];
 
     /** [FromBody] binds JSON only, and axios sets no content type for a body passed as a string, which most calls do. */
@@ -357,6 +403,14 @@ describe("API contract: request bodies the app sends (shuffull-workspace#92)", (
         expect([sent[0].method, sent[0].url]).toEqual([method, url]);
         sentAsJson(sent[0]);
         expect(body(sent[0])).toStrictEqual(withoutNulls(golden(request)));
+    });
+
+    it("a genre jam delete goes to the jam's own URL, with its id escaped", async () => {
+        const { api, sent } = stubbedClient();
+
+        await api.genreJamDelete("jam/1");
+
+        expect([sent[0].method, sent[0].url]).toEqual(["delete", "/api/v1/genre-jams/jam%2F1"]);
     });
 
     it("user-songs-last-played: the outbox's rows carry the two fields the API binds", async () => {

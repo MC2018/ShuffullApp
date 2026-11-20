@@ -50,6 +50,13 @@ export type RecordListenRequest = Request & {
     songId: string,
     payload: Schema.RecordListenPayload
 };
+export type SaveGenreJamRequest = Request & {
+    payload: Schema.SaveGenreJamPayload
+};
+export type DeleteGenreJamRequest = Request & {
+    payload: Schema.DeleteGenreJamPayload
+};
+export type SaveGenreJamPayload = Schema.SaveGenreJamPayload;
 export type RecordListenPayload = Schema.RecordListenPayload;
 export type ListenEndReason = Schema.ListenEndReason;
 export type ListenContext = Schema.ListenContext;

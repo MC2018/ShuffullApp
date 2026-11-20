@@ -10,6 +10,8 @@ describe("getProcessingMethod", () => {
         expect(getProcessingMethod(RequestType.SetSongLikeStatus)).toBe(ProcessingMethod.Individual);
         expect(getProcessingMethod(RequestType.FlagSongForReplacement)).toBe(ProcessingMethod.Batch);
         expect(getProcessingMethod(RequestType.RecordListen)).toBe(ProcessingMethod.Unordered);
+        expect(getProcessingMethod(RequestType.SaveGenreJam)).toBe(ProcessingMethod.Individual);
+        expect(getProcessingMethod(RequestType.DeleteGenreJam)).toBe(ProcessingMethod.Individual);
     });
 
     it("covers every RequestType value", () => {

@@ -1,6 +1,7 @@
 import { getProcessingMethod, ProcessingMethod, RequestType } from "@/app/enums";
 import type { FeedCursor, FeedKey } from "@/app/services/api/models";
-import type { DeletePlaylistPayload } from "@/app/services/db/schema";
+import type { DeletePlaylistPayload, SaveGenreJamPayload } from "@/app/services/db/schema";
+import type { WhitelistSetting } from "@/app/services/db/types";
 
 // Pure, dependency-free pieces lifted out of SyncManager.overallSync so they can be unit-tested without
 // the surrounding native deps (expo-sqlite, async-storage, the API client). Behaviour is preserved
@@ -348,18 +349,25 @@ export interface OutboxSubject {
     requestType: number;
     songId?: string | null;
     playlistId?: string | null;
+    // Read only for a Genre Jam save or delete, whose jam id lives in the payload.
+    payload?: unknown;
 }
 
 /**
  * What an outbox row acts on, as keys that can't collide: its song and its playlist. None for a Keep: it promotes the
  * song whatever came before, so it has no order to keep, and it must never wait days behind an unrelated refused row
  * (a play, a metadata edit) and hold its playlist's delete with it. None for a listen either: it is a log entry, so a
- * refused listen must not hold the song's Like, and a refused Like must not hold its listens.
+ * refused listen must not hold the song's Like, and a refused Like must not hold its listens. A Genre Jam save or
+ * delete acts on its jam, so a refused save holds the later edits and the delete of that jam, and nothing else.
  */
 function outboxSubjects(request: OutboxSubject): string[] {
     const subjects: string[] = [];
     if (request.requestType == RequestType.SongRetag || request.requestType == RequestType.RecordListen) {
         return subjects;
+    }
+    if (request.requestType == RequestType.SaveGenreJam || request.requestType == RequestType.DeleteGenreJam) {
+        const genreJamId = genreJamIdOf(request);
+        return genreJamId ? [`genreJam:${genreJamId}`] : subjects;
     }
     if (request.songId) {
         subjects.push(`song:${request.songId}`);
@@ -653,6 +661,58 @@ export function withoutPendingDeletes<T extends { playlistId: string }>(
         .filter(x => x.requestType == RequestType.DeletePlaylist && x.playlistId)
         .map(x => x.playlistId));
     return playlists.filter(x => !pending.has(x.playlistId));
+}
+
+function genreJamIdOf(request: { payload?: unknown }): string | undefined {
+    const genreJamId = (request.payload as { genreJamId?: unknown } | null | undefined)?.genreJamId;
+    return typeof genreJamId == "string" && genreJamId ? genreJamId : undefined;
+}
+
+/** A Genre Jam as the pull merges it: the server's fields, or a queued save's payload. */
+export interface MergeableGenreJam {
+    genreJamId: string;
+    name: string;
+    whitelists: WhitelistSetting;
+    blacklists: WhitelistSetting;
+    heavinessMin: number | null;
+    heavinessMax: number | null;
+}
+
+/**
+ * The user's Genre Jams as this device should show them after a pull: the server's list, with every jam that still
+ * has a save or delete in the outbox as that last queued action left it. The outbox runs before the pull, so what is
+ * still queued was refused, held, or queued since; without this a jam saved offline would vanish on the next pull, and
+ * a deleted one come back.
+ */
+export function mergeGenreJams<T extends MergeableGenreJam>(
+    serverJams: T[],
+    outbox: (BatchableRequest & { payload?: unknown })[],
+): MergeableGenreJam[] {
+    // The last queued action per jam: its payload for a save, null for a delete.
+    const pending = new Map<string, SaveGenreJamPayload | null>();
+    for (const request of outbox) {
+        const genreJamId = genreJamIdOf(request);
+        if (!genreJamId) {
+            continue;
+        }
+        if (request.requestType == RequestType.SaveGenreJam) {
+            pending.set(genreJamId, request.payload as SaveGenreJamPayload);
+        } else if (request.requestType == RequestType.DeleteGenreJam) {
+            pending.set(genreJamId, null);
+        }
+    }
+
+    const merged: MergeableGenreJam[] = serverJams
+        .filter(x => !pending.has(x.genreJamId))
+        .map(({ genreJamId, name, whitelists, blacklists, heavinessMin, heavinessMax }) =>
+            ({ genreJamId, name, whitelists, blacklists, heavinessMin, heavinessMax }));
+    for (const [genreJamId, save] of pending) {
+        if (save) {
+            const { name, whitelists, blacklists, heavinessMin, heavinessMax } = save;
+            merged.push({ genreJamId, name, whitelists, blacklists, heavinessMin, heavinessMax });
+        }
+    }
+    return merged;
 }
 
 /** How often SyncManager's timer ticks: one sync per tick while the server answers. */

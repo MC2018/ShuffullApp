@@ -30,7 +30,7 @@ export const DbProvider = ({ children }: DbProviderProps) => {
 
         (async () => {
             try {
-                // Migrates, and on failure rebuilds the schema carrying the outbox, dead letters and genre jams
+                // Migrates, and on failure rebuilds the schema carrying the outbox, dead letters and open listens
                 // across inside the file (recovery.ts). The rest is a cache of the server and comes back on sync.
                 await prepareDatabase(getDb(), (db) => migrate(db, migrations), resetDb);
             } catch (fatal) {

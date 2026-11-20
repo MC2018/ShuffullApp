@@ -153,6 +153,41 @@ export const CreatePlaylistResponseSchema = z.object({
     playlist: PlaylistSchema
 });
 
+// A Genre Jam's whitelist or blacklist: tag/artist/playlist ids per category. The server may omit a list or send
+// null for one; both read as empty, the same as a jam made on this device.
+const IdListSchema = z.array(z.string()).nullish().transform((x) => x ?? []);
+export const GenreJamFiltersSchema = z.object({
+    artistIds: IdListSchema,
+    playlistIds: IdListSchema,
+    genreIds: IdListSchema,
+    timePeriodIds: IdListSchema,
+    languageIds: IdListSchema,
+    moodIds: IdListSchema,
+    themeIds: IdListSchema,
+});
+
+// A Genre Jam as the server stores it for the signed-in user (ShuffullApp#214).
+export const GenreJamSchema = z.object({
+    genreJamId: z.string(),
+    name: z.string(),
+    whitelists: GenreJamFiltersSchema,
+    blacklists: GenreJamFiltersSchema,
+    heavinessMin: z.number().nullable(),
+    heavinessMax: z.number().nullable(),
+    version: z.coerce.date(),
+});
+export type GenreJam = z.infer<typeof GenreJamSchema>;
+
+// GET /api/v1/genre-jams -> { genreJams: [...] }
+export const GenreJamListResponseSchema = z.object({
+    genreJams: GenreJamSchema.array()
+});
+
+// PUT /api/v1/genre-jams/{id} -> { genreJam: {...} }
+export const SaveGenreJamResponseSchema = z.object({
+    genreJam: GenreJamSchema
+});
+
 // POST /api/v1/songs/retag-stale?limit=N -> one bounded batch of the library re-tag.
 export interface RetagStaleResponse {
     enriched: number;

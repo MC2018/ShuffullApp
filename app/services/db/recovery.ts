@@ -13,9 +13,10 @@ import { withTransaction } from "./transaction";
  * Most of the local database is a cache of the server, and a re-sync restores it. These tables are not:
  *   requests              the outbox. A queued Keep, Like or playlist delete exists nowhere else until it is sent.
  *   dead_letter_requests  the only record that queued work did not happen.
- *   genre_jam             user-made presets. Nothing syncs them.
  *   listens               a listen left open by a run that died, which the next start closes into the outbox.
- * Deleting the database file used to take the first three with it (ShuffullApp#92).
+ * Deleting the database file used to take the first two with it, and the genre jams (ShuffullApp#92). Genre jams sync
+ * now (ShuffullApp#214): the server holds every sent one and the outbox every unsent one, so a rebuild drops them and
+ * the next sync brings them back.
  *
  * The rows never leave the file. In ONE transaction the preserved tables are renamed to `__rescued_<ts>__<table>`
  * and everything else is dropped; the emptied file is then migrated, and `restoreRescuedTables` moves the rows into
@@ -24,15 +25,10 @@ import { withTransaction } from "./transaction";
  * the reason, like any other request that can't be sent; anything else it refuses stays in its rescue table.
  *
  * Rows copy RAW, column by column, rather than through the Drizzle schema, because the rescued table is on an
- * older schema than the code. Only columns both sides have are copied, after RENAMED_COLUMNS; a column the new table
- * added takes its default.
+ * older schema than the code. Only columns both sides have are copied; a column the new table added takes its default.
+ * A preserved table whose column a migration renames needs that rename mapped here, or its values are dropped.
  */
-const PRESERVED_TABLES = ["requests", "dead_letter_requests", "genre_jam", "listens"];
-// Preserved-table columns renamed by a migration, old name -> new. A rescue can come from before the rename (it may be
-// the migration that failed), and without this the row would restore without that column's value.
-const RENAMED_COLUMNS: Record<string, Record<string, string>> = {
-    genre_jam: { energy_min: "heaviness_min", energy_max: "heaviness_max" }, // shuffull-workspace#50
-};
+const PRESERVED_TABLES = ["requests", "dead_letter_requests", "listens"];
 const RESCUE_PREFIX = "__rescued_";
 
 export interface RescueRestore {
@@ -135,11 +131,7 @@ export async function restoreRescuedTables(db: GenericDb): Promise<RescueRestore
             // Every column, so a dead-lettered request keeps the ones the new table no longer has (toRequest).
             const columns = await columnsOf(db, rescue);
             const live = new Set(await columnsOf(db, target));
-            const renamed = RENAMED_COLUMNS[target] ?? {};
-            // [rescued column, live column] for every value that has somewhere to go.
-            const shared = columns
-                .map((c) => [c, live.has(c) ? c : renamed[c]] as const)
-                .filter((pair): pair is readonly [string, string] => pair[1] != null && live.has(pair[1]));
+            const shared = columns.filter((c) => live.has(c));
             if (shared.length == 0) {
                 throw new Error(`there is no ${target} table to restore into`);
             }
@@ -157,10 +149,10 @@ export async function restoreRescuedTables(db: GenericDb): Promise<RescueRestore
                     await tx.run(sql`SAVEPOINT restore_row`);
                     try {
                         await tx.run(sql`INSERT INTO ${sql.identifier(target)} (${sql.join(
-                            shared.map(([, to]) => sql.identifier(to)),
+                            shared.map((c) => sql.identifier(c)),
                             sql`, `,
                         )}) VALUES (${sql.join(
-                            shared.map(([from]) => sql`${row[from]}`),
+                            shared.map((c) => sql`${row[c]}`),
                             sql`, `,
                         )})`);
                         await deleteRescued(row);
@@ -239,7 +231,7 @@ export async function rebuildKeepingLocalData<T extends GenericDb>(
     try {
         await setAside(db);
     } catch (e) {
-        console.error("Could not set the outbox aside in the damaged database; deleting it. Its outbox, dead letters and genre jams are lost.", e);
+        console.error("Could not set the outbox aside in the damaged database; deleting it. Its outbox, dead letters and open listens are lost.", e);
         db = await deleteFile();
     }
 

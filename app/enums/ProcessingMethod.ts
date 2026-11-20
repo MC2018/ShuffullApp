@@ -38,5 +38,9 @@ export function getProcessingMethod(requestType: RequestType): ProcessingMethod 
         case RequestType.RecordListen:
             // A log entry: nothing reads it back and nothing waits on it, so it never splits a run of other rows.
             return ProcessingMethod.Unordered;
+        case RequestType.SaveGenreJam:
+        case RequestType.DeleteGenreJam:
+            // One call per jam (the endpoints are per-jam), in queue order, so a delete after a save lands last.
+            return ProcessingMethod.Individual;
     }
 }

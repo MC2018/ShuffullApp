@@ -3,6 +3,7 @@ import { ImageURISource, Pressable, ScrollView, View } from "react-native";
 import { router, useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useDb } from "@/app/services/db/DbProvider";
+import { useCurrentUser } from "@/app/services/auth/CurrentUserProvider";
 import DbQueries from "@/app/services/db/queries";
 import { SongDetails } from "@/app/services/db/types";
 import { GenreJam } from "@/app/services/db/models";
@@ -23,6 +24,7 @@ type ArtSource = ImageURISource | { uri: string };
 export default function HomeScreen() {
     const theme = useTheme();
     const db = useDb();
+    const userId = useCurrentUser();
     const { songId } = useActiveSong();
     const isPlaying = useIsPlaybackActive();
     const [details, setDetails] = useState<SongDetails | null>(null);
@@ -58,7 +60,7 @@ export default function HomeScreen() {
         useCallback(() => {
             let cancelled = false;
             (async () => {
-                const all = await DbQueries.getGenreJams(db);
+                const all = await DbQueries.getGenreJams(db, userId);
                 if (!cancelled) {
                     setJams(all);
                 }
@@ -66,7 +68,7 @@ export default function HomeScreen() {
             return () => {
                 cancelled = true;
             };
-        }, [db]),
+        }, [db, userId]),
     );
 
     const togglePlay = async () => {
