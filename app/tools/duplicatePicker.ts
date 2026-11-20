@@ -99,6 +99,9 @@ function similarity(title: string, artists: Set<string>, candidate: DuplicateCan
     return score;
 }
 
+// The accents NFKD splits off letters ("é" -> "e" + U+0301).
+const COMBINING_MARKS = /[\u0300-\u036f]/g;
+
 /**
  * A title reduced to what two uploads of one recording share: lower case, accents dropped, anything in brackets
  * ("(Official Video)", "[Remastered]") and a "feat." credit removed, punctuation gone.
@@ -106,7 +109,7 @@ function similarity(title: string, artists: Set<string>, candidate: DuplicateCan
 export function normalizeSongTitle(title: string): string {
     return title
         .normalize("NFKD")
-        .replace(/[̀-ͯ]/g, "")
+        .replace(COMBINING_MARKS, "")
         .toLowerCase()
         .replace(/\([^)]*\)|\[[^\]]*\]|\{[^}]*\}/g, " ")
         .replace(/\s(feat\.?|ft\.?|featuring)\s.*$/, " ")
@@ -115,5 +118,5 @@ export function normalizeSongTitle(title: string): string {
 }
 
 function normalizeArtist(artist: string): string {
-    return artist.normalize("NFKD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+    return artist.normalize("NFKD").replace(COMBINING_MARKS, "").toLowerCase().trim();
 }

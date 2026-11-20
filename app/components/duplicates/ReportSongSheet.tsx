@@ -35,6 +35,13 @@ interface Props {
 
 type Step = "choose" | "pick" | "keep" | "differentVersion";
 
+const STEP_TITLES: Record<Step, string> = {
+    choose: "What's wrong with this song?",
+    pick: "Duplicate of…",
+    keep: "Which copy do you keep?",
+    differentVersion: "Different version",
+};
+
 const SECTION_TITLES: Record<DuplicateSuggestionReason, string> = {
     nowPlaying: "Playing now",
     recent: "Recently played",
@@ -118,12 +125,6 @@ export default function ReportSongSheet({ song, visible, onClose, poorQualityFla
         }
     };
 
-    const title =
-        step === "choose" ? "What's wrong with this song?"
-            : step === "pick" ? "Duplicate of…"
-                : step === "keep" ? "Which copy do you keep?"
-                    : "Different version";
-
     const noteField = (
         <>
             <SectionHeader title="Note (optional)" />
@@ -160,14 +161,15 @@ export default function ReportSongSheet({ song, visible, onClose, poorQualityFla
                                 <Pressable
                                     onPress={() => setStep(step === "keep" ? "pick" : "choose")}
                                     hitSlop={8}
+                                    accessibilityRole="button"
                                     accessibilityLabel="Back"
                                 >
                                     <Ionicons name="chevron-back" size={20} color={theme.color.textPrimary} />
                                 </Pressable>
                             ) : null}
-                            <Text variant="bodyStrong" numberOfLines={1} style={{ flexShrink: 1 }}>{title}</Text>
+                            <Text variant="bodyStrong" numberOfLines={1} style={{ flexShrink: 1 }}>{STEP_TITLES[step]}</Text>
                         </View>
-                        <Pressable onPress={onClose} hitSlop={8}>
+                        <Pressable onPress={onClose} hitSlop={8} accessibilityRole="button" accessibilityLabel="Cancel">
                             <Text variant="label" color="accent">Cancel</Text>
                         </Pressable>
                     </View>

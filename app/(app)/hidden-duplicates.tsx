@@ -8,6 +8,7 @@ import { HiddenDuplicate } from "@/app/services/db/queries/duplicateReport";
 import { useSongStateRevision } from "@/app/services/media-manager/mediaManager";
 import { IconButton, ListRow, Screen, Text } from "@/app/components/ui";
 import { useTheme } from "@/app/theme";
+import { showAlert } from "@/app/tools/dialog";
 
 // Settings → Hidden duplicates (ShuffullApp#219): every song the user's duplicate reports hide from them, with an
 // Undo that withdraws the report and brings the song back. A hide is per user and never a dislike.
@@ -27,7 +28,12 @@ export default function HiddenDuplicatesScreen() {
     }, [load, revision]);
 
     const undo = async (hiddenSongId: string) => {
-        await DbQueries.withdrawDuplicateReports(db, userId, hiddenSongId);
+        try {
+            await DbQueries.withdrawDuplicateReports(db, userId, hiddenSongId);
+        } catch (e) {
+            showAlert("Couldn't undo", e instanceof Error ? e.message : "Please try again.");
+            return;
+        }
         useSongStateRevision.getState().bump();
         await load();
     };

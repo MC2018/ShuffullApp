@@ -20,7 +20,7 @@ import { useLikeStatus, useSongStateRevision } from "@/app/services/media-manage
 import PlayerBar, { totalPlayerBarHeight } from "@/app/components/music-control/organisms/PlayerBar";
 import RatingControl from "@/app/components/likes/atoms/RatingControl";
 import SongDownloadControl from "@/app/components/downloading/atoms/SongDownloadControl";
-import FlagForReplacementControl from "@/app/components/replacement/atoms/FlagForReplacementControl";
+import ReportSongControl from "@/app/components/duplicates/ReportSongControl";
 import AddToPlaylistSheet from "@/app/components/playlists/AddToPlaylistSheet";
 import { AlbumArt, Button, Chip, IconButton, Screen, SectionHeader, Text, TextField } from "@/app/components/ui";
 import { useTheme } from "@/app/theme";
@@ -125,12 +125,18 @@ export default function SongScreen() {
         };
     }, [db, songId, userId, songStateRevision]);
 
-    // Undo withdraws the report, so the curator never sees it and the song is back in shuffle and the library.
+    // Undo withdraws every report hiding this song, which takes it out of the curator's queue and puts the song back in
+    // shuffle and the library.
     const undoHide = async () => {
         if (songId == undefined) {
             return;
         }
-        await DbQueries.withdrawDuplicateReports(db, userId, songId);
+        try {
+            await DbQueries.withdrawDuplicateReports(db, userId, songId);
+        } catch (e) {
+            showAlert("Couldn't undo", e instanceof Error ? e.message : "Please try again.");
+            return;
+        }
         setHiddenAsDuplicate(false);
         useSongStateRevision.getState().bump();
     };
@@ -414,7 +420,7 @@ export default function SongScreen() {
                                             accessibilityLabel="Keep song"
                                         />
                                     ) : null}
-                                    <FlagForReplacementControl
+                                    <ReportSongControl
                                         song={{
                                             songId: details.song.songId,
                                             name: details.song.name,

@@ -9,13 +9,13 @@ import { useTheme } from "@/app/theme";
 import { showAlert } from "@/app/tools/dialog";
 import ReportSongSheet, { ReportedSong } from "@/app/components/duplicates/ReportSongSheet";
 
-// The song screen's flag button. It opens a sheet with three reports (ShuffullApp#219):
+// The song screen's report button (a flag icon). It opens a sheet with three reports (ShuffullApp#219):
 // - Poor quality: queues a global per-song replacement request through the sync pipeline
 //   (→ POST /api/v1/replacements) so a better copy can be sourced. One-way from the app's side: once queued the icon
 //   stays filled, and re-detects a still-pending request on remount so it survives navigating away before the next
 //   sync flushes it. Resolution happens server/funnel-side.
 // - Duplicate of… / Different version: a duplicate report that hides one copy for this user (ReportSongSheet).
-export default function FlagForReplacementControl({
+export default function ReportSongControl({
     song,
     size = 24,
     onReported,

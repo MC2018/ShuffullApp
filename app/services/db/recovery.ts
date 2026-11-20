@@ -14,6 +14,9 @@ import { withTransaction } from "./transaction";
  *   requests              the outbox. A queued Keep, Like or playlist delete exists nowhere else until it is sent.
  *   dead_letter_requests  the only record that queued work did not happen.
  *   listens               a listen left open by a run that died, which the next start closes into the outbox.
+ *   song_duplicate_reports  the user's duplicate reports (ShuffullApp#219). An unsent one hides its song and exists
+ *                         nowhere else: its outbox row survives, but the pull can't restore a report the server
+ *                         hasn't heard, so without its row the song would play again until the POST lands.
  * Deleting the database file used to take the first two with it, and the genre jams (ShuffullApp#92). Genre jams sync
  * now (ShuffullApp#214): the server holds every sent one and the outbox every unsent one, so a rebuild drops them and
  * the next sync brings them back.
@@ -28,7 +31,7 @@ import { withTransaction } from "./transaction";
  * older schema than the code. Only columns both sides have are copied; a column the new table added takes its default.
  * A preserved table whose column a migration renames needs that rename mapped here, or its values are dropped.
  */
-const PRESERVED_TABLES = ["requests", "dead_letter_requests", "listens"];
+const PRESERVED_TABLES = ["requests", "dead_letter_requests", "listens", "song_duplicate_reports"];
 const RESCUE_PREFIX = "__rescued_";
 
 export interface RescueRestore {

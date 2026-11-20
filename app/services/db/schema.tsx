@@ -374,6 +374,11 @@ export type DuplicateReportStatus = "pending" | "merged" | "notDuplicate" | "kep
 // still asked not to hear that copy. Merged, withdrawn, rejected and any status this build doesn't know hide nothing.
 export const SONG_HIDDEN_STATUSES: readonly DuplicateReportStatus[] = ["pending", "notDuplicate", "keptBoth"];
 
+// A kind or status as stored: one this build knows, or whatever newer one the server sent, kept as the string it is so
+// it can't fail the sync. An unknown status hides nothing, and no switch over the known ones can claim to cover it.
+export type StoredDuplicateReportKind = DuplicateReportKind | (string & {});
+export type StoredDuplicateReportStatus = DuplicateReportStatus | (string & {});
+
 // The user's duplicate reports (shuffull-workspace#143, ShuffullApp#219). A report hides `hiddenSongId` for its
 // reporter alone, on every screen that lists or picks songs, for as long as its status is one that hides. It is the
 // user's decision and its own row: written with its outbox request in one transaction, it hides the song whether or
@@ -384,10 +389,10 @@ export const songDuplicateReportTable = sqliteTable("song_duplicate_reports", {
     userId: text("user_id").notNull(),
     songId: text("song_id").notNull(),
     otherSongId: text("other_song_id"),
-    kind: text("kind").$type<DuplicateReportKind>().notNull(),
+    kind: text("kind").$type<StoredDuplicateReportKind>().notNull(),
     preferredSongId: text("preferred_song_id"),
     hiddenSongId: text("hidden_song_id").notNull(),
-    status: text("status").$type<DuplicateReportStatus>().notNull(),
+    status: text("status").$type<StoredDuplicateReportStatus>().notNull(),
     note: text("note"),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
     // The server's Version exactly as it was sent (microseconds), or null while the server hasn't answered.

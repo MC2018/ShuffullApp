@@ -10,7 +10,6 @@ import {
     applyDuplicateReportOutcomes,
     getDuplicateCandidates,
     getHiddenDuplicates,
-    getHiddenSongIds,
     isSongHiddenAsDuplicate,
     reportDuplicate,
     upsertDuplicateReports,
@@ -31,6 +30,7 @@ import {
 } from "@/app/services/db/schema";
 import type { SongDuplicateReport as ServerDuplicateReport } from "@/app/services/api/models";
 import {
+    DUPLICATE_REPORT_REREAD_INTERVAL_MS,
     duplicateReportFeedStart,
     duplicateReportOutcomes,
     FEED_START,
@@ -210,6 +210,19 @@ describe("reporting a duplicate", () => {
         expect(await getRequests(db, USER)).toEqual([]);
     });
 
+    it("refuses a song outside the user's library, which the server would reject and so un-hide later", async () => {
+        await addSong(db, "theirs", "Someone else's", { userId: "u2" });
+
+        await expect(reportDuplicate(db, { userId: USER, songId: "theirs", otherSongId: null, kind: "differentVersion", preferredSongId: null, note: null }))
+            .rejects.toThrow("library");
+        await expect(reportDuplicate(db, { userId: USER, songId: "s1", otherSongId: "theirs", kind: "duplicate", preferredSongId: null, note: null }))
+            .rejects.toThrow("library");
+
+        expect(await db.select().from(songDuplicateReportTable)).toEqual([]);
+        expect(await getRequests(db, USER)).toEqual([]);
+        expect(await isSongHiddenAsDuplicate(db, USER, "theirs")).toBe(false);
+    });
+
     it("cuts a note to the server's limit", async () => {
         const report = await reportDuplicate(db, {
             userId: USER, songId: "s1", otherSongId: "s2", kind: "duplicate", preferredSongId: null, note: "a".repeat(DUPLICATE_REPORT_MAX_NOTE_LENGTH + 50),
@@ -222,7 +235,8 @@ describe("reporting a duplicate", () => {
 
         await expect(reportDuplicate(db, { userId: USER, songId: "s1", otherSongId: "s2", kind: "duplicate", preferredSongId: null, note: null })).rejects.toThrow();
 
-        expect(await getHiddenSongIds(db, USER)).toEqual(new Set());
+        expect(await getHiddenDuplicates(db, USER)).toEqual([]);
+        expect(await isSongHiddenAsDuplicate(db, USER, "s2")).toBe(false);
     });
 });
 
@@ -375,17 +389,31 @@ describe("mergeDuplicateReports: the pull against what is still queued", () => {
 });
 
 describe("duplicateReportFeedStart", () => {
-    const key = JSON.stringify({ userId: USER, version: "2026-11-01T00:00:00.123456Z", reportId: "r9" });
+    const fullAt = Date.parse("2026-11-20T08:00:00Z");
+    const now = fullAt + 60 * 60 * 1000;
+    const key = JSON.stringify({ userId: USER, version: "2026-11-01T00:00:00.123456Z", reportId: "r9", fullAt });
+    const fromStart = { cursor: { afterDate: FEED_START }, fullAt: now };
 
-    it("pages on from this user's stored key", () => {
-        expect(duplicateReportFeedStart(key, USER, true)).toEqual({ afterDate: "2026-11-01T00:00:00.123456Z", afterId: "r9" });
+    it("pages on from this user's stored key, keeping when the last full read was", () => {
+        expect(duplicateReportFeedStart(key, USER, true, now))
+            .toEqual({ cursor: { afterDate: "2026-11-01T00:00:00.123456Z", afterId: "r9" }, fullAt });
     });
 
     it("starts over for another account's key, a lost local table, no key, or a malformed one", () => {
-        expect(duplicateReportFeedStart(key, "u2", true)).toEqual({ afterDate: FEED_START });
-        expect(duplicateReportFeedStart(key, USER, false)).toEqual({ afterDate: FEED_START });
-        expect(duplicateReportFeedStart(null, USER, true)).toEqual({ afterDate: FEED_START });
-        expect(duplicateReportFeedStart("{nope", USER, true)).toEqual({ afterDate: FEED_START });
+        expect(duplicateReportFeedStart(key, "u2", true, now)).toEqual(fromStart);
+        expect(duplicateReportFeedStart(key, USER, false, now)).toEqual(fromStart);
+        expect(duplicateReportFeedStart(null, USER, true, now)).toEqual(fromStart);
+        expect(duplicateReportFeedStart("{nope", USER, true, now)).toEqual(fromStart);
+    });
+
+    it("re-reads from the start once a day, so a row committed behind the cursor still arrives", () => {
+        const dayLater = fullAt + DUPLICATE_REPORT_REREAD_INTERVAL_MS;
+        expect(duplicateReportFeedStart(key, USER, true, dayLater - 1).cursor.afterId).toBe("r9");
+        expect(duplicateReportFeedStart(key, USER, true, dayLater)).toEqual({ cursor: { afterDate: FEED_START }, fullAt: dayLater });
+        // A key from before the daily re-read, or a clock that went backwards, reads from the start.
+        const oldKey = JSON.stringify({ userId: USER, version: "2026-11-01T00:00:00.123456Z", reportId: "r9" });
+        expect(duplicateReportFeedStart(oldKey, USER, true, now)).toEqual(fromStart);
+        expect(duplicateReportFeedStart(key, USER, true, fullAt - 1).cursor).toEqual({ afterDate: FEED_START });
     });
 });
 

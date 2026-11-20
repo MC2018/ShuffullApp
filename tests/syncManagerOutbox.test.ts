@@ -5,7 +5,7 @@ import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import path from "path";
 import type { GenericDb } from "@/app/services/db/GenericDb";
 import { addRequests, enqueueSongRetag, getDeadLetterRequests, getRequests } from "@/app/services/db/queries/request";
-import { deadLetterRequestTable, userTable } from "@/app/services/db/schema";
+import { deadLetterRequestTable, songTable, userSongTable, userTable } from "@/app/services/db/schema";
 import { LikeStatus, RequestType } from "@/app/enums";
 import { ApiStatusFailureError } from "@/app/services/api/errors";
 import type { KeepResponse, RecordListensResponse, ReportDuplicatesResponse } from "@/app/services/api/models";
@@ -564,6 +564,11 @@ describe("SyncManager: duplicate reports go through the outbox and are read, nev
         db = makeDb();
         api = makeApi();
         await setCurator(db, false);
+        // Only songs in the user's library can be reported.
+        for (const songId of ["s1", "s2", "s3"]) {
+            await db.insert(songTable).values({ songId, name: songId, fileExtension: "mp3", fileHash: `hash-${songId}` });
+            await db.insert(userSongTable).values({ userId: USER, songId, lastPlayed: new Date(0), version: new Date(), likeStatus: 0 });
+        }
     });
 
     const report = () => reportDuplicate(db, { userId: USER, songId: "s1", otherSongId: "s2", kind: "duplicate", preferredSongId: null, note: null });

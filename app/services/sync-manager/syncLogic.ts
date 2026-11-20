@@ -1,6 +1,6 @@
 import { getProcessingMethod, ProcessingMethod, RequestType } from "@/app/enums";
 import type { FeedCursor, FeedKey } from "@/app/services/api/models";
-import type { DeletePlaylistPayload, DuplicateReportStatus, SaveGenreJamPayload } from "@/app/services/db/schema";
+import type { DeletePlaylistPayload, SaveGenreJamPayload, StoredDuplicateReportStatus } from "@/app/services/db/schema";
 import type { WhitelistSetting } from "@/app/services/db/types";
 
 // Pure, dependency-free pieces lifted out of SyncManager.overallSync so they can be unit-tested without
@@ -816,7 +816,7 @@ function duplicateReportFailureReason(outcome: DuplicateReportOutcomeRow<unknown
 /** A report as the pull merges it. */
 export interface MergeableDuplicateReport {
     reportId: string;
-    status: DuplicateReportStatus;
+    status: StoredDuplicateReportStatus;
 }
 
 /**
@@ -853,23 +853,39 @@ export interface DuplicateReportSyncKey {
     userId: string;
     version: string;
     reportId: string;
+    // When the feed last paged from the start (ms since epoch). Missing on a key from before the daily re-read.
+    fullAt?: number;
 }
 
+/** How often the /mine feed is re-read from the start, to pick up a row committed behind the cursor. */
+export const DUPLICATE_REPORT_REREAD_INTERVAL_MS = 24 * 60 * 60 * 1000;
+
 /**
- * Where this sync's /mine feed starts. From the stored key when it is this user's and this device still holds their
- * reports; from the start otherwise. The local reports outlive a logout and the key is per device, so a key another
- * account left, or one left after the local rows were lost, would skip reports for good.
+ * Where this sync's /mine feed starts, and the `fullAt` the next key carries. From the stored key when it is this
+ * user's, this device still holds their reports, and the last full read is under a day old; from the start otherwise.
+ * The local reports outlive a logout and the key is per device, so a key another account left, or one left after the
+ * local rows were lost, would skip reports for good.
+ *
+ * The daily re-read is the self-correction a Version cursor needs: the server stamps Version before the write commits,
+ * so a report, withdraw or curator answer can commit behind a cursor this device already stored. A user has few
+ * reports, so reading them all once a day is cheap, and the merge is idempotent.
  */
-export function duplicateReportFeedStart(raw: string | null, userId: string, hasLocalReports: boolean): FeedCursor {
+export function duplicateReportFeedStart(
+    raw: string | null,
+    userId: string,
+    hasLocalReports: boolean,
+    now: number,
+): { cursor: FeedCursor; fullAt: number } {
     if (raw != null && hasLocalReports) {
         try {
             const key = JSON.parse(raw) as Partial<DuplicateReportSyncKey> | null;
-            if (key?.userId === userId && typeof key.version === "string" && typeof key.reportId === "string") {
-                return { afterDate: key.version, afterId: key.reportId };
+            if (key?.userId === userId && typeof key.version === "string" && typeof key.reportId === "string"
+                && typeof key.fullAt === "number" && now - key.fullAt >= 0 && now - key.fullAt < DUPLICATE_REPORT_REREAD_INTERVAL_MS) {
+                return { cursor: { afterDate: key.version, afterId: key.reportId }, fullAt: key.fullAt };
             }
         } catch {
             // A malformed key just means paging from the start.
         }
     }
-    return { afterDate: FEED_START };
+    return { cursor: { afterDate: FEED_START }, fullAt: now };
 }

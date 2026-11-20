@@ -514,12 +514,15 @@ export class SyncManager {
             // the local jams as they are rather than fail the whole sync.
             const genreJams = await this.fetchGenreJams();
 
-            // Duplicate reports: what changed since the last report this device stored, so a curator's answer or an undo
-            // made on another device reaches this one. Null from a server that predates them (404).
-            const duplicateReportFeed = await this.fetchDuplicateReports(duplicateReportFeedStart(
+            // Duplicate reports: what changed since the last report this device stored (all of them once a day), so a
+            // curator's answer or an undo made on another device reaches this one. Null from a server that predates
+            // them (404).
+            const duplicateReportStart = duplicateReportFeedStart(
                 await AsyncStorage.getItem(STORAGE_KEYS.DUPLICATE_REPORT_SYNC_KEY),
                 this.userId,
-                await DbQueries.hasDuplicateReports(this.db, this.userId)));
+                await DbQueries.hasDuplicateReports(this.db, this.userId),
+                syncStartTime.getTime());
+            const duplicateReportFeed = await this.fetchDuplicateReports(duplicateReportStart.cursor);
             if (duplicateReportFeed?.stalled) {
                 console.error("[sync] The duplicate-reports feed repeated a page; stopped paging it, and its key stays put.");
             }
@@ -732,6 +735,7 @@ export class SyncManager {
                     userId: this.userId,
                     version: duplicateReportFeed.last.version,
                     reportId: duplicateReportFeed.last.songId,
+                    fullAt: duplicateReportStart.fullAt,
                 };
                 await AsyncStorage.setItem(STORAGE_KEYS.DUPLICATE_REPORT_SYNC_KEY, JSON.stringify(key));
             }

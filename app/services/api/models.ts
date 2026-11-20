@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { DuplicateReportKind, DuplicateReportStatus, TagType } from "../db/schema";
+import { TagType } from "../db/schema";
 
 export const UserSchema = z.object({
     userId: z.string(),
@@ -190,17 +190,17 @@ export const SaveGenreJamResponseSchema = z.object({
 
 // A duplicate report as the server stores it (Shuffull's SongDuplicateReportDto, shuffull-workspace#143). `version` stays
 // the exact string the server sent: it has microseconds, which a Date would cut, and it is the /mine paging key. Kind
-// and status stay strings so a value this build doesn't know can't fail the whole sync; a status the app doesn't know
-// hides nothing (SONG_HIDDEN_STATUSES).
+// and status stay plain strings so a value this build doesn't know can't fail the whole sync; a status the app doesn't
+// know hides nothing (SONG_HIDDEN_STATUSES, StoredDuplicateReportStatus).
 export const SongDuplicateReportSchema = z.object({
     reportId: z.string(),
     reporterUserId: z.string(),
     songId: z.string(),
     otherSongId: z.string().nullable(),
-    kind: z.string().transform(x => x as DuplicateReportKind),
+    kind: z.string(),
     preferredSongId: z.string().nullable(),
     hiddenSongId: z.string(),
-    status: z.string().transform(x => x as DuplicateReportStatus),
+    status: z.string(),
     note: z.string().nullable(),
     createdAt: z.coerce.date(),
     resolvedAt: z.coerce.date().nullable(),
@@ -231,11 +231,6 @@ export const SongDuplicateReportPageSchema = z.object({
 // Each row's paging key, as FeedKeySchema reads it for the other feeds (the report id stands in for the song id).
 export const SongDuplicateReportKeysSchema = z.object({
     reports: z.object({ version: z.string(), reportId: z.string() }).array(),
-});
-
-// DELETE /api/v1/song-duplicate-reports/{id} -> { report }, withdrawn (a merged one comes back unchanged).
-export const WithdrawDuplicateReportResponseSchema = z.object({
-    report: SongDuplicateReportSchema,
 });
 
 // POST /api/v1/songs/retag-stale?limit=N -> one bounded batch of the library re-tag.

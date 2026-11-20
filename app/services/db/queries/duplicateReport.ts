@@ -14,7 +14,7 @@ import {
 } from "../schema";
 import type { DuplicateCandidate } from "@/app/tools/duplicatePicker";
 import { withTransaction } from "../transaction";
-import { chunkIds } from "./_chunk";
+import { chunkIds, chunkRows } from "./_chunk";
 import { addRequests, deadLetterRequests, getRequests } from "./request";
 import { RequestType } from "@/app/enums";
 import type { SongDuplicateReport as ServerDuplicateReport } from "@/app/services/api/models";
@@ -51,7 +51,7 @@ export interface NewDuplicateReport {
 /**
  * Records a report on this device and queues it for the server, in one transaction. The hide applies from this
  * commit on. Checks what the server would refuse for good, so a report can't hide a song here that the server will
- * never hold.
+ * never hold: both songs must be in the user's library (a user_songs row), as the server requires.
  */
 export async function reportDuplicate(db: GenericDb, input: NewDuplicateReport): Promise<SongDuplicateReport> {
     const otherSongId = input.otherSongId || null;
@@ -86,6 +86,12 @@ export async function reportDuplicate(db: GenericDb, input: NewDuplicateReport):
     };
 
     await withTransaction(db, async tx => {
+        const songIds = otherSongId ? [input.songId, otherSongId] : [input.songId];
+        const inLibrary = await tx.select({ songId: userSongTable.songId }).from(userSongTable)
+            .where(and(eq(userSongTable.userId, input.userId), inArray(userSongTable.songId, songIds)));
+        if (inLibrary.length < songIds.length) {
+            throw new Error("Only songs in your library can be reported as a duplicate or hidden.");
+        }
         await tx.insert(songDuplicateReportTable).values(report);
         await addRequests(tx, [{
             // The report id, so a resend after a lost response finds the same report on the server.
@@ -139,16 +145,6 @@ export async function getSongHidingReports(db: GenericDb, userId: string, songId
 
 export async function isSongHiddenAsDuplicate(db: GenericDb, userId: string, songId: string): Promise<boolean> {
     return (await getSongHidingReports(db, userId, songId)).length > 0;
-}
-
-/** Every song the user's reports hide, for undo. */
-export async function getHiddenSongIds(db: GenericDb, userId: string): Promise<Set<string>> {
-    const rows = await db.selectDistinct({ songId: songDuplicateReportTable.hiddenSongId })
-        .from(songDuplicateReportTable)
-        .where(and(
-            eq(songDuplicateReportTable.userId, userId),
-            inArray(songDuplicateReportTable.status, [...SONG_HIDDEN_STATUSES])));
-    return new Set(rows.map(x => x.songId));
 }
 
 /** One hidden song in the settings list: the song (null when this device no longer has it) and its newest report. */
@@ -250,25 +246,37 @@ export async function hasDuplicateReports(db: GenericDb, userId: string): Promis
     return rows.length > 0;
 }
 
-/** Writes reports as the server sent them. Queues nothing. */
+/** Writes reports as the server sent them, in chunked multi-row upserts. Queues nothing. */
 export async function upsertDuplicateReports(db: GenericDb, userId: string, reports: ServerDuplicateReport[]): Promise<void> {
-    for (const report of reports) {
-        const row: SongDuplicateReport = {
-            reportId: report.reportId,
-            userId,
-            songId: report.songId,
-            otherSongId: report.otherSongId,
-            kind: report.kind,
-            preferredSongId: report.preferredSongId,
-            hiddenSongId: report.hiddenSongId,
-            status: report.status,
-            note: report.note,
-            createdAt: report.createdAt,
-            version: report.version,
-        };
-        const { reportId: _, ...fields } = row;
-        await db.insert(songDuplicateReportTable).values(row)
-            .onConflictDoUpdate({ target: songDuplicateReportTable.reportId, set: fields });
+    const rows = reports.map((report): SongDuplicateReport => ({
+        reportId: report.reportId,
+        userId,
+        songId: report.songId,
+        otherSongId: report.otherSongId,
+        kind: report.kind,
+        preferredSongId: report.preferredSongId,
+        hiddenSongId: report.hiddenSongId,
+        status: report.status,
+        note: report.note,
+        createdAt: report.createdAt,
+        version: report.version,
+    }));
+    for (const chunk of chunkRows(rows)) {
+        await db.insert(songDuplicateReportTable).values(chunk).onConflictDoUpdate({
+            target: songDuplicateReportTable.reportId,
+            set: {
+                userId: sql`excluded.user_id`,
+                songId: sql`excluded.song_id`,
+                otherSongId: sql`excluded.other_song_id`,
+                kind: sql`excluded.kind`,
+                preferredSongId: sql`excluded.preferred_song_id`,
+                hiddenSongId: sql`excluded.hidden_song_id`,
+                status: sql`excluded.status`,
+                note: sql`excluded.note`,
+                createdAt: sql`excluded.created_at`,
+                version: sql`excluded.version`,
+            },
+        });
     }
 }
 
