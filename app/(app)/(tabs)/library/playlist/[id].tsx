@@ -3,6 +3,7 @@ import { View } from "react-native";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { Playlist } from "@/app/services/db/models";
 import DbQueries from "@/app/services/db/queries";
+import { useCurrentUser } from "@/app/services/auth/CurrentUserProvider";
 import { useDb } from "@/app/services/db/DbProvider";
 import PlayerBar, { totalPlayerBarHeight } from "@/app/components/music-control/organisms/PlayerBar";
 import { SongList } from "@/app/components/songs/molecules/SongList";
@@ -28,6 +29,7 @@ export default function PlaylistScreen() {
     // Feedback for the Download button, which used to be fire-and-forget. Reset when the playlist changes.
     const [downloadLabel, setDownloadLabel] = useState<string | null>(null);
     const db = useDb();
+    const userId = useCurrentUser();
     const downloader = useDownloader();
     // Moves whenever a song starts, is rated or is kept, wherever that happened (this list, Now Playing, the
     // notification, a song ending on its own).
@@ -67,7 +69,7 @@ export default function PlaylistScreen() {
                 throw new Error("Playlist not in DB");
             }
             setPlaylist(dbPlaylist);
-            const dbSongs = await DbQueries.getSongDetailsByPlaylist(db, playlistId);
+            const dbSongs = await DbQueries.getSongDetailsByPlaylist(db, userId, playlistId);
             setSongs(dbSongs);
         })();
     }, [playlistId]);

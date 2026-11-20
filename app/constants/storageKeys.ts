@@ -32,4 +32,7 @@ export const STORAGE_KEYS = {
     // `${AUDITION_QUICK_SKIPS_PREFIX}${userId}:${playlistId}` (services/audition/quickSkipStore). Removed once the
     // list is empty or the mix is deleted on this device. Never synced: a quick skip must not look like a listen.
     AUDITION_QUICK_SKIPS_PREFIX: "AUDITION_QUICK_SKIPS:",
+    // JSON DuplicateReportSyncKey { userId, version, reportId }: the last report the duplicate-reports feed sent, which
+    // the next sync pages on from (duplicateReportFeedStart). Its userId keeps one account's key from skipping another's.
+    DUPLICATE_REPORT_SYNC_KEY: "DUPLICATE_REPORT_SYNC_KEY",
 };

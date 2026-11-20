@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { View } from "react-native";
 import { router, useFocusEffect } from "expo-router";
 import DbQueries from "@/app/services/db/queries";
+import { useCurrentUser } from "@/app/services/auth/CurrentUserProvider";
 import { useDb } from "@/app/services/db/DbProvider";
 import PlayerBar, { totalPlayerBarHeight } from "@/app/components/music-control/organisms/PlayerBar";
 import { SongList } from "@/app/components/songs/molecules/SongList";
@@ -23,6 +24,7 @@ const QUEUE_PREVIEW_LIMIT = 8;
 export default function LocalDownloadsScreen() {
     const theme = useTheme();
     const db = useDb();
+    const userId = useCurrentUser();
     const downloader = useDownloader();
     const status = useDownloadStatus((s) => s.status);
     const [songs, setSongs] = useState<SongDetails[]>([]);
@@ -30,8 +32,8 @@ export default function LocalDownloadsScreen() {
     const [search, setSearch] = useState("");
 
     const loadDownloaded = useCallback(async () => {
-        setSongs(await DbQueries.getDownloadedSongDetails(db));
-    }, [db]);
+        setSongs(await DbQueries.getDownloadedSongDetails(db, userId));
+    }, [db, userId]);
 
     const loadQueue = useCallback(async () => {
         setQueued(await DbQueries.getDownloadQueueDetails(db, QUEUE_PREVIEW_LIMIT));

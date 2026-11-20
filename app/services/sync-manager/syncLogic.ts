@@ -1,6 +1,6 @@
 import { getProcessingMethod, ProcessingMethod, RequestType } from "@/app/enums";
 import type { FeedCursor, FeedKey } from "@/app/services/api/models";
-import type { DeletePlaylistPayload, SaveGenreJamPayload } from "@/app/services/db/schema";
+import type { DeletePlaylistPayload, DuplicateReportStatus, SaveGenreJamPayload } from "@/app/services/db/schema";
 import type { WhitelistSetting } from "@/app/services/db/types";
 
 // Pure, dependency-free pieces lifted out of SyncManager.overallSync so they can be unit-tested without
@@ -358,7 +358,8 @@ export interface OutboxSubject {
  * song whatever came before, so it has no order to keep, and it must never wait days behind an unrelated refused row
  * (a play, a metadata edit) and hold its playlist's delete with it. None for a listen either: it is a log entry, so a
  * refused listen must not hold the song's Like, and a refused Like must not hold its listens. A Genre Jam save or
- * delete acts on its jam, so a refused save holds the later edits and the delete of that jam, and nothing else.
+ * delete acts on its jam, so a refused save holds the later edits and the delete of that jam, and nothing else. A
+ * duplicate report and its withdraw act on the report alone, so a refused report holds its own undo and nothing else.
  */
 function outboxSubjects(request: OutboxSubject): string[] {
     const subjects: string[] = [];
@@ -368,6 +369,10 @@ function outboxSubjects(request: OutboxSubject): string[] {
     if (request.requestType == RequestType.SaveGenreJam || request.requestType == RequestType.DeleteGenreJam) {
         const genreJamId = genreJamIdOf(request);
         return genreJamId ? [`genreJam:${genreJamId}`] : subjects;
+    }
+    if (request.requestType == RequestType.ReportDuplicate || request.requestType == RequestType.WithdrawDuplicateReport) {
+        const reportId = reportIdOf(request);
+        return reportId ? [`duplicateReport:${reportId}`] : subjects;
     }
     if (request.songId) {
         subjects.push(`song:${request.songId}`);
@@ -734,4 +739,137 @@ export function syncTicksToSkip(failedSyncs: number): number {
         return 0;
     }
     return Math.min(2 ** (failedSyncs - 1), SYNC_MAX_BACKOFF_TICKS) - 1;
+}
+
+// ── Duplicate reports (ShuffullApp#219, shuffull-workspace#143) ──
+
+function reportIdOf(request: { payload?: unknown }): string | undefined {
+    const reportId = (request.payload as { reportId?: unknown } | null | undefined)?.reportId;
+    return typeof reportId == "string" && reportId ? reportId : undefined;
+}
+
+/**
+ * The song a report hides from its reporter, by the server's rule (Shuffull's SongDuplicateReport.HiddenSongOf): the
+ * other copy when the reporter chose to keep this one, otherwise the reported song itself. "Different version" and
+ * "let the curator decide" both hide the reported song.
+ */
+export function hiddenSongOf(songId: string, otherSongId: string | null, preferredSongId: string | null): string {
+    return otherSongId != null && preferredSongId === songId ? otherSongId : songId;
+}
+
+/** One item of POST /song-duplicate-reports' answer, as the outcome rule needs it. */
+export interface DuplicateReportOutcomeRow<R> {
+    reportId: string | null;
+    outcome: string;
+    error?: string | null;
+    report: R | null;
+}
+
+/** A queued report as the outcome rule needs it: its payload's reportId is the id the server answers under. */
+export interface QueuedDuplicateReport {
+    payload: { reportId: string };
+}
+
+/**
+ * Splits a sent batch of reports into the ones the server holds, each with the report it stored, and the ones it
+ * didn't, each with its reason.
+ *
+ * "recorded" is a new report and "updated" an earlier one of the same pair, which comes back under its own id (the
+ * new id is kept as an alias). Either way the server holds the user's decision. Everything else ("rejected", an
+ * outcome this build doesn't know, a stored outcome with no report, or no outcome at all) is returned to be
+ * dead-lettered, never deleted unread.
+ */
+export function duplicateReportOutcomes<T extends QueuedDuplicateReport, R>(
+    requests: T[],
+    results: DuplicateReportOutcomeRow<R>[] | undefined | null,
+): { stored: { request: T; report: R }[]; failed: { request: T; reason: string }[] } {
+    const outcomeById = new Map<string, DuplicateReportOutcomeRow<R>>();
+    for (const result of results ?? []) {
+        if (result.reportId != null) {
+            outcomeById.set(result.reportId, result);
+        }
+    }
+
+    const stored: { request: T; report: R }[] = [];
+    const failed: { request: T; reason: string }[] = [];
+    for (const request of requests) {
+        const outcome = outcomeById.get(request.payload.reportId);
+        if ((outcome?.outcome === "recorded" || outcome?.outcome === "updated") && outcome.report != null) {
+            stored.push({ request, report: outcome.report });
+        } else {
+            failed.push({ request, reason: duplicateReportFailureReason(outcome) });
+        }
+    }
+    return { stored, failed };
+}
+
+function duplicateReportFailureReason(outcome: DuplicateReportOutcomeRow<unknown> | undefined): string {
+    if (outcome == undefined) {
+        return "The server returned no outcome for this duplicate report.";
+    }
+    if (outcome.outcome === "recorded" || outcome.outcome === "updated") {
+        return `The server reported the duplicate report as ${outcome.outcome} but sent no report back.`;
+    }
+    return outcome.error?.trim() || `The server reported the duplicate report as ${outcome.outcome || "failed"}, with no reason.`;
+}
+
+/** A report as the pull merges it. */
+export interface MergeableDuplicateReport {
+    reportId: string;
+    status: DuplicateReportStatus;
+}
+
+/**
+ * The server's reports as this device should store them, given what is still queued. The outbox runs before the pull,
+ * so a row still queued was refused, held, or queued since. A report with its own POST still queued keeps the local
+ * row as it is: the answer to that POST is what updates it. One with a withdraw queued is stored as withdrawn, so an
+ * undo the server hasn't heard yet doesn't hide the song again.
+ */
+export function mergeDuplicateReports<T extends MergeableDuplicateReport>(
+    serverReports: T[],
+    outbox: (BatchableRequest & { payload?: unknown })[],
+): T[] {
+    const queuedReports = new Set<string>();
+    const queuedWithdraws = new Set<string>();
+    for (const request of outbox) {
+        const reportId = reportIdOf(request);
+        if (!reportId) {
+            continue;
+        }
+        if (request.requestType == RequestType.ReportDuplicate) {
+            queuedReports.add(reportId);
+        } else if (request.requestType == RequestType.WithdrawDuplicateReport) {
+            queuedWithdraws.add(reportId);
+        }
+    }
+
+    return serverReports
+        .filter(x => !queuedReports.has(x.reportId))
+        .map(x => queuedWithdraws.has(x.reportId) ? { ...x, status: "withdrawn" as const } : x);
+}
+
+/** The stored DUPLICATE_REPORT_SYNC_KEY: the last report the /mine feed sent, and whose feed it was. */
+export interface DuplicateReportSyncKey {
+    userId: string;
+    version: string;
+    reportId: string;
+}
+
+/**
+ * Where this sync's /mine feed starts. From the stored key when it is this user's and this device still holds their
+ * reports; from the start otherwise. The local reports outlive a logout and the key is per device, so a key another
+ * account left, or one left after the local rows were lost, would skip reports for good.
+ */
+export function duplicateReportFeedStart(raw: string | null, userId: string, hasLocalReports: boolean): FeedCursor {
+    if (raw != null && hasLocalReports) {
+        try {
+            const key = JSON.parse(raw) as Partial<DuplicateReportSyncKey> | null;
+            if (key?.userId === userId && typeof key.version === "string" && typeof key.reportId === "string") {
+                return { afterDate: key.version, afterId: key.reportId };
+            }
+        } catch {
+            // A malformed key just means paging from the start.
+        }
+    }
+    return { afterDate: FEED_START };
 }

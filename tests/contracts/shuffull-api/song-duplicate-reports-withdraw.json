@@ -1,0 +1,17 @@
+{
+  "report": {
+    "reportId": "report-1",
+    "reporterUserId": "user-1",
+    "songId": "song-full",
+    "otherSongId": "song-sparse",
+    "kind": "duplicate",
+    "preferredSongId": null,
+    "hiddenSongId": "song-full",
+    "status": "withdrawn",
+    "note": "Same upload twice",
+    "createdAt": "2026-10-01T12:34:56.123456Z",
+    "resolvedAt": "2026-10-02T08:00:00.000001Z",
+    "resolvedByUserId": "user-1",
+    "version": "2026-10-02T08:00:00.000001Z"
+  }
+}

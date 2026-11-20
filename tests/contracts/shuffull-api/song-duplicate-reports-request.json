@@ -1,0 +1,20 @@
+{
+  "reports": [
+    {
+      "reportId": "report-1",
+      "songId": "song-full",
+      "otherSongId": "song-sparse",
+      "kind": "duplicate",
+      "preferredSongId": null,
+      "note": "Same upload twice"
+    },
+    {
+      "reportId": "report-2",
+      "songId": "song-sparse",
+      "otherSongId": null,
+      "kind": "differentVersion",
+      "preferredSongId": null,
+      "note": null
+    }
+  ]
+}

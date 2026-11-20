@@ -8,8 +8,9 @@ import { addRequests, enqueueSongRetag, getDeadLetterRequests, getRequests } fro
 import { deadLetterRequestTable, userTable } from "@/app/services/db/schema";
 import { LikeStatus, RequestType } from "@/app/enums";
 import { ApiStatusFailureError } from "@/app/services/api/errors";
-import type { KeepResponse, RecordListensResponse } from "@/app/services/api/models";
-import type { RecordListenPayload } from "@/app/services/db/models";
+import type { KeepResponse, RecordListensResponse, ReportDuplicatesResponse } from "@/app/services/api/models";
+import type { RecordListenPayload, ReportDuplicatePayload } from "@/app/services/db/models";
+import { isSongHiddenAsDuplicate, reportDuplicate, withdrawDuplicateReports } from "@/app/services/db/queries/duplicateReport";
 import { closeListen } from "@/app/services/db/queries/listen";
 import { finishedListen } from "@/app/tools/listens";
 
@@ -48,6 +49,24 @@ function makeApi() {
             results: listens.map(x => ({ listenId: x.listenId, outcome: "recorded", error: null })),
         })),
         listenStats: vi.fn(async () => ({ maybeDropRule: { skippedUnderSeconds: 30, quickSkips: 3, ofLastPlays: 5 }, songs: [] })),
+        duplicateReportSave: vi.fn(async (reports: ReportDuplicatePayload[]): Promise<ReportDuplicatesResponse> => ({
+            results: reports.map(x => ({
+                reportId: x.reportId,
+                outcome: "recorded",
+                error: null,
+                report: {
+                    ...x,
+                    reporterUserId: USER,
+                    hiddenSongId: x.preferredSongId === x.songId && x.otherSongId ? x.otherSongId : x.songId,
+                    status: "pending",
+                    createdAt: new Date(),
+                    resolvedAt: null,
+                    resolvedByUserId: null,
+                    version: "2026-11-20T10:00:00.000001Z",
+                },
+            })),
+        })),
+        duplicateReportWithdraw: vi.fn(async (_reportId: string) => {}),
     };
 }
 
@@ -535,5 +554,83 @@ describe("SyncManager: listens go through the outbox and are read, never dropped
         await makeManager(db, api).sync();
 
         expect(await getRequests(db, USER)).toHaveLength(1);
+    });
+});
+
+describe("SyncManager: duplicate reports go through the outbox and are read, never dropped unread (ShuffullApp#219)", () => {
+    let db: GenericDb;
+    let api: ReturnType<typeof makeApi>;
+    beforeEach(async () => {
+        db = makeDb();
+        api = makeApi();
+        await setCurator(db, false);
+    });
+
+    const report = () => reportDuplicate(db, { userId: USER, songId: "s1", otherSongId: "s2", kind: "duplicate", preferredSongId: null, note: null });
+
+    it("sends queued reports as one POST and deletes them once recorded; the song stays hidden", async () => {
+        const a = await report();
+        const b = await reportDuplicate(db, { userId: USER, songId: "s3", otherSongId: null, kind: "differentVersion", preferredSongId: null, note: null });
+
+        await makeManager(db, api).sync();
+
+        expect(api.duplicateReportSave).toHaveBeenCalledTimes(1);
+        expect(api.duplicateReportSave.mock.calls[0][0].map(x => x.reportId)).toEqual([a.reportId, b.reportId]);
+        expect(await getRequests(db, USER)).toHaveLength(0);
+        expect(await getDeadLetterRequests(db, USER)).toHaveLength(0);
+        expect(await isSongHiddenAsDuplicate(db, USER, "s1")).toBe(true);
+    });
+
+    it("a report the server rejected is dead-lettered with its reason, and hides nothing any more", async () => {
+        const a = await report();
+        api.duplicateReportSave.mockResolvedValueOnce({
+            results: [{ reportId: a.reportId, outcome: "rejected", error: "Song 's1' is not in your library.", report: null }],
+        });
+
+        await makeManager(db, api).sync();
+
+        expect(await getRequests(db, USER)).toHaveLength(0);
+        const deadLetters = await getDeadLetterRequests(db, USER);
+        expect(deadLetters.map(x => [x.requestId, x.reason])).toEqual([[a.reportId, "Song 's1' is not in your library."]]);
+        expect(await isSongHiddenAsDuplicate(db, USER, "s1")).toBe(false);
+    });
+
+    it("a 5xx keeps the report queued and the song hidden", async () => {
+        await report();
+        api.duplicateReportSave.mockRejectedValueOnce(rejected("/api/v1/song-duplicate-reports", 503, "down"));
+
+        await makeManager(db, api).sync();
+
+        expect(await getRequests(db, USER)).toHaveLength(1);
+        expect(await getDeadLetterRequests(db, USER)).toHaveLength(0);
+        expect(await isSongHiddenAsDuplicate(db, USER, "s1")).toBe(true);
+    });
+
+    it("an undo before the report was sent posts the report, then withdraws it, in order", async () => {
+        const a = await report();
+        await withdrawDuplicateReports(db, USER, "s1");
+
+        await makeManager(db, api).sync();
+
+        expect(api.duplicateReportSave.mock.invocationCallOrder[0]).toBeLessThan(api.duplicateReportWithdraw.mock.invocationCallOrder[0]);
+        expect(api.duplicateReportWithdraw).toHaveBeenCalledWith(a.reportId);
+        expect(await getRequests(db, USER)).toHaveLength(0);
+        expect(await isSongHiddenAsDuplicate(db, USER, "s1")).toBe(false);
+    });
+
+    it("a withdraw the server answers 404 is done (nothing hides the song there); a 5xx keeps it", async () => {
+        const a = await report();
+        api.duplicateReportSave.mockResolvedValueOnce({ results: [{ reportId: a.reportId, outcome: "rejected", error: "no", report: null }] });
+        await makeManager(db, api).sync();
+        await addRequests(db, [{ requestId: "w1", timeRequested: new Date(), requestType: RequestType.WithdrawDuplicateReport, userId: USER, payload: { reportId: a.reportId } }]);
+
+        api.duplicateReportWithdraw.mockRejectedValueOnce(rejected("/api/v1/song-duplicate-reports/x", 503, "down"));
+        await makeManager(db, api).sync();
+        expect(await getRequests(db, USER)).toHaveLength(1);
+
+        api.duplicateReportWithdraw.mockRejectedValueOnce(rejected("/api/v1/song-duplicate-reports/x", 404, "Not found"));
+        await makeManager(db, api).sync();
+        expect(await getRequests(db, USER)).toHaveLength(0);
+        expect((await getDeadLetterRequests(db, USER)).map(x => x.requestId)).toEqual([a.reportId]);
     });
 });

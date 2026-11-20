@@ -16,5 +16,10 @@ export enum RequestType {
     // Create or replace a Genre Jam via PUT /api/v1/genre-jams/{id}. The payload is the whole jam.
     SaveGenreJam = 10,
     // Delete a Genre Jam via DELETE /api/v1/genre-jams/{id}.
-    DeleteGenreJam = 11
+    DeleteGenreJam = 11,
+    // Duplicate reports via POST /api/v1/song-duplicate-reports. The row's requestId is the reportId; the payload is
+    // the wire item. Batched, with one outcome per report.
+    ReportDuplicate = 12,
+    // Withdraw a duplicate report via DELETE /api/v1/song-duplicate-reports/{id}.
+    WithdrawDuplicateReport = 13
 };

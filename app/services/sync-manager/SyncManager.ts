@@ -12,7 +12,7 @@ import { Downloader } from "@/app/services/downloader/Downloader";
 import { STORAGE_KEYS } from "@/app/constants/storageKeys";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { ListenStatsAttempt, listenStatsDue } from "@/app/tools/listenStats";
-import { collectNewSongIds, FEED_START, failedKeeps, failedListens, groupRequestsIntoBatches, holdBehindRefused, keepsDueForRetry, markRefused, mergeGenreJams, OUTBOX_MAX_BATCH_SIZE, pageFeed, partitionRejectedRequests, playlistDeleteHold, playlistsToFetch, pendingSongMisses, SONG_FIELDS_REVISION, SONG_LIST_MAX_IDS, songFeedStart, songReconcileDue, SongReconcileState, songsGoneFromServer, summarizeRetagFailures, SYNC_INTERVAL_MS, syncTicksToSkip, toRetagItems, withoutPendingDeletes } from "@/app/services/sync-manager/syncLogic";
+import { collectNewSongIds, duplicateReportFeedStart, duplicateReportOutcomes, DuplicateReportSyncKey, FEED_START, failedKeeps, failedListens, groupRequestsIntoBatches, holdBehindRefused, keepsDueForRetry, markRefused, mergeDuplicateReports, mergeGenreJams, OUTBOX_MAX_BATCH_SIZE, pageFeed, partitionRejectedRequests, playlistDeleteHold, playlistsToFetch, pendingSongMisses, SONG_FIELDS_REVISION, SONG_LIST_MAX_IDS, songFeedStart, songReconcileDue, SongReconcileState, songsGoneFromServer, summarizeRetagFailures, SYNC_INTERVAL_MS, syncTicksToSkip, toRetagItems, withoutPendingDeletes } from "@/app/services/sync-manager/syncLogic";
 
 /** What one outbox batch came back with: the status sync() acts on, and the error text when it failed. */
 interface RunResult {
@@ -234,6 +234,27 @@ export class SyncManager {
                         await this.api.genreJamDelete(request.payload.genreJamId);
                     }
                 });
+            case RequestType.ReportDuplicate:
+                return await this.attempt(() => this.reportDuplicates(requests as DbModels.ReportDuplicateRequest[]));
+            case RequestType.WithdrawDuplicateReport:
+                // Processed individually; loop defensively all the same. The local report was marked withdrawn with
+                // the request.
+                return await this.attempt(async () => {
+                    for (const request of requests as DbModels.WithdrawDuplicateReportRequest[]) {
+                        try {
+                            await this.api.duplicateReportWithdraw(request.payload.reportId);
+                        } catch (e) {
+                            // 404: the server holds no such report of this user's: it was refused (and dead-lettered
+                            // here), or never reached it. Either way nothing hides the song there, which is what the
+                            // withdraw asks for, so it is done. Keeping it would hold it for days and then dead-letter
+                            // an undo that already took effect.
+                            if (statusOfFailure(e) != HttpStatusCode.NotFound) {
+                                throw e;
+                            }
+                            console.warn(`[sync] Withdrawing duplicate report ${request.payload.reportId}: the server has no such report.`);
+                        }
+                    }
+                });
             default:
                 throw new Error("A request type has no method to call.");
         }
@@ -348,6 +369,21 @@ export class SyncManager {
         }
     }
 
+    // Sends one batch of duplicate reports (groupRequestsIntoBatches caps it at the server's 200). A 200 only means the
+    // POST landed: the per-item outcomes say which reports the server holds. Those replace the local rows. One it
+    // refused is dead-lettered with its reason, and its local row stops hiding the song, since the server never will.
+    // All of that commits before pushAndPull deletes the batch. A resend is safe: a stored report comes back as itself.
+    private async reportDuplicates(requests: DbModels.ReportDuplicateRequest[]): Promise<void> {
+        const response = await this.api.duplicateReportSave(requests.map(x => x.payload));
+        const { stored, failed } = duplicateReportOutcomes(requests, response.results);
+        if (failed.length) {
+            console.warn(
+                `[sync] ${failed.length}/${requests.length} duplicate report(s) not recorded, dead-lettered: ` +
+                `${[...new Set(failed.map(x => x.reason))].join("; ")}`);
+        }
+        await DbQueries.applyDuplicateReportOutcomes(this.db, this.userId, requests, stored, failed);
+    }
+
     // The pull can't see a song the server deleted (see songsGoneFromServer), so now and then ask for every local song
     // by id and purge what the server no longer has. Derived, not a queue: a check that fails changes nothing, and the
     // next one finds the same songs. The 573 songs one phone held after their server rows were gone heal this way.
@@ -447,6 +483,19 @@ export class SyncManager {
         }
     }
 
+    // The user's duplicate reports changed since `start`, or null when the server has no duplicate-report endpoint yet
+    // (404), which leaves the local reports as they are. Anything else throws, and fails the sync like any other read.
+    private async fetchDuplicateReports(start: ApiModels.FeedCursor) {
+        try {
+            return await pageFeed(start, cursor => this.api.duplicateReportGetMine(cursor));
+        } catch (e) {
+            if (statusOfFailure(e) == HttpStatusCode.NotFound) {
+                return null;
+            }
+            throw e;
+        }
+    }
+
     private async overallSync(): Promise<HttpStatusCode> {
         try {
             // ── Phase 1: read local state + fetch over the network (NO write transaction held) ──
@@ -464,6 +513,16 @@ export class SyncManager {
             // Genre Jams: the whole (small) list every sync. Null from a server that predates them (404), which leaves
             // the local jams as they are rather than fail the whole sync.
             const genreJams = await this.fetchGenreJams();
+
+            // Duplicate reports: what changed since the last report this device stored, so a curator's answer or an undo
+            // made on another device reaches this one. Null from a server that predates them (404).
+            const duplicateReportFeed = await this.fetchDuplicateReports(duplicateReportFeedStart(
+                await AsyncStorage.getItem(STORAGE_KEYS.DUPLICATE_REPORT_SYNC_KEY),
+                this.userId,
+                await DbQueries.hasDuplicateReports(this.db, this.userId)));
+            if (duplicateReportFeed?.stalled) {
+                console.error("[sync] The duplicate-reports feed repeated a page; stopped paging it, and its key stays put.");
+            }
 
             // Decide which playlists changed (local read) and fetch just those.
             const localPlaylists = await DbQueries.getPlaylists(this.db, this.userId);
@@ -576,6 +635,14 @@ export class SyncManager {
                     await DbQueries.replaceGenreJams(tx, this.userId, merged.map(x => ({ ...x, userId: this.userId })));
                 }
 
+                if (duplicateReportFeed != null) {
+                    // Pages can overlap on a tied Version, so a report can come twice; newest wins. The outbox read
+                    // inside the transaction keeps a report or undo made since phase 1 as it is here (mergeDuplicateReports).
+                    const reports = distinctByLast(duplicateReportFeed.items, x => x.reportId);
+                    await DbQueries.upsertDuplicateReports(tx, this.userId,
+                        mergeDuplicateReports(reports, await DbQueries.getRequests(tx, this.userId)));
+                }
+
                 // Changed songs already have artist/tag joins; clear them so a changed set doesn't leave
                 // stale links behind (the batch loop rebuilds them via insert-or-ignore). New songs have none.
                 await DbQueries.deleteSongArtistsAndTags(tx, changedSongIds);
@@ -658,6 +725,15 @@ export class SyncManager {
                 await AsyncStorage.setItem(STORAGE_KEYS.SONG_SYNC_CURSOR, nextSongKey.version);
             } else if (songFeedFrom == null) {
                 await AsyncStorage.setItem(STORAGE_KEYS.SONG_SYNC_CURSOR, syncStartTime.toISOString());
+            }
+            // A stalled feed never reached its last rows, so the next sync pages from the old key again.
+            if (duplicateReportFeed?.last != undefined && !duplicateReportFeed.stalled) {
+                const key: DuplicateReportSyncKey = {
+                    userId: this.userId,
+                    version: duplicateReportFeed.last.version,
+                    reportId: duplicateReportFeed.last.songId,
+                };
+                await AsyncStorage.setItem(STORAGE_KEYS.DUPLICATE_REPORT_SYNC_KEY, JSON.stringify(key));
             }
 
             return HttpStatusCode.Ok;

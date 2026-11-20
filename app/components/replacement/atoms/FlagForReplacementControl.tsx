@@ -7,16 +7,29 @@ import { generateId } from "@/app/tools/utils";
 import IconButton from "@/app/components/ui/IconButton";
 import { useTheme } from "@/app/theme";
 import { showAlert } from "@/app/tools/dialog";
+import ReportSongSheet, { ReportedSong } from "@/app/components/duplicates/ReportSongSheet";
 
-// Per-song "flag for replacement" toggle. Queues a global per-song replacement request through the sync
-// pipeline (→ POST /api/v1/replacements) so a poor-quality song can be re-sourced. The flag is one-way from
-// the app's side: once queued it stays filled, and re-detects a still-pending request on remount so it
-// survives navigating away before the next sync flushes it. Resolution happens server/funnel-side.
-export default function FlagForReplacementControl({ songId, size = 24 }: { songId: string; size?: number }) {
+// The song screen's flag button. It opens a sheet with three reports (ShuffullApp#219):
+// - Poor quality: queues a global per-song replacement request through the sync pipeline
+//   (→ POST /api/v1/replacements) so a better copy can be sourced. One-way from the app's side: once queued the icon
+//   stays filled, and re-detects a still-pending request on remount so it survives navigating away before the next
+//   sync flushes it. Resolution happens server/funnel-side.
+// - Duplicate of… / Different version: a duplicate report that hides one copy for this user (ReportSongSheet).
+export default function FlagForReplacementControl({
+    song,
+    size = 24,
+    onReported,
+}: {
+    song: ReportedSong;
+    size?: number;
+    onReported: (hiddenSongId: string) => void;
+}) {
+    const songId = song.songId;
     const db = useDb();
     const userId = useCurrentUser();
     const theme = useTheme();
     const [flagged, setFlagged] = useState(false);
+    const [sheetOpen, setSheetOpen] = useState(false);
 
     useEffect(() => {
         let cancelled = false;
@@ -64,12 +77,22 @@ export default function FlagForReplacementControl({ songId, size = 24 }: { songI
     };
 
     return (
-        <IconButton
-            name={flagged ? "flag" : "flag-outline"}
-            size={size}
-            color={flagged ? theme.color.accent : theme.color.textMuted}
-            onPress={flagForReplacement}
-            accessibilityLabel={flagged ? "Flagged for replacement" : "Flag for replacement"}
-        />
+        <>
+            <IconButton
+                name={flagged ? "flag" : "flag-outline"}
+                size={size}
+                color={flagged ? theme.color.accent : theme.color.textMuted}
+                onPress={() => setSheetOpen(true)}
+                accessibilityLabel="Report a problem with this song"
+            />
+            <ReportSongSheet
+                song={song}
+                visible={sheetOpen}
+                onClose={() => setSheetOpen(false)}
+                poorQualityFlagged={flagged}
+                onFlagPoorQuality={flagForReplacement}
+                onReported={onReported}
+            />
+        </>
     );
 }

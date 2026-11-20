@@ -2,13 +2,14 @@ import { SongFilters } from "@/app/types/SongFilters";
 import { GenericDb } from "../GenericDb";
 import { Song, UpdateSongMetadataPayload } from "../models";
 import { artistTable, downloadedSongTable, downloadQueueTable, playlistSongTable, recentlyPlayedSongTable, songArtistTable, songTable, songTagTable, tagTable, userSongTable } from "../schema";
-import { eq, inArray, sql, asc } from "drizzle-orm";
+import { and, eq, inArray, sql, asc } from "drizzle-orm";
 import { SongDetails } from "../types";
 // Import the dependency-free helper directly (not via @/app/tools, which re-exports React-Native-bound utils)
 // so this query module stays importable from the Vitest (node) test harness.
 import { deterministicId } from "@/app/tools/pure";
 import { chunkIds, chunkRows } from "./_chunk";
 import { namedRows } from "./_rawRow";
+import { notHiddenAsDuplicate } from "./duplicateReport";
 
 type FilteredSongs = {
     songId: string,
@@ -24,7 +25,7 @@ type FilteredSongs = {
  * as a bound text value; SQLite coerces that to 0 in a boolean context, so the whole WHERE went false and the
  * filter silently matched NOTHING. Nothing errored — the pool was just empty, and playback stopped.
  */
-export async function getFilteredSong(db: GenericDb, songFilters: SongFilters) {
+export async function getFilteredSong(db: GenericDb, userId: string, songFilters: SongFilters) {
     const whitelistArtists = JSON.stringify(songFilters.whitelists.artistIds);
     const whitelistPlaylists = JSON.stringify(songFilters.whitelists.playlistIds);
     const whitelistGenres = JSON.stringify(songFilters.whitelists.genreIds);
@@ -50,6 +51,8 @@ export async function getFilteredSong(db: GenericDb, songFilters: SongFilters) {
             WHERE
                 -- Dislike = never play again: exclude disliked songs from shuffle (explicit play still allowed).
                 (us.like_status IS NULL OR us.like_status <> 3)
+            -- A song the user hid as a duplicate or an unwanted version (ShuffullApp#219). Not a Dislike, and never one.
+            AND ${notHiddenAsDuplicate(userId, sql.raw("s.song_id"))}
             AND (
                 -- Audition cohorts play only what has never been played. "Never" is last_played <= 0, NOT
                 -- NULL: the server seeds every UserSong with DateTime.MinValue, so a missing row is rare and
@@ -221,13 +224,13 @@ export async function getFilteredSong(db: GenericDb, songFilters: SongFilters) {
     // A finished cohort has no never-played songs left, and handing back an empty pool would stall playback
     // instead of ending the audition gracefully. Retry once without the narrowing so the playlist still plays.
     if (filteredSongs.length === 0 && songFilters.unheardOnly) {
-        return await getFilteredSong(db, songFilters.withoutUnheardOnly());
+        return await getFilteredSong(db, userId, songFilters.withoutUnheardOnly());
     }
 
     return filteredSongs;
 }
 
-export async function getAllSongDetails(db: GenericDb): Promise<SongDetails[]> {
+export async function getAllSongDetails(db: GenericDb, userId: string): Promise<SongDetails[]> {
     const result: SongDetails[] = [];
     const rawData = await db
         .select({
@@ -237,6 +240,7 @@ export async function getAllSongDetails(db: GenericDb): Promise<SongDetails[]> {
         .from(songTable)
         .leftJoin(songArtistTable, eq(songTable.songId, songArtistTable.songId))
         .leftJoin(artistTable, eq(songArtistTable.artistId, artistTable.artistId))
+        .where(notHiddenAsDuplicate(userId, songTable.songId))
         .orderBy(asc(songTable.songId));
     
     let nextSongDetails: SongDetails | undefined = undefined;
@@ -264,7 +268,7 @@ export async function getAllSongDetails(db: GenericDb): Promise<SongDetails[]> {
 }
 
 // TODO: this is duplicated code from above, try to remove in the future
-export async function getSongDetailsByPlaylist(db: GenericDb, playlistId: string): Promise<SongDetails[]> {
+export async function getSongDetailsByPlaylist(db: GenericDb, userId: string, playlistId: string): Promise<SongDetails[]> {
     const result: SongDetails[] = [];
     const rawData = await db
         .selectDistinct({
@@ -272,7 +276,7 @@ export async function getSongDetailsByPlaylist(db: GenericDb, playlistId: string
             artist: artistTable
         })
         .from(playlistSongTable)
-        .where(eq(playlistSongTable.playlistId, playlistId))
+        .where(and(eq(playlistSongTable.playlistId, playlistId), notHiddenAsDuplicate(userId, songTable.songId)))
         .innerJoin(songTable, eq(songTable.songId, playlistSongTable.songId))
         .leftJoin(songArtistTable, eq(songTable.songId, songArtistTable.songId))
         .leftJoin(artistTable, eq(songArtistTable.artistId, artistTable.artistId))
@@ -302,7 +306,7 @@ export async function getSongDetailsByPlaylist(db: GenericDb, playlistId: string
     return result;
 }
 
-export async function getSongDetailsByArtist(db: GenericDb, artistId: string): Promise<SongDetails[]> {
+export async function getSongDetailsByArtist(db: GenericDb, userId: string, artistId: string): Promise<SongDetails[]> {
     // The songs credited to this artist...
     const songIdRows = await db
         .selectDistinct({ songId: songArtistTable.songId })
@@ -321,7 +325,7 @@ export async function getSongDetailsByArtist(db: GenericDb, artistId: string): P
             artist: artistTable
         })
         .from(songTable)
-        .where(inArray(songTable.songId, songIds))
+        .where(and(inArray(songTable.songId, songIds), notHiddenAsDuplicate(userId, songTable.songId)))
         .leftJoin(songArtistTable, eq(songTable.songId, songArtistTable.songId))
         .leftJoin(artistTable, eq(songArtistTable.artistId, artistTable.artistId))
         .orderBy(asc(songTable.songId));
@@ -354,7 +358,7 @@ export async function getSongDetailsByArtist(db: GenericDb, artistId: string): P
 }
 
 // TODO: this is duplicated code from above, try to remove in the future
-export async function getDownloadedSongDetails(db: GenericDb): Promise<SongDetails[]> {
+export async function getDownloadedSongDetails(db: GenericDb, userId: string): Promise<SongDetails[]> {
     const result: SongDetails[] = [];
     const rawData = await db
         .selectDistinct({
@@ -365,6 +369,7 @@ export async function getDownloadedSongDetails(db: GenericDb): Promise<SongDetai
         .innerJoin(songTable, eq(songTable.songId, downloadedSongTable.songId))
         .leftJoin(songArtistTable, eq(songTable.songId, songArtistTable.songId))
         .leftJoin(artistTable, eq(songArtistTable.artistId, artistTable.artistId))
+        .where(notHiddenAsDuplicate(userId, songTable.songId))
         .orderBy(asc(songTable.songId));
     
     let nextSongDetails: SongDetails | undefined = undefined;
@@ -441,10 +446,12 @@ export async function backfillSongFields(db: GenericDb, songs: { songId: string;
     }
 }
 
-export async function getRandomSongId(db: GenericDb): Promise<string | undefined> {
+// A random song of the whole library, for the shuffle with no scope set. Never one the user hid as a duplicate.
+export async function getRandomSongId(db: GenericDb, userId: string): Promise<string | undefined> {
+    const visible = notHiddenAsDuplicate(userId, songTable.songId);
     const songCount = (await db.select({
         count: sql<number>`COUNT(*)`.as("count"),
-    }).from(songTable))[0].count;
+    }).from(songTable).where(visible))[0].count;
     const randomSongIndex = Math.floor(songCount * Math.random());
     
     const song = await db
@@ -452,6 +459,7 @@ export async function getRandomSongId(db: GenericDb): Promise<string | undefined
             songId: songTable.songId
         })
         .from(songTable)
+        .where(visible)
         .offset(randomSongIndex)
         .limit(1);
 

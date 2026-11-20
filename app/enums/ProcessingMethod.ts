@@ -42,5 +42,11 @@ export function getProcessingMethod(requestType: RequestType): ProcessingMethod 
         case RequestType.DeleteGenreJam:
             // One call per jam (the endpoints are per-jam), in queue order, so a delete after a save lands last.
             return ProcessingMethod.Individual;
+        case RequestType.ReportDuplicate:
+            // The endpoint takes a list with one outcome per report, so coalesce queued reports into one POST.
+            return ProcessingMethod.Batch;
+        case RequestType.WithdrawDuplicateReport:
+            // One DELETE per report (the endpoint is per-report), in queue order behind the report it withdraws.
+            return ProcessingMethod.Individual;
     }
 }

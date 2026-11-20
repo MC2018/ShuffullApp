@@ -3,6 +3,7 @@ import { artistTable, songArtistTable } from "../schema";
 import { eq, sql, asc } from "drizzle-orm";
 import { Artist } from "../models";
 import { chunkRows } from "./_chunk";
+import { notHiddenAsDuplicate } from "./duplicateReport";
 
 export interface ArtistWithCount {
     artistId: string;
@@ -31,8 +32,9 @@ export async function getArtist(db: GenericDb, artistId: string): Promise<Artist
     return rows.length ? rows[0] : undefined;
 }
 
-// Artists that have at least one local song, with how many, ordered by name — for the Artists browse list.
-export async function getArtistsWithCounts(db: GenericDb): Promise<ArtistWithCount[]> {
+// Artists that have at least one local song, with how many, ordered by name — for the Artists browse list. Songs the
+// user hid as duplicates don't count, so an artist whose only song is hidden drops off the list.
+export async function getArtistsWithCounts(db: GenericDb, userId: string): Promise<ArtistWithCount[]> {
     return await db
         .select({
             artistId: artistTable.artistId,
@@ -41,6 +43,7 @@ export async function getArtistsWithCounts(db: GenericDb): Promise<ArtistWithCou
         })
         .from(artistTable)
         .innerJoin(songArtistTable, eq(songArtistTable.artistId, artistTable.artistId))
+        .where(notHiddenAsDuplicate(userId, songArtistTable.songId))
         .groupBy(artistTable.artistId)
         .orderBy(asc(artistTable.name));
 }

@@ -3,6 +3,7 @@ import * as artist from "./artist";
 import * as decision from "./decision";
 import * as downloadedSong from "./downloadedSong";
 import * as downloadQueue from "./downloadQueue";
+import * as duplicateReport from "./duplicateReport";
 import * as genreJam from "./genreJam";
 import * as listen from "./listen";
 import * as listenStats from "./listenStats";
@@ -21,6 +22,7 @@ const DbQueries = {
     ...decision,
     ...downloadedSong,
     ...downloadQueue,
+    ...duplicateReport,
     ...genreJam,
     ...listen,
     ...listenStats,
