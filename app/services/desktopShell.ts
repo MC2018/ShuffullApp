@@ -32,12 +32,24 @@ export interface DesktopPrefetchStore {
     clear: () => Promise<void>;
 }
 
+/** The level of the speaker Shuffull plays on (ShuffullApp#217). Absent elsewhere, or where pactl can't reach one. */
+export type DesktopVolumeState = { available: false } | { available: true; volume: number; muted: boolean; device: string };
+
+export interface DesktopVolume {
+    get: () => Promise<DesktopVolumeState>;
+    /** `volume` is 0-100 (main rounds and caps it). Resolves the state afterwards. */
+    set: (change: { volume?: number; muted?: boolean }) => Promise<DesktopVolumeState>;
+    onChange: (callback: (state: DesktopVolumeState) => void) => () => void;
+}
+
 export interface DesktopShell {
     onRatingShortcut: (callback: (action: ShortcutAction) => void) => () => void;
     notify: (title: string, body: string) => void;
     media: DesktopMediaStore;
     /** Absent in a desktop shell built before ShuffullApp#137; the prefetcher then reports itself unsupported. */
     prefetch?: DesktopPrefetchStore;
+    /** Absent in a desktop shell built before ShuffullApp#217; the volume slider then stays hidden. */
+    volume?: DesktopVolume;
 }
 
 declare global {

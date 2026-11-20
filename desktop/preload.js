@@ -4,8 +4,9 @@ const { contextBridge, ipcRenderer } = require("electron");
  * The only bridge between the Electron main process and the app.
  *
  * The window runs with contextIsolation on and nodeIntegration off, so the renderer has no access to Node or
- * to ipcRenderer directly. This exposes four things and nothing else: a subscription to the global rating
- * shortcuts, a way to raise a desktop notification, the offline media store and the prefetch cache. Anything
+ * to ipcRenderer directly. This exposes five things and nothing else: a subscription to the global rating
+ * shortcuts, a way to raise a desktop notification, the offline media store, the prefetch cache and the volume of
+ * the speaker Shuffull plays on. Anything
  * wider would hand the whole page (which loads remote album art) a route into the main process. The media and
  * prefetch calls take a kind, a file name and the API host - never a path or a full URL. Main validates the kind
  * and name, accepts only an http(s) host, and builds the URL itself as `<host>/<kind>/<file>` (desktop/media.js).
@@ -59,5 +60,21 @@ contextBridge.exposeInMainWorld("shuffull", {
         exists: (kind, fileName) => ipcRenderer.invoke("shuffull:prefetch:exists", { kind, fileName }),
         remove: (kind, fileName) => ipcRenderer.invoke("shuffull:prefetch:delete", { kind, fileName }),
         clear: () => ipcRenderer.invoke("shuffull:prefetch:clear"),
+    },
+
+    /**
+     * The volume of the speaker Shuffull plays on, as the system Sound settings shows it (desktop/volume.js).
+     * State is `{ available: false }` or `{ available: true, volume: 0-100, muted, device }`.
+     */
+    volume: {
+        get: () => ipcRenderer.invoke("shuffull:volume:get"),
+        /** `change` is `{ volume?: 0-100, muted?: boolean }`. Resolves the state afterwards. */
+        set: (change) => ipcRenderer.invoke("shuffull:volume:set", change),
+        /** `callback(state)` when the level changes anywhere, Sound settings included. Returns an unsubscribe function. */
+        onChange: (callback) => {
+            const listener = (_event, state) => callback(state);
+            ipcRenderer.on("shuffull:volume:changed", listener);
+            return () => ipcRenderer.removeListener("shuffull:volume:changed", listener);
+        },
     },
 });

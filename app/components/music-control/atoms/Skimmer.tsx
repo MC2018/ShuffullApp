@@ -16,10 +16,12 @@ function fmt(seconds: number): string {
 
 interface Props {
     showTimes?: boolean;
+    /** Times on either side of the bar on one line ("1:42 ━━━━ 4:43"), as in the desktop control bar (ShuffullApp#217). */
+    inline?: boolean;
 }
 
 // TODO: this is not a proper atom, it's calling MediaManager directly
-export default function Skimmer({ showTimes = false }: Props) {
+export default function Skimmer({ showTimes = false, inline = false }: Props) {
     const theme = useTheme();
     const { position, duration } = useProgress();
 
@@ -27,18 +29,38 @@ export default function Skimmer({ showTimes = false }: Props) {
         await MediaManager.seekTo(value);
     };
 
+    const slider = (
+        <Slider
+            style={inline ? { flex: 1, height: 24 } : { width: "100%", height: 32 }}
+            minimumValue={0}
+            maximumValue={duration > 0 ? duration : 1}
+            value={position}
+            onSlidingComplete={handleSlidingComplete}
+            minimumTrackTintColor={theme.color.accent}
+            maximumTrackTintColor={theme.color.line}
+            thumbTintColor={theme.color.accent}
+        />
+    );
+
+    if (inline) {
+        // Fixed-width times, so the bar doesn't twitch as "9:59" becomes "10:00".
+        const time = { minWidth: 36, fontVariant: ["tabular-nums" as const] };
+        return (
+            <View style={{ width: "100%", flexDirection: "row", alignItems: "center", gap: theme.space.sm }}>
+                <Text variant="caption" color="textFaint" style={{ ...time, textAlign: "right" }}>
+                    {fmt(position)}
+                </Text>
+                {slider}
+                <Text variant="caption" color="textFaint" style={time}>
+                    {fmt(duration)}
+                </Text>
+            </View>
+        );
+    }
+
     return (
         <View style={{ width: "100%" }}>
-            <Slider
-                style={{ width: "100%", height: 32 }}
-                minimumValue={0}
-                maximumValue={duration > 0 ? duration : 1}
-                value={position}
-                onSlidingComplete={handleSlidingComplete}
-                minimumTrackTintColor={theme.color.accent}
-                maximumTrackTintColor={theme.color.line}
-                thumbTintColor={theme.color.accent}
-            />
+            {slider}
             {showTimes ? (
                 <View style={{ flexDirection: "row", justifyContent: "space-between", marginTop: -2 }}>
                     <Text variant="caption" color="textFaint">

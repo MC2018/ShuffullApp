@@ -3,6 +3,7 @@ const path = require("node:path");
 const url = require("node:url");
 const media = require("./media");
 const { startMediaKeyRouter } = require("./mediaKeys");
+const { VolumeController, watchVolume } = require("./volume");
 
 /**
  * App name, and the data dir it would otherwise move.
@@ -74,6 +75,8 @@ const MEDIA_ROOT = path.join(app.getPath("userData"), "media");
 const PREFETCH_ROOT = path.join(app.getPath("userData"), "prefetch");
 // Set once the media-key router is up (see app.whenReady); stopped on quit.
 let mediaKeyRouter = null;
+// `pactl subscribe`, started with the volume IPC; stopped on quit.
+let volumeWatcher = null;
 
 // Must be declared before `ready`. `standard` gives normal URL parsing, `secure` makes it a secure context
 // (the part OPFS cares about), `supportFetchAPI` lets the wasm/worker assets be fetched.
@@ -92,8 +95,8 @@ function createWindow() {
             // Nothing in the web bundle needs Node, and letting the renderer have it would be a liability.
             nodeIntegration: false,
             contextIsolation: true,
-            // The single, deliberately narrow bridge: rating shortcuts in, notifications and the offline media
-            // store out. See preload.js.
+            // The single, deliberately narrow bridge: rating shortcuts in, notifications, the offline media
+            // store and the volume slider out. See preload.js.
             preload: path.join(__dirname, "preload.js"),
         },
     });
@@ -159,6 +162,40 @@ function registerPrefetchIpc() {
     ipcMain.handle("shuffull:prefetch:clear", () => store.clear());
 }
 
+/**
+ * The volume slider's IPC (ShuffullApp#217): the level of the speaker Shuffull plays on (desktop/volume.js).
+ * The renderer sends only a number and a boolean; main picks the device and caps the level at 100%.
+ */
+function registerVolumeIpc() {
+    const volume = new VolumeController();
+    let last = "";
+    const broadcast = (state) => {
+        const key = JSON.stringify(state);
+        if (key === last) return;
+        last = key;
+        for (const win of BrowserWindow.getAllWindows()) {
+            if (!win.webContents.isDestroyed()) win.webContents.send("shuffull:volume:changed", state);
+        }
+    };
+
+    ipcMain.handle("shuffull:volume:get", () => volume.read());
+    ipcMain.handle("shuffull:volume:set", async (_event, { volume: level, muted } = {}) => {
+        const change = {};
+        if (typeof level === "number" && Number.isFinite(level)) change.volume = level;
+        if (typeof muted === "boolean") change.muted = muted;
+        const state = await volume.apply(change);
+        last = JSON.stringify(state);
+        return state;
+    });
+
+    // Changes made anywhere else (Sound settings, volume keys, the panel), and Shuffull's stream moving speaker.
+    if (volume.supported) {
+        volumeWatcher = watchVolume(() => {
+            volume.read().then(broadcast, () => {});
+        });
+    }
+}
+
 app.whenReady().then(() => {
     // Cross-origin isolation, so SharedArrayBuffer (and therefore the SQLite web driver) is available.
     session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
@@ -198,6 +235,7 @@ app.whenReady().then(() => {
 
     registerMediaIpc();
     registerPrefetchIpc();
+    registerVolumeIpc();
     const mainWindow = createWindow();
 
     // Notifications raised by the renderer after a shortcut lands. The shortcuts are GLOBAL, so the user is
@@ -239,6 +277,7 @@ app.whenReady().then(() => {
 app.on("will-quit", () => {
     globalShortcut.unregisterAll();
     mediaKeyRouter?.stop();
+    volumeWatcher?.stop();
 });
 
 app.on("window-all-closed", () => {
