@@ -15,6 +15,9 @@ import { hasDisplayableLyrics } from "@/app/tools/lrc";
 import RatingControl from "@/app/components/likes/atoms/RatingControl";
 import KeepControl from "@/app/components/likes/atoms/KeepControl";
 import SongDownloadControl from "@/app/components/downloading/atoms/SongDownloadControl";
+import AddToPlaylistSheet from "@/app/components/playlists/AddToPlaylistSheet";
+import VolumeControl from "@/app/components/music-control/molecules/VolumeControl";
+import { desktopShell } from "@/app/services/desktopShell";
 import { AlbumArt, IconButton, MarqueeText, Screen, Text } from "@/app/components/ui";
 import { useTheme } from "@/app/theme";
 
@@ -26,6 +29,23 @@ const COMPACT_ART = 56; // thumbnail size when lyrics are open
 // Width of the Keep slot on the likes row: a 32px gap in front of KeepControl's 26px glyph. The gap is the
 // separation that keeps Keep's touch area clear of the dislike button - see the row's comment below.
 const KEEP_SLOT = 32 + 26;
+
+// The desktop control bar (ShuffullApp#217) replaces the stacked controls from this window width up. Narrower
+// windows, the phone and the plain web build keep the stack.
+const WIDE_MIN_WIDTH = 900;
+// The Keep slot in the bar: KeepControl's 26px glyph. Reserved on every song, so Add to playlist, Download and
+// Lyrics after it never shift sideways between an audition song and any other.
+const WIDE_KEEP_SLOT = 26;
+// The bar's middle column (Play and the progress bar): what's left after the screen padding and a budget for the
+// two side columns, kept between these bounds.
+const WIDE_CENTRE_MIN = 260;
+const WIDE_CENTRE_MAX = 480;
+const WIDE_SIDES_BUDGET = 560;
+const WIDE_SCREEN_PADDING = 32;
+// The art on the wide layout fills the height above the bar, less room for the title and artist under it.
+const WIDE_ART_MIN = 160;
+const WIDE_ART_MAX = 440;
+const WIDE_TITLE_ROOM = 110;
 
 const OPEN_MS = 250;
 const CLOSE_MS = 190;
@@ -42,7 +62,7 @@ export default function NowPlayingScreen() {
     const insets = useSafeAreaInsets();
     const db = useDb();
     const { width } = useWindowDimensions();
-    const artSize = Math.min(width - 96, 300);
+    const wide = desktopShell() != null && width >= WIDE_MIN_WIDTH;
     const { songId } = useActiveSong();
     const { issue } = usePlaybackIssue();
     const [details, setDetails] = useState<SongDetails | null>(null);
@@ -51,6 +71,10 @@ export default function NowPlayingScreen() {
     const [showLyrics, setShowLyrics] = useState(false);
     const [lyricsMounted, setLyricsMounted] = useState(false);
     const [box, setBox] = useState({ w: 0, h: 0 });
+    const [showPlaylistSheet, setShowPlaylistSheet] = useState(false);
+    // The one-row bar frees the height the stack used, so on desktop the art grows to fill the area above it,
+    // leaving room for the title underneath. That area is flex:1 and doesn't depend on the art, so no loop.
+    const artSize = wide ? Math.max(WIDE_ART_MIN, Math.min(WIDE_ART_MAX, (box.h || 400) - WIDE_TITLE_ROOM)) : Math.min(width - 96, 300);
     const progress = useRef(new Animated.Value(0)).current;
 
     useEffect(() => {
@@ -161,7 +185,8 @@ export default function NowPlayingScreen() {
                     {issue ? PLAYBACK_ISSUE_LABEL[issue.kind] : "Now Playing"}
                 </Text>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: theme.space.sm }}>
-                    {details ? <SongDownloadControl song={details.song} /> : null}
+                    {/* In the desktop bar, Download sits with the other song actions. */}
+                    {details && !wide ? <SongDownloadControl song={details.song} /> : null}
                     <IconButton
                         name="information-circle-outline"
                         size={22}
@@ -233,13 +258,23 @@ export default function NowPlayingScreen() {
                         )}
                     </View>
 
-                    {/* Bottom controls: always pinned. paddingBottom clears the nav bar (edge-to-edge, SDK 54). */}
-                    <View style={{ marginTop: theme.space.md, paddingBottom: insets.bottom }}>
-                        <Skimmer showTimes />
-                        <View style={{ marginTop: theme.space.md }}>
-                            <Transport />
-                        </View>
-                        {/* Keep sits beside the rating control, and ONLY for audition songs (it is a no-op for
+                    {wide ? (
+                        <WideControlBar
+                            song={details.song}
+                            windowWidth={width}
+                            showToggle={showToggle}
+                            showLyrics={showLyrics}
+                            onToggleLyrics={toggleLyrics}
+                            onAddToPlaylist={() => setShowPlaylistSheet(true)}
+                        />
+                    ) : (
+                    /* Bottom controls: always pinned. paddingBottom clears the nav bar (edge-to-edge, SDK 54). */
+                        <View style={{ marginTop: theme.space.md, paddingBottom: insets.bottom }}>
+                            <Skimmer showTimes />
+                            <View style={{ marginTop: theme.space.md }}>
+                                <Transport />
+                            </View>
+                            {/* Keep sits beside the rating control, and ONLY for audition songs (it is a no-op for
                             anything else). Until now it existed solely as a bookmark glyph on audition
                             playlist ROWS, which is unreachable while a song is playing full-screen - the exact
                             moment you decide whether to keep it, and the only view you get on a phone.
@@ -251,53 +286,114 @@ export default function NowPlayingScreen() {
                             memory had just learned on the previous non-audition song - and the bookmark slid
                             into it. Since keepSong is one-way, that swap turned a routine mis-tap into an
                             unrecoverable one, on audition songs, where you rate most. */}
-                        <View style={{ marginTop: theme.space.lg, flexDirection: "row", alignItems: "center", justifyContent: "center" }}>
-                            <View style={{ width: KEEP_SLOT }} />
-                            <RatingControl songId={details.song.songId} gap={theme.space.xl} />
-                            {/* flex-end spends the slot as a gap in front of the glyph, not behind it. */}
-                            <View style={{ width: KEEP_SLOT, alignItems: "flex-end" }}>
-                                {details.song.exploratory ? <KeepControl songId={details.song.songId} /> : null}
+                            <View style={{ marginTop: theme.space.lg, flexDirection: "row", alignItems: "center", justifyContent: "center" }}>
+                                <View style={{ width: KEEP_SLOT }} />
+                                <RatingControl songId={details.song.songId} gap={theme.space.xl} />
+                                {/* flex-end spends the slot as a gap in front of the glyph, not behind it. */}
+                                <View style={{ width: KEEP_SLOT, alignItems: "flex-end" }}>
+                                    {details.song.exploratory ? <KeepControl songId={details.song.songId} /> : null}
+                                </View>
                             </View>
-                        </View>
-                        {/* The lyrics pill ALWAYS occupies its slot, and is merely made invisible when a song
+                            {/* The lyrics pill ALWAYS occupies its slot, and is merely made invisible when a song
                             has none. Unmounting it shortens this pinned stack, which grows the flex:1 area
                             above — and because the art is centred off that area's measured height, the
                             artwork and title visibly jump every time playback moves between a song with
                             lyrics and one without. Reserving the space keeps the whole screen still. */}
-                        <View
-                            style={{ alignItems: "center", marginTop: theme.space.lg, marginBottom: theme.space.sm }}
-                            pointerEvents={showToggle ? "auto" : "none"}
-                            // Keep the hidden placeholder out of the accessibility tree — it is layout, not a control.
-                            accessibilityElementsHidden={!showToggle}
-                            importantForAccessibility={showToggle ? "auto" : "no-hide-descendants"}
-                        >
-                            <Pressable
-                                onPress={toggleLyrics}
-                                disabled={!showToggle}
-                                accessibilityRole="button"
-                                accessibilityLabel={showLyrics ? "Hide lyrics" : "Show lyrics"}
-                                style={({ pressed }) => ({
-                                    flexDirection: "row",
-                                    alignItems: "center",
-                                    gap: 6,
-                                    paddingVertical: theme.space.sm,
-                                    paddingHorizontal: theme.space.lg,
-                                    borderRadius: theme.radius.pill,
-                                    backgroundColor: theme.color.surface,
-                                    borderWidth: 1,
-                                    borderColor: theme.color.line,
-                                    opacity: !showToggle ? 0 : pressed ? 0.8 : 1,
-                                })}
+                            <View
+                                style={{ alignItems: "center", marginTop: theme.space.lg, marginBottom: theme.space.sm }}
+                                pointerEvents={showToggle ? "auto" : "none"}
+                                // Keep the hidden placeholder out of the accessibility tree — it is layout, not a control.
+                                accessibilityElementsHidden={!showToggle}
+                                importantForAccessibility={showToggle ? "auto" : "no-hide-descendants"}
                             >
-                                <Ionicons name={showLyrics ? "chevron-down" : "chevron-up"} size={14} color={theme.color.textMuted} />
-                                <Text variant="label" color="textMuted">
-                                    {showLyrics ? "Hide lyrics" : "Lyrics"}
-                                </Text>
-                            </Pressable>
+                                <Pressable
+                                    onPress={toggleLyrics}
+                                    disabled={!showToggle}
+                                    accessibilityRole="button"
+                                    accessibilityLabel={showLyrics ? "Hide lyrics" : "Show lyrics"}
+                                    style={({ pressed }) => ({
+                                        flexDirection: "row",
+                                        alignItems: "center",
+                                        gap: 6,
+                                        paddingVertical: theme.space.sm,
+                                        paddingHorizontal: theme.space.lg,
+                                        borderRadius: theme.radius.pill,
+                                        backgroundColor: theme.color.surface,
+                                        borderWidth: 1,
+                                        borderColor: theme.color.line,
+                                        opacity: !showToggle ? 0 : pressed ? 0.8 : 1,
+                                    })}
+                                >
+                                    <Ionicons name={showLyrics ? "chevron-down" : "chevron-up"} size={14} color={theme.color.textMuted} />
+                                    <Text variant="label" color="textMuted">
+                                        {showLyrics ? "Hide lyrics" : "Lyrics"}
+                                    </Text>
+                                </Pressable>
+                            </View>
                         </View>
-                    </View>
+                    )}
+                    <AddToPlaylistSheet songId={details.song.songId} visible={showPlaylistSheet} onClose={() => setShowPlaylistSheet(false)} />
                 </>
             )}
         </Screen>
+    );
+}
+
+interface WideControlBarProps {
+    song: SongDetails["song"];
+    windowWidth: number;
+    showToggle: boolean;
+    showLyrics: boolean;
+    onToggleLyrics: () => void;
+    onAddToPlaylist: () => void;
+}
+
+// The desktop control bar (ShuffullApp#217): every control on one row under the art, the way desktop players lay
+// them out. Song actions on the left, playback in the middle, the speaker's volume on the right.
+//
+// Like stays LEFT of Dislike, as everywhere else in the app (a second click on Like makes it Love). Two
+// placeholders are kept on every song, as on the phone layout and for the same reason: the Keep slot, and the
+// Lyrics button, which is invisible rather than removed when a song has none. Either one unmounting would slide
+// the buttons after it, and a mis-tap on the one-way Keep can't be undone.
+//
+// The middle column has a fixed width and both sides take an equal share of the rest, so Play sits dead centre
+// in the window whatever the sides hold.
+function WideControlBar({ song, windowWidth, showToggle, showLyrics, onToggleLyrics, onAddToPlaylist }: WideControlBarProps) {
+    const theme = useTheme();
+    const insets = useSafeAreaInsets();
+    const centreWidth = Math.min(WIDE_CENTRE_MAX, Math.max(WIDE_CENTRE_MIN, windowWidth - WIDE_SCREEN_PADDING - WIDE_SIDES_BUDGET));
+    const songId = song.songId;
+
+    return (
+        <View style={{ flexDirection: "row", alignItems: "center", marginTop: theme.space.md, marginBottom: theme.space.lg, paddingBottom: insets.bottom }}>
+            <View style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: theme.space.lg, minWidth: 0 }}>
+                <RatingControl songId={songId} gap={theme.space.lg} />
+                <View style={{ width: WIDE_KEEP_SLOT, alignItems: "center" }}>{song.exploratory ? <KeepControl songId={songId} /> : null}</View>
+                <View style={{ width: 1, height: 20, backgroundColor: theme.color.lineStrong }} />
+                <IconButton name="add-circle-outline" size={24} color={theme.color.textMuted} onPress={onAddToPlaylist} accessibilityLabel="Add to playlist" />
+                <SongDownloadControl song={song} />
+                <View
+                    pointerEvents={showToggle ? "auto" : "none"}
+                    accessibilityElementsHidden={!showToggle}
+                    importantForAccessibility={showToggle ? "auto" : "no-hide-descendants"}
+                    style={{ opacity: showToggle ? 1 : 0 }}
+                >
+                    <IconButton
+                        name={showLyrics ? "document-text" : "document-text-outline"}
+                        size={22}
+                        color={showLyrics ? theme.color.accent : theme.color.textMuted}
+                        onPress={onToggleLyrics}
+                        accessibilityLabel={showLyrics ? "Hide lyrics" : "Show lyrics"}
+                    />
+                </View>
+            </View>
+            <View style={{ width: centreWidth, alignItems: "center", gap: theme.space.xs }}>
+                <Transport compact />
+                <Skimmer inline />
+            </View>
+            <View style={{ flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "flex-end", minWidth: 0 }}>
+                <VolumeControl width={112} />
+            </View>
+        </View>
     );
 }
