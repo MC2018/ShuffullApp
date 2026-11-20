@@ -29,6 +29,9 @@ async function getAlbumArtUri(song?: Song): Promise<ArtSource> {
 }
 
 const playerBarHeight = 56;
+// The volume slider (desktop only) shows from this window width, and its percentage from the wider one.
+const VOLUME_MIN_WIDTH = 520;
+const VOLUME_PERCENT_MIN_WIDTH = 720;
 const margin = 8;
 export const totalPlayerBarHeight = playerBarHeight + margin * 2;
 
@@ -123,7 +126,7 @@ export default function PlayerBar({ floating = false }: { floating?: boolean }) 
             </Pressable>
             {/* Desktop only (renders nothing elsewhere): the speaker's volume, on every screen (ShuffullApp#217).
                 A narrow window drops the percentage, then the whole control, so the song title keeps its room. */}
-            {width >= 520 ? <VolumeControl width={width >= 720 ? 112 : 80} showPercent={width >= 720} /> : null}
+            {width >= VOLUME_MIN_WIDTH ? <VolumeControl width={width >= VOLUME_PERCENT_MIN_WIDTH ? 112 : 80} showPercent={width >= VOLUME_PERCENT_MIN_WIDTH} /> : null}
             {/* The player stops on a song it can't play instead of skipping it, so the skip has to be in reach
                 here rather than one screen away. It goes BEFORE Play so Play stays where it always is: a user
                 reaching for Play to retry the song must not hit Next instead. */}

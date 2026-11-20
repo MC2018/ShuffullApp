@@ -36,6 +36,16 @@ const WIDE_MIN_WIDTH = 900;
 // The Keep slot in the bar: KeepControl's 26px glyph. Reserved on every song, so Add to playlist, Download and
 // Lyrics after it never shift sideways between an audition song and any other.
 const WIDE_KEEP_SLOT = 26;
+// The bar's middle column (Play and the progress bar): what's left after the screen padding and a budget for the
+// two side columns, kept between these bounds.
+const WIDE_CENTRE_MIN = 260;
+const WIDE_CENTRE_MAX = 480;
+const WIDE_SIDES_BUDGET = 560;
+const WIDE_SCREEN_PADDING = 32;
+// The art on the wide layout fills the height above the bar, less room for the title and artist under it.
+const WIDE_ART_MIN = 160;
+const WIDE_ART_MAX = 440;
+const WIDE_TITLE_ROOM = 110;
 
 const OPEN_MS = 250;
 const CLOSE_MS = 190;
@@ -64,7 +74,7 @@ export default function NowPlayingScreen() {
     const [showPlaylistSheet, setShowPlaylistSheet] = useState(false);
     // The one-row bar frees the height the stack used, so on desktop the art grows to fill the area above it,
     // leaving room for the title underneath. That area is flex:1 and doesn't depend on the art, so no loop.
-    const artSize = wide ? Math.max(160, Math.min(440, (box.h || 400) - 110)) : Math.min(width - 96, 300);
+    const artSize = wide ? Math.max(WIDE_ART_MIN, Math.min(WIDE_ART_MAX, (box.h || 400) - WIDE_TITLE_ROOM)) : Math.min(width - 96, 300);
     const progress = useRef(new Animated.Value(0)).current;
 
     useEffect(() => {
@@ -250,9 +260,7 @@ export default function NowPlayingScreen() {
 
                     {wide ? (
                         <WideControlBar
-                            songId={details.song.songId}
                             song={details.song}
-                            exploratory={!!details.song.exploratory}
                             windowWidth={width}
                             showToggle={showToggle}
                             showLyrics={showLyrics}
@@ -332,9 +340,7 @@ export default function NowPlayingScreen() {
 }
 
 interface WideControlBarProps {
-    songId: string;
     song: SongDetails["song"];
-    exploratory: boolean;
     windowWidth: number;
     showToggle: boolean;
     showLyrics: boolean;
@@ -352,16 +358,17 @@ interface WideControlBarProps {
 //
 // The middle column has a fixed width and both sides take an equal share of the rest, so Play sits dead centre
 // in the window whatever the sides hold.
-function WideControlBar({ songId, song, exploratory, windowWidth, showToggle, showLyrics, onToggleLyrics, onAddToPlaylist }: WideControlBarProps) {
+function WideControlBar({ song, windowWidth, showToggle, showLyrics, onToggleLyrics, onAddToPlaylist }: WideControlBarProps) {
     const theme = useTheme();
     const insets = useSafeAreaInsets();
-    const centreWidth = Math.min(480, Math.max(260, windowWidth - 32 - 560));
+    const centreWidth = Math.min(WIDE_CENTRE_MAX, Math.max(WIDE_CENTRE_MIN, windowWidth - WIDE_SCREEN_PADDING - WIDE_SIDES_BUDGET));
+    const songId = song.songId;
 
     return (
         <View style={{ flexDirection: "row", alignItems: "center", marginTop: theme.space.md, marginBottom: theme.space.lg, paddingBottom: insets.bottom }}>
             <View style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: theme.space.lg, minWidth: 0 }}>
                 <RatingControl songId={songId} gap={theme.space.lg} />
-                <View style={{ width: WIDE_KEEP_SLOT, alignItems: "center" }}>{exploratory ? <KeepControl songId={songId} /> : null}</View>
+                <View style={{ width: WIDE_KEEP_SLOT, alignItems: "center" }}>{song.exploratory ? <KeepControl songId={songId} /> : null}</View>
                 <View style={{ width: 1, height: 20, backgroundColor: theme.color.lineStrong }} />
                 <IconButton name="add-circle-outline" size={24} color={theme.color.textMuted} onPress={onAddToPlaylist} accessibilityLabel="Add to playlist" />
                 <SongDownloadControl song={song} />

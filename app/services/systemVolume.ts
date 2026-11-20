@@ -15,6 +15,8 @@ import { clampVolume } from "../tools/volume";
  */
 
 const SETTLE_MS = 400;
+// Unmuting a speaker that sits at 0 would still be silent, so it comes back at this level.
+const UNMUTE_FROM_ZERO_LEVEL = 30;
 
 interface SystemVolumeStore {
     state: DesktopVolumeState;
@@ -99,8 +101,14 @@ export function setSystemVolume(level: number) {
 export function toggleSystemMute() {
     const { state } = useSystemVolumeStore.getState();
     if (!state.available) {return;}
-    // Unmuting at 0 would still be silent: bring it back to an audible level instead.
-    const change = state.muted || state.volume === 0 ? { muted: false, ...(state.volume === 0 ? { volume: 30 } : {}) } : { muted: true };
+    let change: { volume?: number; muted: boolean };
+    if (state.volume === 0) {
+        change = { muted: false, volume: UNMUTE_FROM_ZERO_LEVEL };
+    } else if (state.muted) {
+        change = { muted: false };
+    } else {
+        change = { muted: true };
+    }
     optimistic(change);
     void desktopShell()?.volume?.set(change);
     scheduleSettle();

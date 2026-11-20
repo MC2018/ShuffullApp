@@ -159,6 +159,27 @@ describe("VolumeController: apply", () => {
         expect(pactl.calls.map((x) => x[2])).toEqual(["10%", "40%"]);
     });
 
+    it("a burst shares one read afterwards, instead of a pactl read per call", async () => {
+        const pactl = fakePactl({ sinks: [onboard()], inputs: [], defaultSink: "alsa_output.onboard" });
+        const c = new VolumeController({ run: pactl.run, platform: "linux" });
+        const sinkReads = () => pactl.run.mock.calls.filter(([args]) => args.includes("sinks")).length;
+        const states = await Promise.all([1, 2, 3, 4, 5, 6].map((n) => c.apply({ volume: n * 10 })));
+        // Two runs (10%, then 60%) each find their sink once; then one read serves all six callers.
+        expect(sinkReads()).toBe(3);
+        expect(states.every((s) => s === states[0])).toBe(true);
+        expect(states[0]).toMatchObject({ volume: 60 });
+    });
+
+    it("a set that starts while the last run's read is still out gets a fresh read of its own", async () => {
+        const pactl = fakePactl({ sinks: [onboard()], inputs: [], defaultSink: "alsa_output.onboard" });
+        const c = new VolumeController({ run: pactl.run, platform: "linux" });
+        const first = c.apply({ volume: 10 });
+        await vi.waitFor(() => expect(pactl.calls.length).toBe(1));
+        const second = c.apply({ volume: 70 });
+        expect(await second).toMatchObject({ volume: 70 });
+        await first;
+    });
+
     it("keeps a mute that arrived in the same burst as a level", async () => {
         const pactl = fakePactl({ sinks: [onboard()], inputs: [], defaultSink: "alsa_output.onboard" });
         const c = new VolumeController({ run: pactl.run, platform: "linux" });

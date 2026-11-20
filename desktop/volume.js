@@ -64,6 +64,8 @@ class VolumeController {
         // queuing every one would leave the speaker catching up long after the drag ended.
         this.pending = null;
         this.applying = null;
+        // The one read that every caller of the last run is waiting on (see apply).
+        this.settled = null;
     }
 
     async json(args) {
@@ -99,11 +101,18 @@ class VolumeController {
         }
     }
 
-    /** Sets the level (0-100, rounded and capped) and/or mute. Resolves the state afterwards. */
+    /**
+     * Sets the level (0-100, rounded and capped) and/or mute. Resolves the state afterwards.
+     *
+     * A drag sends dozens of these a second. They merge into one pending change (latest wins), and every caller
+     * whose change went out in the same run shares one read afterwards, rather than each spawning its own pactl.
+     */
     async apply(change) {
         if (!this.supported) return { available: false };
         this.pending = { ...this.pending, ...change };
         if (!this.applying) {
+            // A read started before this run can't show its result.
+            this.settled = null;
             this.applying = (async () => {
                 try {
                     while (this.pending) {
@@ -117,7 +126,13 @@ class VolumeController {
             })();
         }
         await this.applying.catch(() => {});
-        return this.read();
+        if (!this.settled) {
+            const settled = this.read().finally(() => {
+                if (this.settled === settled) this.settled = null;
+            });
+            this.settled = settled;
+        }
+        return this.settled;
     }
 
     async applyNow({ volume, muted }) {
