@@ -11,3 +11,5 @@ imports and lyrics) come along because the hub script copies the whole set to ev
 `listens-request.json` are the listen log's outcomes and the body the app sends (ShuffullApp#57). `listens-stats.json`
 is the per-song stats behind song details and the "Maybe drop this" list (ShuffullApp#115), and `recap.json` the
 yearly recap the December recap screen reads (ShuffullApp#116).
+The `song-duplicate-reports*` files are the duplicate-report endpoints (MC2018/Shuffull#141). Nothing parses them
+yet: the report flow (ShuffullApp#219) and the curator queue (ShuffullApp#221) add the schemas.

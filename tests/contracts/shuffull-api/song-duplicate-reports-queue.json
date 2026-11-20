@@ -1,0 +1,37 @@
+{
+  "pairs": [
+    {
+      "firstSong": {
+        "songId": "song-full",
+        "name": "Everybody Wants You",
+        "artists": [
+          "Billy Squier"
+        ],
+        "durationSeconds": 283.5,
+        "externalSongId": "dQw4w9WgXcQ",
+        "likeCount": 3
+      },
+      "secondSong": {
+        "songId": "song-sparse",
+        "name": "Untitled",
+        "artists": [],
+        "durationSeconds": null,
+        "externalSongId": null,
+        "likeCount": 0
+      },
+      "fileHashMatch": false,
+      "reportCount": 1,
+      "reports": [
+        {
+          "reportId": "report-1",
+          "reporterUserId": "user-1",
+          "kind": "duplicate",
+          "preferredSongId": null,
+          "note": "Same upload twice",
+          "createdAt": "2026-10-01T12:34:56.123456Z"
+        }
+      ]
+    }
+  ],
+  "remaining": 0
+}
