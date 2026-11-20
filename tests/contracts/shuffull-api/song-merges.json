@@ -1,0 +1,11 @@
+{
+  "merges": [
+    {
+      "loserSongId": "song-sparse",
+      "survivorSongId": "song-full",
+      "mergedAt": "2026-10-02T08:00:00.000001Z",
+      "version": "2026-10-02T08:00:00.000001Z"
+    }
+  ],
+  "endOfList": true
+}
