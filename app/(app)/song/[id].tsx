@@ -16,11 +16,11 @@ import { useDb } from "@/app/services/db/DbProvider";
 import { useCurrentUser } from "@/app/services/auth/CurrentUserProvider";
 import { Downloader } from "@/app/services/downloader/Downloader";
 import { MediaManager } from "@/app/services/media-manager";
-import { useLikeStatus } from "@/app/services/media-manager/mediaManager";
+import { useLikeStatus, useSongStateRevision } from "@/app/services/media-manager/mediaManager";
 import PlayerBar, { totalPlayerBarHeight } from "@/app/components/music-control/organisms/PlayerBar";
 import RatingControl from "@/app/components/likes/atoms/RatingControl";
 import SongDownloadControl from "@/app/components/downloading/atoms/SongDownloadControl";
-import FlagForReplacementControl from "@/app/components/replacement/atoms/FlagForReplacementControl";
+import ReportSongControl from "@/app/components/duplicates/ReportSongControl";
 import AddToPlaylistSheet from "@/app/components/playlists/AddToPlaylistSheet";
 import { AlbumArt, Button, Chip, IconButton, Screen, SectionHeader, Text, TextField } from "@/app/components/ui";
 import { useTheme } from "@/app/theme";
@@ -53,6 +53,9 @@ export default function SongScreen() {
     // This song's listen stats from the last sync (ShuffullApp#115). No snapshot = never synced, so the section hides.
     const [listenStat, setListenStat] = useState<ListenStat | null>(null);
     const [statsSnapshot, setStatsSnapshot] = useState<ListenStatsSnapshot | null>(null);
+    // One of the user's duplicate reports hides this song from them (ShuffullApp#219). Shown with an Undo.
+    const [hiddenAsDuplicate, setHiddenAsDuplicate] = useState(false);
+    const songStateRevision = useSongStateRevision((state) => state.revision);
 
     // Edit mode (curator-only). Drafts are seeded from the loaded song when editing starts.
     const [editing, setEditing] = useState(false);
@@ -105,6 +108,38 @@ export default function SongScreen() {
             cancelled = true;
         };
     }, [songId, userId]);
+
+    // Re-checked on every song-state bump, so a report or undo made elsewhere (Settings, a sync) shows here too.
+    useEffect(() => {
+        if (songId == undefined) {
+            return;
+        }
+        let cancelled = false;
+        DbQueries.isSongHiddenAsDuplicate(db, userId, songId).then((hidden) => {
+            if (!cancelled) {
+                setHiddenAsDuplicate(hidden);
+            }
+        });
+        return () => {
+            cancelled = true;
+        };
+    }, [db, songId, userId, songStateRevision]);
+
+    // Undo withdraws every report hiding this song, which takes it out of the curator's queue and puts the song back in
+    // shuffle and the library.
+    const undoHide = async () => {
+        if (songId == undefined) {
+            return;
+        }
+        try {
+            await DbQueries.withdrawDuplicateReports(db, userId, songId);
+        } catch (e) {
+            showAlert("Couldn't undo", e instanceof Error ? e.message : "Please try again.");
+            return;
+        }
+        setHiddenAsDuplicate(false);
+        useSongStateRevision.getState().bump();
+    };
 
     const tagNames = (type: TagType) => tags.filter((t) => t.type === type).map((t) => t.name);
     const genres = tagNames(TagType.Genre);
@@ -329,6 +364,34 @@ export default function SongScreen() {
                                 )}
                             </View>
 
+                            {hiddenAsDuplicate ? (
+                                <View
+                                    style={{
+                                        flexDirection: "row",
+                                        alignItems: "center",
+                                        justifyContent: "space-between",
+                                        marginTop: theme.space.md,
+                                        paddingVertical: theme.space.sm,
+                                        paddingHorizontal: theme.space.md,
+                                        borderRadius: theme.radius.md,
+                                        borderWidth: 1,
+                                        borderColor: theme.color.line,
+                                    }}
+                                >
+                                    <View style={{ flexDirection: "row", alignItems: "center", gap: theme.space.sm, flexShrink: 1 }}>
+                                        <Ionicons name="eye-off-outline" size={18} color={theme.color.textMuted} />
+                                        <Text variant="body" color="textMuted" numberOfLines={1} style={{ flexShrink: 1 }}>
+                                            Hidden as a duplicate
+                                        </Text>
+                                    </View>
+                                    <Pressable onPress={undoHide} hitSlop={8} accessibilityRole="button" accessibilityLabel="Undo hide">
+                                        <Text variant="label" color="accent">
+                                            Undo
+                                        </Text>
+                                    </Pressable>
+                                </View>
+                            ) : null}
+
                             {/* Action bar: like · dislike · download on the left, prominent Play on the right. */}
                             <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: theme.space.lg }}>
                                 <View style={{ flexDirection: "row", alignItems: "center", gap: theme.space.lg }}>
@@ -357,7 +420,14 @@ export default function SongScreen() {
                                             accessibilityLabel="Keep song"
                                         />
                                     ) : null}
-                                    <FlagForReplacementControl songId={details.song.songId} />
+                                    <ReportSongControl
+                                        song={{
+                                            songId: details.song.songId,
+                                            name: details.song.name,
+                                            artists: details.artists.map((a) => a.name),
+                                        }}
+                                        onReported={(hiddenSongId) => setHiddenAsDuplicate((was) => was || hiddenSongId === details.song.songId)}
+                                    />
                                 </View>
                                 <IconButton
                                     name="play"

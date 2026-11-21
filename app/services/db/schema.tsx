@@ -221,6 +221,24 @@ export interface DeleteGenreJamPayload {
     genreJamId: string;
 }
 
+// A duplicate report, exactly as one item of POST /api/v1/song-duplicate-reports takes it (Shuffull's
+// SongDuplicateReportItem). The row's requestId is the reportId, so a resend after a lost response finds the same
+// report instead of adding a second one.
+export type DuplicateReportKind = "duplicate" | "differentVersion";
+export interface ReportDuplicatePayload {
+    reportId: string;
+    songId: string;
+    otherSongId: string | null;
+    kind: DuplicateReportKind;
+    preferredSongId: string | null;
+    note: string | null;
+}
+
+// Withdraws a report via DELETE /api/v1/song-duplicate-reports/{id}. Safe to resend.
+export interface WithdrawDuplicateReportPayload {
+    reportId: string;
+}
+
 export interface RecordListenPayload {
     listenId: string;
     songId: string;
@@ -250,7 +268,7 @@ export const requestTable = sqliteTable("requests", {
     likeStatus: integer("like_status"),
     // Structured payload for richer requests (a curator song edit, a re-tag's model tier). Null for the
     // simpler request types; the per-request-type models narrow it (see db/models.ts).
-    payload: text("payload", { mode: "json" }).$type<UpdateSongMetadataPayload | SongRetagPayload | DeletePlaylistPayload | RecordListenPayload | SaveGenreJamPayload | DeleteGenreJamPayload>()
+    payload: text("payload", { mode: "json" }).$type<UpdateSongMetadataPayload | SongRetagPayload | DeletePlaylistPayload | RecordListenPayload | SaveGenreJamPayload | DeleteGenreJamPayload | ReportDuplicatePayload | WithdrawDuplicateReportPayload>()
 });
 
 // Outbox rows the app gave up sending, kept with the reason instead of deleted. A row lands here when the server
@@ -342,4 +360,45 @@ export const genreJamTable = sqliteTable("genre_jam", {
     // Stored as explicit min/max so moving to a fully custom range later is a trivial change.
     heavinessMin: integer("heaviness_min"),
     heavinessMax: integer("heaviness_max"),
+});
+
+// The longest note the server takes on a duplicate report (Shuffull's SongDuplicateReport.MaxNoteLength).
+export const DUPLICATE_REPORT_MAX_NOTE_LENGTH = 500;
+
+// "pending", "notDuplicate" and "keptBoth" hide the song (SONG_HIDDEN_STATUSES); "merged" and "withdrawn" are the
+// server's other statuses. "rejected" is this device's own: the server refused the report, so it hides nothing.
+export type DuplicateReportStatus = "pending" | "merged" | "notDuplicate" | "keptBoth" | "withdrawn" | "rejected";
+
+// The statuses whose report hides its song from the reporter: the server's rule (Shuffull#141) plus nothing local. A
+// report waiting on a curator hides, and so does one a curator answered "not a duplicate" or "keep both": the user
+// still asked not to hear that copy. Merged, withdrawn, rejected and any status this build doesn't know hide nothing.
+export const SONG_HIDDEN_STATUSES: readonly DuplicateReportStatus[] = ["pending", "notDuplicate", "keptBoth"];
+
+// A kind or status as stored: one this build knows, or whatever newer one the server sent, kept as the string it is so
+// it can't fail the sync. An unknown status hides nothing, and no switch over the known ones can claim to cover it.
+export type StoredDuplicateReportKind = DuplicateReportKind | (string & {});
+export type StoredDuplicateReportStatus = DuplicateReportStatus | (string & {});
+
+// The user's duplicate reports (shuffull-workspace#143, ShuffullApp#219). A report hides `hiddenSongId` for its
+// reporter alone, on every screen that lists or picks songs, for as long as its status is one that hides. It is the
+// user's decision and its own row: written with its outbox request in one transaction, it hides the song whether or
+// not the server or a curator ever answers. It is never a Dislike. Each sync upserts the rows the server changed
+// since the last one (GET .../mine), except a row with a report or withdraw still queued, which keeps its local state.
+export const songDuplicateReportTable = sqliteTable("song_duplicate_reports", {
+    reportId: text("report_id").primaryKey(),
+    userId: text("user_id").notNull(),
+    songId: text("song_id").notNull(),
+    otherSongId: text("other_song_id"),
+    kind: text("kind").$type<StoredDuplicateReportKind>().notNull(),
+    preferredSongId: text("preferred_song_id"),
+    hiddenSongId: text("hidden_song_id").notNull(),
+    status: text("status").$type<StoredDuplicateReportStatus>().notNull(),
+    note: text("note"),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+    // The server's Version exactly as it was sent (microseconds), or null while the server hasn't answered.
+    version: text("version"),
+}, (table) => {
+    return {
+        hiddenIdx: index("song_duplicate_reports_hidden_idx").on(table.userId, table.hiddenSongId, table.status),
+    };
 });

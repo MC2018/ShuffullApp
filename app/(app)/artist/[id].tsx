@@ -4,6 +4,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Artist } from "@/app/services/db/models";
 import DbQueries from "@/app/services/db/queries";
+import { useCurrentUser } from "@/app/services/auth/CurrentUserProvider";
 import { useDb } from "@/app/services/db/DbProvider";
 import PlayerBar, { totalPlayerBarHeight } from "@/app/components/music-control/organisms/PlayerBar";
 import { SongList } from "@/app/components/songs/molecules/SongList";
@@ -21,6 +22,7 @@ export default function ArtistScreen() {
     const [songs, setSongs] = useState<SongDetails[]>([]);
     const [query, setQuery] = useState("");
     const db = useDb();
+    const userId = useCurrentUser();
 
     useEffect(() => {
         if (artistId == undefined) {
@@ -28,7 +30,7 @@ export default function ArtistScreen() {
         }
         (async () => {
             setArtist((await DbQueries.getArtist(db, artistId)) ?? null);
-            setSongs(await DbQueries.getSongDetailsByArtist(db, artistId));
+            setSongs(await DbQueries.getSongDetailsByArtist(db, userId, artistId));
         })();
     }, [artistId]);
 

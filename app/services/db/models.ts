@@ -56,6 +56,13 @@ export type SaveGenreJamRequest = Request & {
 export type DeleteGenreJamRequest = Request & {
     payload: Schema.DeleteGenreJamPayload
 };
+export type ReportDuplicateRequest = Request & {
+    payload: Schema.ReportDuplicatePayload
+};
+export type WithdrawDuplicateReportRequest = Request & {
+    payload: Schema.WithdrawDuplicateReportPayload
+};
+export type ReportDuplicatePayload = Schema.ReportDuplicatePayload;
 export type SaveGenreJamPayload = Schema.SaveGenreJamPayload;
 export type RecordListenPayload = Schema.RecordListenPayload;
 export type ListenEndReason = Schema.ListenEndReason;
@@ -70,3 +77,4 @@ export type RetagModel = Schema.RetagModel;
 export type DownloadQueue = typeof Schema.downloadQueueTable.$inferSelect;
 export type DownloadedSong = typeof Schema.downloadedSongTable.$inferSelect;
 export type GenreJam = typeof Schema.genreJamTable.$inferSelect;
+export type SongDuplicateReport = typeof Schema.songDuplicateReportTable.$inferSelect;

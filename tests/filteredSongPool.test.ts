@@ -5,6 +5,8 @@ import type { GenericDb } from "@/app/services/db/GenericDb";
 import { getFilteredSong, getRandomSongId } from "@/app/services/db/queries/song";
 import { SongFilters, SongFilterType } from "@/app/types/SongFilters";
 
+const USER = "u";
+
 /**
  * The pool `skip()` draws the NEXT song from. If a scoped query comes back empty, playback stops with no
  * error anywhere — which is exactly how "tap a song in a playlist, it plays, then silence" presented.
@@ -56,6 +58,19 @@ function makeDb(): GenericDb {
             downloaded_song_id TEXT PRIMARY KEY,
             song_id TEXT NOT NULL
         );
+        CREATE TABLE song_duplicate_reports (
+            report_id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            song_id TEXT NOT NULL,
+            other_song_id TEXT,
+            kind TEXT NOT NULL,
+            preferred_song_id TEXT,
+            hidden_song_id TEXT NOT NULL,
+            status TEXT NOT NULL,
+            note TEXT,
+            created_at INTEGER NOT NULL,
+            version TEXT
+        );
 
         INSERT INTO songs (song_id, file_extension, file_hash, name) VALUES
             ('s1','mp3','h1','In Playlist A'),
@@ -76,7 +91,7 @@ describe("scoped next-song pool", () => {
         const filters = new SongFilters();
         filters.setSoleFilter(SongFilterType.Playlist, ["pl-a"]);
 
-        const pool = await getFilteredSong(db, filters);
+        const pool = await getFilteredSong(db, USER, filters);
         expect(pool.map((x) => x.songId).sort()).toEqual(["s1", "s2"]);
     });
 
@@ -84,7 +99,7 @@ describe("scoped next-song pool", () => {
         const filters = new SongFilters();
         filters.setSoleFilter(SongFilterType.Playlist, ["pl-b"]);
 
-        const pool = await getFilteredSong(db, filters);
+        const pool = await getFilteredSong(db, USER, filters);
         expect(pool.map((x) => x.songId)).toEqual(["s3"]);
     });
 
@@ -97,7 +112,7 @@ describe("scoped next-song pool", () => {
         const filters = new SongFilters();
         filters.setSoleFilter(SongFilterType.Playlist, ["pl-a"]);
 
-        const pool = await getFilteredSong(db, filters);
+        const pool = await getFilteredSong(db, USER, filters);
         expect(pool.map((x) => x.songId)).toEqual(["s2"]);
     });
 
@@ -105,14 +120,68 @@ describe("scoped next-song pool", () => {
         const filters = new SongFilters();
         filters.localOnly = true;
 
-        const pool = await getFilteredSong(db, filters);
+        const pool = await getFilteredSong(db, USER, filters);
         expect(pool.map((x) => x.songId)).toEqual(["s2"]);
     });
 
     it("with no scope the whole library is available, so playback never dead-ends", async () => {
         // The unscoped fallback mediaManager now uses instead of returning undefined.
-        const songId = await getRandomSongId(db);
+        const songId = await getRandomSongId(db, USER);
         expect(["s1", "s2", "s3"]).toContain(songId);
+    });
+
+    // ShuffullApp#219: a duplicate the user hid leaves the shuffle at once, for that user only, and comes back on undo.
+    describe("songs hidden as duplicates", () => {
+        function hide(reportId: string, hiddenSongId: string, status: string, userId = USER) {
+            (db as any).$client.exec(`
+                INSERT INTO song_duplicate_reports (report_id, user_id, song_id, other_song_id, kind, preferred_song_id,
+                    hidden_song_id, status, created_at)
+                VALUES ('${reportId}','${userId}','${hiddenSongId}','s3','duplicate',NULL,'${hiddenSongId}','${status}',0)`);
+        }
+
+        it("are left out of a scoped shuffle", async () => {
+            hide("r1", "s1", "pending");
+            const filters = new SongFilters();
+            filters.setSoleFilter(SongFilterType.Playlist, ["pl-a"]);
+
+            const pool = await getFilteredSong(db, USER, filters);
+            expect(pool.map((x) => x.songId)).toEqual(["s2"]);
+        });
+
+        it("are never the unscoped library pick", async () => {
+            hide("r1", "s1", "pending");
+            hide("r2", "s2", "keptBoth");
+            for (let i = 0; i < 20; i++) {
+                expect(await getRandomSongId(db, USER)).toBe("s3");
+            }
+        });
+
+        it("stay hidden after a curator answers \"not a duplicate\" or \"kept both\"", async () => {
+            hide("r1", "s1", "notDuplicate");
+            hide("r2", "s2", "keptBoth");
+            const filters = new SongFilters();
+            filters.setSoleFilter(SongFilterType.Playlist, ["pl-a"]);
+
+            expect(await getFilteredSong(db, USER, filters)).toEqual([]);
+        });
+
+        it("come back once the report is withdrawn, merged or rejected", async () => {
+            hide("r1", "s1", "withdrawn");
+            hide("r2", "s2", "rejected");
+            hide("r3", "s3", "merged");
+
+            const pool = await getFilteredSong(db, USER, new SongFilters());
+            expect(pool.map((x) => x.songId).sort()).toEqual(["s1", "s2", "s3"]);
+        });
+
+        it("stay in another user's shuffle", async () => {
+            hide("r1", "s1", "pending", "someone-else");
+            const filters = new SongFilters();
+            filters.setSoleFilter(SongFilterType.Playlist, ["pl-a"]);
+
+            const pool = await getFilteredSong(db, USER, filters);
+            expect(pool.map((x) => x.songId).sort()).toEqual(["s1", "s2"]);
+        });
     });
 
     /**
@@ -133,7 +202,7 @@ describe("scoped next-song pool", () => {
             filters.setSoleFilter(SongFilterType.Playlist, ["pl-a"]);
             filters.unheardOnly = true;
 
-            const pool = await getFilteredSong(db, filters);
+            const pool = await getFilteredSong(db, USER, filters);
             expect(pool.map((x) => x.songId)).toEqual(["s2"]);
         });
 
@@ -145,7 +214,7 @@ describe("scoped next-song pool", () => {
             filters.setSoleFilter(SongFilterType.Playlist, ["pl-a"]);
             filters.unheardOnly = true;
 
-            const pool = await getFilteredSong(db, filters);
+            const pool = await getFilteredSong(db, USER, filters);
             expect(pool.map((x) => x.songId)).toEqual(["s2"]);
         });
 
@@ -155,7 +224,7 @@ describe("scoped next-song pool", () => {
             const filters = new SongFilters();
             filters.setSoleFilter(SongFilterType.Playlist, ["pl-a"]);
 
-            const pool = await getFilteredSong(db, filters);
+            const pool = await getFilteredSong(db, USER, filters);
             expect(pool.map((x) => x.songId).sort()).toEqual(["s1", "s2"]);
         });
 
@@ -167,7 +236,7 @@ describe("scoped next-song pool", () => {
             filters.setSoleFilter(SongFilterType.Playlist, ["pl-a"]);
             filters.unheardOnly = true;
 
-            const pool = await getFilteredSong(db, filters);
+            const pool = await getFilteredSong(db, USER, filters);
             expect(pool.map((x) => x.songId).sort()).toEqual(["s1", "s2"]);
         });
 
@@ -200,7 +269,7 @@ describe("scoped next-song pool", () => {
             filters.heavinessMin = 4;
             filters.heavinessMax = 6;
 
-            const pool = await getFilteredSong(db, filters);
+            const pool = await getFilteredSong(db, USER, filters);
             expect(pool.map((x) => x.songId)).toEqual(["e5"]);
         });
 
@@ -208,7 +277,7 @@ describe("scoped next-song pool", () => {
             const filters = new SongFilters();
             filters.heavinessMin = 4;
 
-            const pool = await getFilteredSong(db, filters);
+            const pool = await getFilteredSong(db, USER, filters);
             expect(pool.map((x) => x.songId).sort()).toEqual(["e5", "e9"]);
         });
 
@@ -216,14 +285,14 @@ describe("scoped next-song pool", () => {
             const filters = new SongFilters();
             filters.heavinessMax = 6;
 
-            const pool = await getFilteredSong(db, filters);
+            const pool = await getFilteredSong(db, USER, filters);
             expect(pool.map((x) => x.songId)).toEqual(["e5"]);
         });
 
         it("keeps unknown-heaviness songs eligible while no bound is set", async () => {
             const filters = new SongFilters();
 
-            const pool = await getFilteredSong(db, filters);
+            const pool = await getFilteredSong(db, USER, filters);
             expect(pool.map((x) => x.songId).sort()).toEqual(["e5", "e9", "s1", "s2", "s3"]);
         });
     });
@@ -243,7 +312,7 @@ describe("scoped next-song pool", () => {
         });
 
         it("are excluded from an unscoped shuffle", async () => {
-            const pool = await getFilteredSong(db, new SongFilters());
+            const pool = await getFilteredSong(db, USER, new SongFilters());
             expect(pool.map((x) => x.songId)).not.toContain("x1");
         });
 
@@ -251,7 +320,7 @@ describe("scoped next-song pool", () => {
             const filters = new SongFilters();
             filters.setSoleFilter(SongFilterType.Genre, ["g1"]);
 
-            const pool = await getFilteredSong(db, filters);
+            const pool = await getFilteredSong(db, USER, filters);
             expect(pool.map((x) => x.songId)).not.toContain("x1");
         });
 
@@ -260,7 +329,7 @@ describe("scoped next-song pool", () => {
             filters.heavinessMin = 4;
             filters.heavinessMax = 6;
 
-            const pool = await getFilteredSong(db, filters);
+            const pool = await getFilteredSong(db, USER, filters);
             expect(pool.map((x) => x.songId)).not.toContain("x1");
         });
 
@@ -268,7 +337,7 @@ describe("scoped next-song pool", () => {
             const filters = new SongFilters();
             filters.setSoleFilter(SongFilterType.Playlist, ["pl-x"]);
 
-            const pool = await getFilteredSong(db, filters);
+            const pool = await getFilteredSong(db, USER, filters);
             expect(pool.map((x) => x.songId)).toEqual(["x1"]);
         });
 
@@ -277,7 +346,7 @@ describe("scoped next-song pool", () => {
             filters.setSoleFilter(SongFilterType.Playlist, ["pl-x"]);
             filters.unheardOnly = true;
 
-            const pool = await getFilteredSong(db, filters);
+            const pool = await getFilteredSong(db, USER, filters);
             expect(pool.map((x) => x.songId)).toEqual(["x1"]);
         });
     });

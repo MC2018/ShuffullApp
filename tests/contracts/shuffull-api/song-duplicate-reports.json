@@ -1,0 +1,50 @@
+{
+  "results": [
+    {
+      "reportId": "report-1",
+      "outcome": "recorded",
+      "error": null,
+      "report": {
+        "reportId": "report-1",
+        "reporterUserId": "user-1",
+        "songId": "song-full",
+        "otherSongId": "song-sparse",
+        "kind": "duplicate",
+        "preferredSongId": null,
+        "hiddenSongId": "song-full",
+        "status": "pending",
+        "note": "Same upload twice",
+        "createdAt": "2026-10-01T12:34:56.123456Z",
+        "resolvedAt": null,
+        "resolvedByUserId": null,
+        "version": "2026-10-01T12:34:56.123456Z"
+      }
+    },
+    {
+      "reportId": "report-3",
+      "outcome": "updated",
+      "error": null,
+      "report": {
+        "reportId": "report-1",
+        "reporterUserId": "user-1",
+        "songId": "song-full",
+        "otherSongId": "song-sparse",
+        "kind": "duplicate",
+        "preferredSongId": "song-sparse",
+        "hiddenSongId": "song-full",
+        "status": "pending",
+        "note": "Same upload twice",
+        "createdAt": "2026-10-01T12:34:56.123456Z",
+        "resolvedAt": null,
+        "resolvedByUserId": null,
+        "version": "2026-10-01T12:34:56.123456Z"
+      }
+    },
+    {
+      "reportId": "report-4",
+      "outcome": "rejected",
+      "error": "Song \u0027song-x\u0027 is not in your library.",
+      "report": null
+    }
+  ]
+}

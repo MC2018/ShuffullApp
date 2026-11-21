@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { router } from "expo-router";
 import { useDb } from "@/app/services/db/DbProvider";
 import DbQueries from "@/app/services/db/queries";
+import { useCurrentUser } from "@/app/services/auth/CurrentUserProvider";
 import PlayerBar, { totalPlayerBarHeight } from "@/app/components/music-control/organisms/PlayerBar";
 import { SongList } from "@/app/components/songs/molecules/SongList";
 import { SongDetails } from "@/app/services/db/types";
@@ -15,10 +16,11 @@ export default function SongsScreen() {
     const [songs, setSongs] = useState<SongDetails[]>([]);
     const [filteredSongs, setFilteredSongs] = useState<SongDetails[]>([]);
     const db = useDb();
+    const userId = useCurrentUser();
 
     useEffect(() => {
         (async () => {
-            const all = await DbQueries.getAllSongDetails(db);
+            const all = await DbQueries.getAllSongDetails(db, userId);
             setSongs(all);
             setFilteredSongs(all);
         })();

@@ -188,6 +188,51 @@ export const SaveGenreJamResponseSchema = z.object({
     genreJam: GenreJamSchema
 });
 
+// A duplicate report as the server stores it (Shuffull's SongDuplicateReportDto, shuffull-workspace#143). `version` stays
+// the exact string the server sent: it has microseconds, which a Date would cut, and it is the /mine paging key. Kind
+// and status stay plain strings so a value this build doesn't know can't fail the whole sync; a status the app doesn't
+// know hides nothing (SONG_HIDDEN_STATUSES, StoredDuplicateReportStatus).
+export const SongDuplicateReportSchema = z.object({
+    reportId: z.string(),
+    reporterUserId: z.string(),
+    songId: z.string(),
+    otherSongId: z.string().nullable(),
+    kind: z.string(),
+    preferredSongId: z.string().nullable(),
+    hiddenSongId: z.string(),
+    status: z.string(),
+    note: z.string().nullable(),
+    createdAt: z.coerce.date(),
+    resolvedAt: z.coerce.date().nullable(),
+    resolvedByUserId: z.string().nullable(),
+    version: z.string(),
+});
+export type SongDuplicateReport = z.infer<typeof SongDuplicateReportSchema>;
+
+// POST /api/v1/song-duplicate-reports  body: { reports } -> one outcome per report, in request order. Outcome stays a
+// string ("recorded" | "updated" | "rejected" today); anything but recorded or updated counts as not stored
+// (syncLogic.failedDuplicateReports). On "updated" the report is an earlier one of the same pair, under its own id.
+export const ReportDuplicatesResponseSchema = z.object({
+    results: z.array(z.object({
+        reportId: z.string().nullable(),
+        outcome: z.string(),
+        error: z.string().nullable().optional(),
+        report: SongDuplicateReportSchema.nullable(),
+    })),
+});
+export type ReportDuplicatesResponse = z.infer<typeof ReportDuplicatesResponseSchema>;
+
+// GET /api/v1/song-duplicate-reports/mine?afterDate=&afterId= -> the caller's reports in every status, 500 a page,
+// by (Version, ReportId).
+export const SongDuplicateReportPageSchema = z.object({
+    reports: SongDuplicateReportSchema.array(),
+    endOfList: z.boolean(),
+});
+// Each row's paging key, as FeedKeySchema reads it for the other feeds (the report id stands in for the song id).
+export const SongDuplicateReportKeysSchema = z.object({
+    reports: z.object({ version: z.string(), reportId: z.string() }).array(),
+});
+
 // POST /api/v1/songs/retag-stale?limit=N -> one bounded batch of the library re-tag.
 export interface RetagStaleResponse {
     enriched: number;

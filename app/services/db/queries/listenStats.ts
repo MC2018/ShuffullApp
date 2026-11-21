@@ -7,6 +7,7 @@ import { artistTable, listenStatsSyncTable, listenStatTable, songArtistTable, so
 import { SongDetails } from "../types";
 import { withTransaction } from "../transaction";
 import { chunkRows } from "./_chunk";
+import { notHiddenAsDuplicate } from "./duplicateReport";
 
 /** The local copy of the stats as of `syncedAt`, and the rule the server flagged songs with. */
 export interface ListenStatsSnapshot {
@@ -59,6 +60,8 @@ const maybeDropWhere = (userId: string) => and(
     eq(listenStatTable.userId, userId),
     eq(listenStatTable.maybeDrop, true),
     or(isNull(userSongTable.likeStatus), ne(userSongTable.likeStatus, LikeStatus.Dislike)),
+    // A hidden duplicate is out of the user's way already, like a disliked song.
+    notHiddenAsDuplicate(userId, songTable.songId),
 );
 
 // The "Maybe drop this" list: songs the server flagged that this device has, most quick skips first, then the most

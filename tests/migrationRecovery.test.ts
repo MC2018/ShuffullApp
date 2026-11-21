@@ -271,7 +271,7 @@ describe("the preserved rows are never only in memory", () => {
 
         await expect(rebuildKeepingLocalData(db, async () => { throw new Error("killed mid-migration"); }, deleteFile))
             .rejects.toThrow("killed mid-migration");
-        expect(rescued()).toHaveLength(3); // requests, dead_letter_requests (empty) and listens (empty)
+        expect(rescued()).toHaveLength(4); // requests, plus dead_letter_requests, listens and song_duplicate_reports (all empty)
 
         // Next launch: the provider migrates (now it works) and restores whatever is rescued.
         const next = restart();

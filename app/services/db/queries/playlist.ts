@@ -10,6 +10,7 @@ import {
 import { LikeStatus } from "@/app/enums";
 import { chunkIds } from "./_chunk";
 import { purgeSongs } from "./song";
+import { notHiddenAsDuplicate } from "./duplicateReport";
 
 export async function removeOldPlaylists(db: GenericDb, accessiblePlaylistIds: string[]): Promise<void> {
     // Drop only the local playlists the user no longer has access to (NOT in the server's accessible set).
@@ -98,7 +99,8 @@ export async function getPlaylistSongStates(db: GenericDb, userId: string, playl
         .from(playlistSongTable)
         .innerJoin(songTable, eq(songTable.songId, playlistSongTable.songId))
         .leftJoin(userSongTable, and(eq(userSongTable.songId, playlistSongTable.songId), eq(userSongTable.userId, userId)))
-        .where(eq(playlistSongTable.playlistId, playlistId));
+        // A song the user hid as a duplicate leaves the mix: it isn't dealt, listed or counted towards finishing it.
+        .where(and(eq(playlistSongTable.playlistId, playlistId), notHiddenAsDuplicate(userId, songTable.songId)));
 }
 
 /**

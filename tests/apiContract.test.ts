@@ -18,9 +18,12 @@ import {
     PlaylistSchema,
     RecapSchema,
     RecordListensResponseSchema,
+    ReportDuplicatesResponseSchema,
     RetagResponse,
     RetagStaleResponse,
     SaveGenreJamResponseSchema,
+    SongDuplicateReportPageSchema,
+    SongDuplicateReportSchema,
     SongListResponseSchema,
     TagListResponseSchema,
     TagSchema,
@@ -31,8 +34,8 @@ import {
 } from "@/app/services/api/models";
 import { TagType } from "@/app/services/db/schema";
 import { LikeStatus, RequestType } from "@/app/enums";
-import { RecordListenPayload, SaveGenreJamPayload, UpdateSongLastPlayedRequest } from "@/app/services/db/models";
-import { failedKeeps, failedListens, summarizeRetagFailures } from "@/app/services/sync-manager/syncLogic";
+import { RecordListenPayload, ReportDuplicatePayload, SaveGenreJamPayload, UpdateSongLastPlayedRequest } from "@/app/services/db/models";
+import { duplicateReportOutcomes, failedKeeps, failedListens, summarizeRetagFailures } from "@/app/services/sync-manager/syncLogic";
 import { finishedListen } from "@/app/tools/listens";
 import { statsStartedLine } from "@/app/tools/recap";
 
@@ -174,6 +177,52 @@ describe("API contract: genre jams (ShuffullApp#214)", () => {
         expect(filters).toEqual({
             artistIds: [], playlistIds: [], genreIds: ["tag-rock"], timePeriodIds: [], languageIds: [], moodIds: [], themeIds: [],
         });
+    });
+});
+
+describe("API contract: duplicate reports (ShuffullApp#219)", () => {
+    it("POST /song-duplicate-reports: recorded and updated are stored, rejected fails with the server's reason", () => {
+        const raw = golden("song-duplicate-reports") as { results: { report: object | null }[] };
+        const { results } = ReportDuplicatesResponseSchema.parse(raw);
+
+        expect(unsentFields(SongDuplicateReportSchema, raw.results[0].report!)).toEqual([]);
+        expect(results[0].report).toMatchObject({ reportId: "report-1", hiddenSongId: "song-full", status: "pending" });
+        // The paging key keeps the server's microseconds.
+        expect(results[0].report?.version).toBe("2026-10-01T12:34:56.123456Z");
+
+        const sent = ["report-1", "report-3", "report-4"].map(reportId => ({ payload: { reportId } }));
+        const { stored, failed } = duplicateReportOutcomes(sent, results);
+        expect(stored.map(x => [x.request.payload.reportId, x.report.reportId])).toEqual([["report-1", "report-1"], ["report-3", "report-1"]]);
+        expect(failed.map(x => [x.request.payload.reportId, x.reason])).toEqual([["report-4", "Song 'song-x' is not in your library."]]);
+    });
+
+    it("GET /song-duplicate-reports/mine parses every status, and the client pages on (version, reportId)", async () => {
+        const raw = golden("song-duplicate-reports-mine") as { reports: object[] };
+        const page = SongDuplicateReportPageSchema.parse(raw);
+
+        expect(unsentFields(SongDuplicateReportSchema, raw.reports[0])).toEqual([]);
+        expect(page.reports.map(x => [x.reportId, x.status, x.hiddenSongId])).toEqual([
+            ["report-1", "pending", "song-full"],
+            ["report-2", "withdrawn", "song-sparse"],
+        ]);
+        expect(page.endOfList).toBe(true);
+
+        const originalAdapter = axios.defaults.adapter;
+        const sent: InternalAxiosRequestConfig[] = [];
+        axios.defaults.adapter = async (config) => {
+            sent.push(config);
+            return { data: raw, status: 200, statusText: "OK", headers: {}, config };
+        };
+        try {
+            const result = await new ApiClient("http://api", "t").duplicateReportGetMine({ afterDate: "2026-10-01T00:00:00Z", afterId: "report-0" });
+            expect([sent[0].method, sent[0].url, sent[0].params]).toEqual(["get", "/api/v1/song-duplicate-reports/mine", { afterDate: "2026-10-01T00:00:00Z", afterId: "report-0" }]);
+            expect(result.keys).toEqual([
+                { version: "2026-10-01T12:34:56.123456Z", songId: "report-1" },
+                { version: page.reports[1].version, songId: "report-2" },
+            ]);
+        } finally {
+            axios.defaults.adapter = originalAdapter;
+        }
     });
 });
 
@@ -388,6 +437,9 @@ describe("API contract: request bodies the app sends (shuffull-workspace#92)", (
                 ...(golden("genre-jams-save-request") as Omit<SaveGenreJamPayload, "genreJamId">),
             }),
             response: "genre-jams-save" },
+        { request: "song-duplicate-reports-request", method: "post", url: "/api/v1/song-duplicate-reports",
+            call: api => api.duplicateReportSave((golden("song-duplicate-reports-request") as { reports: ReportDuplicatePayload[] }).reports),
+            response: "song-duplicate-reports" },
     ];
 
     /** [FromBody] binds JSON only, and axios sets no content type for a body passed as a string, which most calls do. */
@@ -411,6 +463,14 @@ describe("API contract: request bodies the app sends (shuffull-workspace#92)", (
         await api.genreJamDelete("jam/1");
 
         expect([sent[0].method, sent[0].url]).toEqual(["delete", "/api/v1/genre-jams/jam%2F1"]);
+    });
+
+    it("a duplicate report withdraw goes to the report's own URL, with its id escaped", async () => {
+        const { api, sent } = stubbedClient(golden("song-duplicate-reports-withdraw"));
+
+        await api.duplicateReportWithdraw("report/1");
+
+        expect([sent[0].method, sent[0].url]).toEqual(["delete", "/api/v1/song-duplicate-reports/report%2F1"]);
     });
 
     it("user-songs-last-played: the outbox's rows carry the two fields the API binds", async () => {

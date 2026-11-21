@@ -1569,7 +1569,15 @@ async function refreshLookaheadOnce() {
  */
 async function getShufflePool(): Promise<ShuffleCandidate[] | undefined> {
     const songFilters = await getSongFilters();
-    return songFilters.hasAnyFilter() ? await DbQueries.getFilteredSong(db, songFilters) : undefined;
+    return songFilters.hasAnyFilter() ? await DbQueries.getFilteredSong(db, await shuffleUserId(), songFilters) : undefined;
+}
+
+/**
+ * Whose duplicate hides the shuffle leaves out. No session means no one's: an empty id matches no report. The
+ * session is read on each pick, not cached, so a switch of account takes effect on the next song.
+ */
+async function shuffleUserId(): Promise<string> {
+    return (await DbQueries.getActiveLocalSessionData(db))?.userId ?? "";
 }
 
 /**
@@ -1587,8 +1595,9 @@ async function pickShuffleSong(played: readonly string[]): Promise<string | unde
 
     // The whole library has no window to keep the lined-up songs out of, so just don't line one up twice.
     let songId: string | undefined;
+    const userId = await shuffleUserId();
     for (let attempt = 0; attempt < LIBRARY_PICK_ATTEMPTS; attempt++) {
-        songId = await DbQueries.getRandomSongId(db);
+        songId = await DbQueries.getRandomSongId(db, userId);
         if (songId == undefined || !played.includes(songId)) {
             break;
         }
@@ -1605,5 +1614,7 @@ async function isShuffleEligible(songId: string): Promise<boolean> {
         return pool.some(x => x.songId === songId);
     }
 
-    return (await DbQueries.getSong(db, songId)) != undefined;
+    // A song hidden as a duplicate after it was lined up must not play.
+    return (await DbQueries.getSong(db, songId)) != undefined
+        && !await DbQueries.isSongHiddenAsDuplicate(db, await shuffleUserId(), songId);
 }

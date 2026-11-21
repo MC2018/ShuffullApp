@@ -1,0 +1,35 @@
+{
+  "reports": [
+    {
+      "reportId": "report-1",
+      "reporterUserId": "user-1",
+      "songId": "song-full",
+      "otherSongId": "song-sparse",
+      "kind": "duplicate",
+      "preferredSongId": null,
+      "hiddenSongId": "song-full",
+      "status": "pending",
+      "note": "Same upload twice",
+      "createdAt": "2026-10-01T12:34:56.123456Z",
+      "resolvedAt": null,
+      "resolvedByUserId": null,
+      "version": "2026-10-01T12:34:56.123456Z"
+    },
+    {
+      "reportId": "report-2",
+      "reporterUserId": "user-1",
+      "songId": "song-sparse",
+      "otherSongId": null,
+      "kind": "differentVersion",
+      "preferredSongId": null,
+      "hiddenSongId": "song-sparse",
+      "status": "withdrawn",
+      "note": null,
+      "createdAt": "2026-10-01T12:34:56.123456Z",
+      "resolvedAt": "2026-10-02T08:00:00.000001Z",
+      "resolvedByUserId": "user-1",
+      "version": "2026-10-02T08:00:00.000001Z"
+    }
+  ],
+  "endOfList": true
+}

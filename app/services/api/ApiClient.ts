@@ -1,7 +1,7 @@
 import axios, { AxiosHeaders, AxiosInstance } from "axios";
-import { AuthenticateResponse, AuthenticateResponseSchema, ChangedSongKeysSchema, ChangedSongPageSchema, CreatePlaylistResponseSchema, FeedCursor, GenreJam, GenreJamListResponseSchema, KeepResponse, KeepResponseSchema, ListenStatsResponse, ListenStatsResponseSchema, Playlist, PlaylistListResponseSchema, Recap, RecapSchema, RecordListensResponse, RecordListensResponseSchema, RetagResponse, RetagStaleResponse, SongListResponseSchema, SongRetagWireItem, Tag, TagListResponseSchema, UserResponseSchema, UserSongKeysSchema, UserSongPageSchema } from "./models";
+import { AuthenticateResponse, AuthenticateResponseSchema, ChangedSongKeysSchema, ChangedSongPageSchema, CreatePlaylistResponseSchema, FeedCursor, GenreJam, GenreJamListResponseSchema, KeepResponse, KeepResponseSchema, ListenStatsResponse, ListenStatsResponseSchema, Playlist, PlaylistListResponseSchema, Recap, RecapSchema, RecordListensResponse, RecordListensResponseSchema, ReportDuplicatesResponse, ReportDuplicatesResponseSchema, RetagResponse, RetagStaleResponse, SongDuplicateReportKeysSchema, SongDuplicateReportPageSchema, SongListResponseSchema, SongRetagWireItem, Tag, TagListResponseSchema, UserResponseSchema, UserSongKeysSchema, UserSongPageSchema } from "./models";
 import { ApiStatusFailureError } from "./errors";
-import { RecordListenPayload, SaveGenreJamPayload, UpdateSongLastPlayedRequest, UpdateSongMetadataPayload } from "../db/models";
+import { RecordListenPayload, ReportDuplicatePayload, SaveGenreJamPayload, UpdateSongLastPlayedRequest, UpdateSongMetadataPayload } from "../db/models";
 
 // How long a call may take before it counts as no answer (a 503 to the sync, which then backs off and retries).
 // One 3 s limit for everything was too short for the big calls: a 500-id song list or a 200-song keep on a slow
@@ -274,6 +274,82 @@ export class ApiClient {
             }
         } catch (error) {
             console.log(`[API] Endpoint ${endpoint} (delete) failed with error:`, error);
+            throw error;
+        }
+    }
+
+    // Any user: report songs in their library as duplicates or unwanted versions (at most 200 per call, the server's
+    // MaxBatch). Returns one outcome per report. Safe to resend: a stored report id comes back as the same report.
+    public async duplicateReportSave(reports: ReportDuplicatePayload[]): Promise<ReportDuplicatesResponse> {
+        const endpoint = "/api/v1/song-duplicate-reports";
+        console.log(`[API] Calling endpoint: ${endpoint} (${reports.length} reports)`);
+        try {
+            const response = await this.client.post(endpoint, JSON.stringify({ reports }), {
+                timeout: BULK_TIMEOUT_MS,
+                headers: {
+                    "Content-Type": "application/json"
+                }
+            });
+            if (!isSuccessfulStatus(response.status)) {
+                console.log(`[API] Endpoint ${endpoint} failed with status: ${response.status}`);
+                throw new ApiStatusFailureError(endpoint, response);
+            }
+            console.log(`[API] Endpoint ${endpoint} succeeded`);
+            return ReportDuplicatesResponseSchema.parse(response.data);
+        } catch (error) {
+            console.log(`[API] Endpoint ${endpoint} failed with error:`, error);
+            throw error;
+        }
+    }
+
+    // One page of the caller's own duplicate reports, every status, after `cursor` (sent exactly as given). A server
+    // from before Shuffull#141 answers 404; SyncManager.fetchDuplicateReports leaves the local reports as they are then.
+    public async duplicateReportGetMine(cursor: FeedCursor) {
+        const endpoint = "/api/v1/song-duplicate-reports/mine";
+        console.log(`[API] Calling endpoint: ${endpoint}`);
+        try {
+            const response = await this.client.get(endpoint, {
+                timeout: BULK_TIMEOUT_MS,
+                params: {
+                    afterDate: cursor.afterDate,
+                    afterId: cursor.afterId
+                }
+            });
+
+            if (!isSuccessfulStatus(response.status)) {
+                console.log(`[API] Endpoint ${endpoint} failed with status: ${response.status}`);
+                throw new ApiStatusFailureError(endpoint, response);
+            }
+
+            console.log(`[API] Endpoint ${endpoint} succeeded`);
+            const page = SongDuplicateReportPageSchema.parse(response.data);
+            // The server pages by (Version, ReportId), so the report id is the key's tie-breaker (FeedKey.songId).
+            const keys = SongDuplicateReportKeysSchema.parse(response.data).reports
+                .map(x => ({ version: x.version, songId: x.reportId }));
+            return { items: page.reports, keys, endOfList: page.endOfList };
+        } catch (error) {
+            console.log(`[API] Endpoint ${endpoint} failed with error:`, error);
+            throw error;
+        }
+    }
+
+    // Withdraws one of the caller's duplicate reports. Safe to resend. The withdrawn report the server sends back isn't
+    // read: the next pull brings it, and a body that failed to parse would read as a 500 and stall the outbox behind
+    // a withdraw the server already made.
+    public async duplicateReportWithdraw(reportId: string): Promise<void> {
+        const endpoint = `/api/v1/song-duplicate-reports/${encodeURIComponent(reportId)}`;
+        console.log(`[API] Calling endpoint: ${endpoint} (withdraw)`);
+        try {
+            const response = await this.client.delete(endpoint);
+
+            if (!isSuccessfulStatus(response.status)) {
+                console.log(`[API] Endpoint ${endpoint} failed with status: ${response.status}`);
+                throw new ApiStatusFailureError(endpoint, response);
+            }
+
+            console.log(`[API] Endpoint ${endpoint} succeeded`);
+        } catch (error) {
+            console.log(`[API] Endpoint ${endpoint} (withdraw) failed with error:`, error);
             throw error;
         }
     }

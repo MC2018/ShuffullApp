@@ -46,6 +46,19 @@ function makeDb(): GenericDb {
             song_id TEXT NOT NULL,
             artist_id TEXT NOT NULL
         );
+        CREATE TABLE song_duplicate_reports (
+            report_id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            song_id TEXT NOT NULL,
+            other_song_id TEXT,
+            kind TEXT NOT NULL,
+            preferred_song_id TEXT,
+            hidden_song_id TEXT NOT NULL,
+            status TEXT NOT NULL,
+            note TEXT,
+            created_at INTEGER NOT NULL,
+            version TEXT
+        );
     `);
 
     return drizzle(sqlite) as unknown as GenericDb;
@@ -131,7 +144,7 @@ describe("song queries against in-memory SQLite", () => {
             await insertSongArtist(db, "sa1", "s1", "a1");
             await insertSongArtist(db, "sa2", "s1", "a2");
 
-            const details = await getAllSongDetails(db);
+            const details = await getAllSongDetails(db, "u");
             expect(details).toHaveLength(1);
             expect(details[0].song.songId).toBe("s1");
             expect(details[0].artists.map(a => a.artistId).sort()).toEqual(["a1", "a2"]);
@@ -139,7 +152,7 @@ describe("song queries against in-memory SQLite", () => {
 
         it("getAllSongDetails yields an empty artist list for songs with no artists", async () => {
             await updateSongs(db, [song("s1")]);
-            const details = await getAllSongDetails(db);
+            const details = await getAllSongDetails(db, "u");
             expect(details).toHaveLength(1);
             expect(details[0].artists).toEqual([]);
         });
@@ -152,13 +165,28 @@ describe("song queries against in-memory SQLite", () => {
             await insertSongArtist(db, "sa2", "s2", "a1");
             await insertSongArtist(db, "sa3", "s3", "a2"); // not the target artist
 
-            const details = await getSongDetailsByArtist(db, "a1");
+            const details = await getSongDetailsByArtist(db, "u", "a1");
             expect(details.map(d => d.song.name)).toEqual(["Alpha", "Zulu"]);
+        });
+
+        it("leaves out a song the user hid as a duplicate, and only for that user (ShuffullApp#219)", async () => {
+            await updateSongs(db, [song("s1", "Kept"), song("s2", "Hidden")]);
+            await insertArtist(db, "a1", "Artist");
+            await insertSongArtist(db, "sa1", "s1", "a1");
+            await insertSongArtist(db, "sa2", "s2", "a1");
+            (db as unknown as { $client: Database.Database }).$client.exec(`
+                INSERT INTO song_duplicate_reports (report_id, user_id, song_id, other_song_id, kind, preferred_song_id,
+                    hidden_song_id, status, created_at)
+                VALUES ('r1','u','s2','s1','duplicate','s1','s2','pending',0)`);
+
+            expect((await getAllSongDetails(db, "u")).map(d => d.song.songId)).toEqual(["s1"]);
+            expect((await getSongDetailsByArtist(db, "u", "a1")).map(d => d.song.songId)).toEqual(["s1"]);
+            expect((await getAllSongDetails(db, "other")).map(d => d.song.songId).sort()).toEqual(["s1", "s2"]);
         });
 
         it("getSongDetailsByArtist returns empty for an unknown artist", async () => {
             await updateSongs(db, [song("s1")]);
-            expect(await getSongDetailsByArtist(db, "ghost")).toEqual([]);
+            expect(await getSongDetailsByArtist(db, "u", "ghost")).toEqual([]);
         });
     });
 });

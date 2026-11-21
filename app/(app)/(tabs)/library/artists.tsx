@@ -3,6 +3,7 @@ import { FlatList, View } from "react-native";
 import { router, useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import DbQueries from "@/app/services/db/queries";
+import { useCurrentUser } from "@/app/services/auth/CurrentUserProvider";
 import { ArtistWithCount } from "@/app/services/db/queries/artist";
 import { useDb } from "@/app/services/db/DbProvider";
 import PlayerBar, { totalPlayerBarHeight } from "@/app/components/music-control/organisms/PlayerBar";
@@ -12,6 +13,7 @@ import { useTheme } from "@/app/theme";
 export default function ArtistsScreen() {
     const theme = useTheme();
     const db = useDb();
+    const userId = useCurrentUser();
     const [artists, setArtists] = useState<ArtistWithCount[]>([]);
     const [query, setQuery] = useState("");
 
@@ -19,7 +21,7 @@ export default function ArtistsScreen() {
         useCallback(() => {
             let cancelled = false;
             (async () => {
-                const all = await DbQueries.getArtistsWithCounts(db);
+                const all = await DbQueries.getArtistsWithCounts(db, userId);
                 if (!cancelled) {
                     setArtists(all);
                 }
@@ -27,7 +29,7 @@ export default function ArtistsScreen() {
             return () => {
                 cancelled = true;
             };
-        }, [db]),
+        }, [db, userId]),
     );
 
     const q = query.trim().toLowerCase();
