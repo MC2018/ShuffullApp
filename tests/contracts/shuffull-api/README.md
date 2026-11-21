@@ -11,3 +11,5 @@ imports and lyrics) come along because the hub script copies the whole set to ev
 `listens-request.json` are the listen log's outcomes and the body the app sends (ShuffullApp#57). `listens-stats.json`
 is the per-song stats behind song details and the "Maybe drop this" list (ShuffullApp#115), and `recap.json` the
 yearly recap the December recap screen reads (ShuffullApp#116).
+`song-merges.json`, `songs-merge.json` and `songs-merge-request.json` are the song-merge feed and the curator's merge
+(MC2018/Shuffull#142). Nothing parses them yet: ShuffullApp#220 applies the feed and ShuffullApp#221 adds the merge.
