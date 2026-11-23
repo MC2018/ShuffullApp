@@ -239,4 +239,8 @@ describe("pendingCommand", () => {
         expect(pendingCommand({ command: command({ kind: "seek" }) }, new Set(), new Date(T0))).toBeUndefined();
         expect(pendingCommand({ command: command({ kind: "seek", seekSeconds: 90 }) }, new Set(), new Date(T0))?.seekSeconds).toBe(90);
     });
+
+    it("skips a kind this build doesn't know", () => {
+        expect(pendingCommand({ command: command({ kind: "shuffle" }) }, new Set(), new Date(T0))).toBeUndefined();
+    });
 });

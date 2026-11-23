@@ -179,30 +179,36 @@ export const UserDeviceSchema = z.object({
 });
 export type UserDevice = z.infer<typeof UserDeviceSchema>;
 
-/** A remote-control command one device leaves on another's session (ShuffullApp#194). */
-export type PlaybackCommandKind = "play" | "pause" | "next" | "previous" | "seek";
+/** The remote-control commands one device can leave on another's session (ShuffullApp#194). */
+export const PLAYBACK_COMMAND_KINDS = ["play", "pause", "next", "previous", "seek"] as const;
+export type PlaybackCommandKind = typeof PLAYBACK_COMMAND_KINDS[number];
 
-// The command waiting on a session. The API shows one for 60 s after it was sent, then reports none.
+// The command waiting on a session. The API shows one for 60 s after it was sent, then reports none. Kind stays a
+// string, as the API sends it, so a kind added later can't fail the whole sessions read on an installed build; the
+// device skips a kind it doesn't know (pendingCommand).
 export const PlaybackCommandSchema = z.object({
     commandId: z.string(),
-    kind: z.enum(["play", "pause", "next", "previous", "seek"]),
+    kind: z.string(),
     seekSeconds: z.number().nullish(),
     at: z.coerce.date(),
 });
 export type PlaybackCommand = z.infer<typeof PlaybackCommandSchema>;
 
 // One device's published playback state (Shuffull playback sessions, ShuffullApp#194). The API writes every timestamp
-// in whole milliseconds, so a Date carries `updatedAt` exactly and toISOString() echoes it back for a takeover.
+// in whole milliseconds, so a Date carries `updatedAt` exactly and toISOString() echoes it back for a takeover. The
+// API stores a session with no song and no scope (both optional in its PUT), so both are read as optional here: one
+// such session must not fail the read of every other device's.
 export const PlaybackSessionSchema = z.object({
     deviceId: z.string(),
-    songId: z.string(),
+    /** Null when the device published with nothing loaded: it isn't playing anything. */
+    songId: z.string().nullable(),
     positionSeconds: z.number(),
     positionAt: z.coerce.date(),
     isPlaying: z.boolean(),
     /** Where the song is now, as of the answer's serverTime: positionSeconds plus the time since, while playing. */
     estimatedPositionSeconds: z.number(),
     /** What the device was shuffling from: the app's song filters, stored as sent. */
-    scope: z.record(z.unknown()),
+    scope: z.record(z.unknown()).nullish().transform(scope => scope ?? {}),
     /** Songs played before this one, newest last. */
     history: z.string().array(),
     queuedNext: z.string().array(),

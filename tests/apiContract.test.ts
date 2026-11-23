@@ -366,6 +366,16 @@ describe("API contract: playback sessions (ShuffullApp#194)", () => {
         expect(devices[1].platform).toBeNull();
     });
 
+    it("reads a session with no song, no scope and an unknown command kind, rather than failing every device's", () => {
+        const raw = { ...(golden("playback-session") as object), songId: null, scope: null,
+            command: { commandId: "cmd-2", kind: "shuffle", seekSeconds: null, at: "2026-10-02T08:00:03.125Z" } };
+        const session = PlaybackSessionSchema.parse(raw);
+
+        expect(session.songId).toBeNull();
+        expect(session.scope).toEqual({});
+        expect(session.command?.kind).toBe("shuffle");
+    });
+
     it("reads every session with a GET, and acks a command with no body", async () => {
         const { api, sent } = stubbedClient(golden("playback-sessions"));
 

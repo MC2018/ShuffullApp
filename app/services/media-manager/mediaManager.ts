@@ -786,18 +786,12 @@ export function adoptPlayback(playback: AdoptedPlayback): Promise<void> {
         await saveSongFilters(playback.scope);
         await clear();
 
-        const known = new Set<string>();
-        for (const id of new Set([...playback.history, ...playback.queuedNext])) {
-            if (await DbQueries.getSong(db, id) != undefined) {
-                known.add(id);
-            }
-        }
-
+        // One chunked read and one insert, not one round trip per song: the source device is already paused, so this
+        // time is silence for the user.
+        const known = await DbQueries.getExistingSongIds(db, [...playback.history, ...playback.queuedNext]);
         const rows = rebuildHistory(playback, playback.positionSeconds, Date.now(), id => known.has(id))
             .map(row => ({ ...row, recentlyPlayedSongId: generateId() }));
-        for (const row of rows) {
-            await DbQueries.addRecentlyPlayedSong(db, row);
-        }
+        await DbQueries.addRecentlyPlayedSongs(db, rows);
 
         // The last row is the song, marked current at the position: startNewSong resumes it there.
         await startNewSong(playback.songId, rows[rows.length - 1]);

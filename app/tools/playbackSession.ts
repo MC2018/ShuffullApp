@@ -1,6 +1,7 @@
 import { SongFilters } from "../types/SongFilters";
 import type { WhitelistSetting } from "../services/db/types";
-import type { PlaybackCommand, PlaybackSession, PlaybackSessionBody } from "../services/api/models";
+import { PLAYBACK_COMMAND_KINDS } from "../services/api/models";
+import type { PlaybackCommand, PlaybackCommandKind, PlaybackSession, PlaybackSessionBody } from "../services/api/models";
 
 // Cross-device playback (ShuffullApp#194, epic shuffull-workspace#134). Each install publishes what it is playing as a
 // playback session on the API; another device can read it, take it over, or send it a command. Everything that can be
@@ -234,14 +235,22 @@ export function takeoverAction(session: Pick<PlaybackSession, "takenOverBy" | "t
     return serverTime.getTime() - at <= TAKEOVER_MAX_AGE_MS ? "pause" : "stale";
 }
 
+/** A command whose kind this build knows how to carry out. */
+export type KnownPlaybackCommand = PlaybackCommand & { kind: PlaybackCommandKind };
+
+function isKnownKind(kind: string): kind is PlaybackCommandKind {
+    return (PLAYBACK_COMMAND_KINDS as readonly string[]).includes(kind);
+}
+
 /**
  * The command to carry out from this device's session: one not handled yet (`handled` holds the ids already done) and
- * no older than COMMAND_MAX_AGE_MS by the server's clock. A seek without a position is dropped.
+ * no older than COMMAND_MAX_AGE_MS by the server's clock. A seek without a position is dropped, and so is a kind this
+ * build doesn't know (one added after it shipped): it expires on the server unacked.
  */
 export function pendingCommand(session: Pick<PlaybackSession, "command"> | null | undefined,
-    handled: ReadonlySet<string>, serverTime: Date): PlaybackCommand | undefined {
+    handled: ReadonlySet<string>, serverTime: Date): KnownPlaybackCommand | undefined {
     const command = session?.command;
-    if (command == undefined || handled.has(command.commandId)) {
+    if (command == undefined || handled.has(command.commandId) || !isKnownKind(command.kind)) {
         return undefined;
     }
     if (serverTime.getTime() - command.at.getTime() > COMMAND_MAX_AGE_MS) {
@@ -250,5 +259,5 @@ export function pendingCommand(session: Pick<PlaybackSession, "command"> | null 
     if (command.kind === "seek" && (command.seekSeconds == undefined || !Number.isFinite(command.seekSeconds))) {
         return undefined;
     }
-    return command;
+    return { ...command, kind: command.kind };
 }

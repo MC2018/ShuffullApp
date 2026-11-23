@@ -1,9 +1,9 @@
 import { HubConnection, HubConnectionBuilder, HubConnectionState, ILogger, LogLevel } from "@microsoft/signalr";
-import { AppState, Platform } from "react-native";
+import { AppState } from "react-native";
 import { create } from "zustand";
 import { ApiClient } from "../api/ApiClient";
 import { ApiStatusFailureError } from "../api/errors";
-import { PlaybackCommand, PlaybackCommandKind, PlaybackDevice, PlaybackSession, PlaybackSessionsResponse } from "../api/models";
+import { PlaybackCommandKind, PlaybackDevice, PlaybackSession, PlaybackSessionsResponse } from "../api/models";
 import { GenericDb } from "../db/GenericDb";
 import DbQueries from "../db/queries";
 import { deviceIdOrNull, ensureDeviceCheckedIn } from "../device";
@@ -11,6 +11,7 @@ import { MediaManager } from "../media-manager";
 import {
     buildPublishedState,
     estimatePosition,
+    KnownPlaybackCommand,
     LastPublish,
     needsPublish,
     pendingCommand,
@@ -20,6 +21,7 @@ import {
     songFiltersToScope,
     takeoverAction,
 } from "../../tools/playbackSession";
+import { acquireTabLock } from "../../tools/tabLock";
 import { generateId } from "../../tools/utils";
 import { log } from "../../tools/log";
 
@@ -31,10 +33,16 @@ import { log } from "../../tools/log";
 
 /** How often the player is looked at to decide whether to publish. Cheap: the full state is read only when needed. */
 const PROBE_INTERVAL_MS = 1_000;
-/** A failed publish waits this long before the next try, so an offline device doesn't try every second. */
-const PUBLISH_RETRY_MS = PUBLISH_INTERVAL_MS;
-/** With the live channel down, the sessions are read this often instead. */
+/**
+ * After a failed publish, the next try waits this long, doubling with each failure in a row up to the max. An offline
+ * device, or an API without playback sessions (any server older than Shuffull#138), then costs a request every few
+ * minutes rather than every few seconds.
+ */
+const PUBLISH_RETRY_MIN_MS = PUBLISH_INTERVAL_MS;
+const PUBLISH_RETRY_MAX_MS = 5 * 60_000;
+/** With the live channel down, the sessions are read this often instead, backing off the same way while reads fail. */
 const POLL_INTERVAL_MS = PUBLISH_INTERVAL_MS;
+const POLL_RETRY_MAX_MS = 5 * 60_000;
 /** "Session changed" signals that arrive together (a takeover touches two sessions) are read once. */
 const REFRESH_DEBOUNCE_MS = 150;
 /** Between attempts to open the live channel after one failed, doubling up to the max. */
@@ -44,6 +52,11 @@ const CONNECT_RETRY_MAX_MS = 5 * 60_000;
 const HANDLED_COMMANDS_MAX = 50;
 /** Two tabs of the web app share one device id: only the tab holding this lock plays as the device. */
 const TAB_LOCK_NAME = "shuffull-playback-device";
+
+/** The wait before the next try after `failures` failures in a row: `min`, doubling per failure, up to `max`. */
+function backoffMs(failures: number, min: number, max: number): number {
+    return Math.min(max, min * 2 ** Math.max(0, failures - 1));
+}
 
 export interface PlaybackDevicesState {
     /** This install's device id, once read. */
@@ -62,6 +75,9 @@ const initialState: PlaybackDevicesState = { selfDeviceId: undefined, devices: [
 
 /** The user's other devices and what each is playing, for the devices sheet and the remote player bar. */
 export const usePlaybackDevices = create<PlaybackDevicesState>(() => initialState);
+
+// No caller yet for estimatedPositionOf, takeOverPlayback, sendPlaybackCommand or refreshPlaybackDevices: they are what
+// the devices sheet (ShuffullApp#195) and the remote player bar (ShuffullApp#196) are built on.
 
 /** Where a device's song is now, carried on from the last answer while it plays. */
 export function estimatedPositionOf(session: PlaybackSession, now: number = Date.now()): number {
@@ -121,8 +137,19 @@ class PlaybackSessionService {
     private probing = false;
     private lastPublish: LastPublish | undefined;
     private publishFailedAt: number | undefined;
+    private publishFailures = 0;
+    /** A 404 forced a re-check-in since the last publish that worked: another 404 is the API, not the device row. */
+    private forcedCheckIn = false;
     /** Paused by a takeover: nothing is published as the active player until playback starts here again. */
     private takenOver = false;
+    /**
+     * The paused state is still to be published once after a takeover. A publish that read "playing" just before the
+     * pause can land on the server after the takeover and mark this device playing again; this one corrects it.
+     */
+    private publishPausedState = false;
+    /** Bumped by each takeover pause, so a probe whose reads straddle one is dropped rather than published. */
+    private takeoverEpoch = 0;
+    private pausingForTakeover = false;
     /** The takenOverAt last acted on (ms), and the same as sent back in `seenTakenOverAt` until a publish carries it. */
     private handledTakenOverAt: number | undefined;
     private unseenTakenOverAt: string | undefined;
@@ -134,6 +161,9 @@ class PlaybackSessionService {
     private refreshTimer: ReturnType<typeof setTimeout> | undefined;
     private refreshing: Promise<void> | undefined;
     private refreshAgain = false;
+    private pollFailures = 0;
+    /** With the live channel down and reads failing, this many poll ticks are skipped before the next read. */
+    private pollTicksToSkip = 0;
     private readonly handledCommands: string[] = [];
 
     constructor(private readonly db: GenericDb, private readonly api: ApiClient) {}
@@ -145,7 +175,7 @@ class PlaybackSessionService {
             }
             this.selfDeviceId = id;
             usePlaybackDevices.setState({ selfDeviceId: id });
-            this.releaseTabLock = acquireTabLock(() => {
+            this.releaseTabLock = acquireTabLock(TAB_LOCK_NAME, () => {
                 if (this.stopped) {
                     return;
                 }
@@ -155,7 +185,12 @@ class PlaybackSessionService {
             });
             this.timers.push(setInterval(() => void this.probe(), PROBE_INTERVAL_MS));
             this.timers.push(setInterval(() => {
-                if (this.connection?.state !== HubConnectionState.Connected) {
+                if (this.connection?.state === HubConnectionState.Connected) {
+                    return;
+                }
+                if (this.pollTicksToSkip > 0) {
+                    this.pollTicksToSkip--;
+                } else {
                     this.scheduleRefresh(0);
                 }
             }, POLL_INTERVAL_MS));
@@ -187,27 +222,33 @@ class PlaybackSessionService {
         }
         this.probing = true;
         try {
+            const epoch = this.takeoverEpoch;
             const probe: PublishProbe = {
                 songId: MediaManager.useActiveSong.getState().songId,
                 isPlaying: await MediaManager.isPlaying(),
                 positionSeconds: await MediaManager.getPosition(),
                 revision: MediaManager.getTransportRevision(),
             };
+            if (this.pausingForTakeover || epoch !== this.takeoverEpoch) {
+                // A takeover arrived during the reads, which may say "playing" from before its pause. The next tick reads again.
+                return;
+            }
+            const now = Date.now();
             if (this.takenOver) {
                 if (!probe.isPlaying) {
+                    if (this.publishPausedState && this.mayPublish(now)) {
+                        await this.publish(this.selfDeviceId, probe, epoch, false);
+                    }
                     return;
                 }
                 // Playback started here again, so this device is a player again: publish, which also clears the takeover.
                 this.takenOver = false;
+                this.publishPausedState = false;
                 this.lastPublish = undefined;
             }
 
-            const now = Date.now();
-            if (this.publishFailedAt != undefined && now - this.publishFailedAt < PUBLISH_RETRY_MS) {
-                return;
-            }
-            if (needsPublish(this.lastPublish, probe, now)) {
-                await this.publish(this.selfDeviceId, probe);
+            if (this.mayPublish(now) && needsPublish(this.lastPublish, probe, now)) {
+                await this.publish(this.selfDeviceId, probe, epoch, true);
             }
         } catch (e) {
             // The player isn't set up yet, or the database is mid-swap: the next tick tries again.
@@ -217,17 +258,28 @@ class PlaybackSessionService {
         }
     }
 
-    private async publish(deviceId: string, probe: PublishProbe): Promise<void> {
+    /** Whether the backoff after failed publishes has run out. */
+    private mayPublish(now: number): boolean {
+        return this.publishFailedAt == undefined
+            || now - this.publishFailedAt >= backoffMs(this.publishFailures, PUBLISH_RETRY_MIN_MS, PUBLISH_RETRY_MAX_MS);
+    }
+
+    /**
+     * Publishes `probe` with the rest of the state. `ackTakeover` sends back the takeover this device last acted on,
+     * which clears it on the server: true when this device plays as itself, false for the one paused publish after a
+     * takeover, which only corrects the playing flag and the position. `epoch` is takeoverEpoch when the probe was read.
+     */
+    private async publish(deviceId: string, probe: PublishProbe, epoch: number, ackTakeover: boolean): Promise<void> {
         const state = buildPublishedState({
             ...probe,
             scope: songFiltersToScope(await MediaManager.getSongFilters()),
             recentlyPlayed: await DbQueries.getRecentlyPlayedSongs(this.db),
             queue: MediaManager.getQueue(),
         });
-        if (state == undefined) {
+        if (state == undefined || epoch !== this.takeoverEpoch) {
             return;
         }
-        const seen = this.unseenTakenOverAt;
+        const seen = ackTakeover ? this.unseenTakenOverAt : undefined;
         const body = { ...state, seenTakenOverAt: seen ?? null };
 
         try {
@@ -237,20 +289,33 @@ class PlaybackSessionService {
             try {
                 await this.api.playbackSessionPut(deviceId, body);
             } catch (e) {
-                // 404: the server doesn't know this device (its row was removed, or a new server). Check in and try once more.
-                if (!(e instanceof ApiStatusFailureError && e.status === 404) || !await ensureDeviceCheckedIn(true)) {
+                // 404: the server doesn't know this device (its row was removed, or a new server). Check in again and
+                // try once more, but only once until a publish works: an API without playback sessions 404s every time.
+                if (!(e instanceof ApiStatusFailureError && e.status === 404) || this.forcedCheckIn) {
+                    throw e;
+                }
+                this.forcedCheckIn = true;
+                if (!await ensureDeviceCheckedIn(true)) {
                     throw e;
                 }
                 await this.api.playbackSessionPut(deviceId, body);
             }
             this.lastPublish = { probe, at: Date.now() };
             this.publishFailedAt = undefined;
-            if (this.unseenTakenOverAt === seen) {
-                this.unseenTakenOverAt = undefined;
+            this.publishFailures = 0;
+            this.forcedCheckIn = false;
+            if (ackTakeover) {
+                if (this.unseenTakenOverAt === seen) {
+                    this.unseenTakenOverAt = undefined;
+                }
+            } else {
+                this.publishPausedState = false;
             }
         } catch (e) {
             this.publishFailedAt = Date.now();
-            log.warn("playback-sessions", "could not publish this device's playback; retrying shortly", e);
+            this.publishFailures++;
+            const waitS = backoffMs(this.publishFailures, PUBLISH_RETRY_MIN_MS, PUBLISH_RETRY_MAX_MS) / 1000;
+            log.warn("playback-sessions", `could not publish this device's playback; retrying in ${waitS} s`, e);
         }
     }
 
@@ -337,10 +402,23 @@ class PlaybackSessionService {
         this.refreshing = (async () => {
             do {
                 this.refreshAgain = false;
+                let response: PlaybackSessionsResponse | undefined;
                 try {
-                    await this.apply(await this.api.playbackSessionsGet(), Date.now());
+                    response = await this.api.playbackSessionsGet();
+                    this.pollFailures = 0;
+                    this.pollTicksToSkip = 0;
                 } catch (e) {
+                    this.pollFailures++;
+                    // Counted in ticks of the poll timer, so the wait is exact rather than rounded up to the next tick.
+                    this.pollTicksToSkip = backoffMs(this.pollFailures, POLL_INTERVAL_MS, POLL_RETRY_MAX_MS) / POLL_INTERVAL_MS - 1;
                     log.debug("playback-sessions", "could not read the playback sessions", e);
+                }
+                if (response != undefined) {
+                    try {
+                        await this.apply(response, Date.now());
+                    } catch (e) {
+                        log.warn("playback-sessions", "could not act on the playback sessions", e);
+                    }
                 }
             } while (this.refreshAgain && !this.stopped);
         })();
@@ -369,7 +447,14 @@ class PlaybackSessionService {
             if (takeover === "pause") {
                 log.info("playback-sessions", `taken over by ${own.takenOverBy}; pausing`);
                 this.takenOver = true;
-                await MediaManager.pause();
+                this.publishPausedState = true;
+                this.takeoverEpoch++;
+                this.pausingForTakeover = true;
+                try {
+                    await MediaManager.pause();
+                } finally {
+                    this.pausingForTakeover = false;
+                }
             }
         }
 
@@ -379,7 +464,7 @@ class PlaybackSessionService {
         }
     }
 
-    private async carryOut(selfId: string, command: PlaybackCommand): Promise<void> {
+    private async carryOut(selfId: string, command: KnownPlaybackCommand): Promise<void> {
         this.handledCommands.push(command.commandId);
         if (this.handledCommands.length > HANDLED_COMMANDS_MAX) {
             this.handledCommands.shift();
@@ -420,7 +505,7 @@ class PlaybackSessionService {
         let taken: PlaybackSession | undefined;
         for (let attempt = 0; taken == undefined; attempt++) {
             const source = (await this.api.playbackSessionsGet()).devices.find(d => d.deviceId === sourceDeviceId)?.session;
-            if (source == undefined) {
+            if (source?.songId == undefined) {
                 throw new Error("That device isn't playing anything.");
             }
             if (await DbQueries.getSong(this.db, source.songId) == undefined) {
@@ -436,8 +521,12 @@ class PlaybackSessionService {
             }
         }
 
+        const songId = taken.songId;
+        if (songId == undefined) {
+            throw new Error("That device isn't playing anything.");
+        }
         await MediaManager.adoptPlayback({
-            songId: taken.songId,
+            songId,
             // The server paused the source at its estimated position, so the two are the same now.
             positionSeconds: taken.positionSeconds,
             scope: scopeToSongFilters(taken.scope),
@@ -445,6 +534,7 @@ class PlaybackSessionService {
             queuedNext: taken.queuedNext,
         });
         this.takenOver = false;
+        this.publishPausedState = false;
         this.lastPublish = undefined;
         this.scheduleRefresh(0);
     }
@@ -465,34 +555,3 @@ const signalrLogger: ILogger = {
         }
     },
 };
-
-interface LockManagerLike {
-    request(name: string, options: { signal: AbortSignal }, callback: () => Promise<void>): Promise<void>;
-}
-
-/**
- * Calls `onAcquired` once this tab holds the playback lock, which it keeps until the returned release. Web tabs share
- * one device id, so only one may play as it. The lock passes to another tab when this one closes. Native apps, and a
- * browser without Web Locks, are the device at once.
- */
-function acquireTabLock(onAcquired: () => void): () => void {
-    const locks = Platform.OS === "web" && typeof navigator !== "undefined"
-        ? (navigator as unknown as { locks?: LockManagerLike }).locks
-        : undefined;
-    if (locks == undefined) {
-        onAcquired();
-        return () => undefined;
-    }
-
-    let release: () => void = () => undefined;
-    const held = new Promise<void>(resolve => { release = resolve; });
-    const abort = new AbortController();
-    locks.request(TAB_LOCK_NAME, { signal: abort.signal }, async () => {
-        onAcquired();
-        await held;
-    }).catch(() => undefined);
-    return () => {
-        abort.abort();
-        release();
-    };
-}

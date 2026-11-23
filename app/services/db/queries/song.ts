@@ -442,6 +442,18 @@ export async function backfillSongFields(db: GenericDb, songs: { songId: string;
     }
 }
 
+/** Which of `songIds` are in this device's library, read in chunks rather than one query per id. */
+export async function getExistingSongIds(db: GenericDb, songIds: readonly string[]): Promise<Set<string>> {
+    const existing = new Set<string>();
+    for (const idChunk of chunkIds([...new Set(songIds)])) {
+        const rows = await db.select({ songId: songTable.songId }).from(songTable).where(inArray(songTable.songId, idChunk));
+        for (const row of rows) {
+            existing.add(row.songId);
+        }
+    }
+    return existing;
+}
+
 export async function getRandomSongId(db: GenericDb): Promise<string | undefined> {
     const songCount = (await db.select({
         count: sql<number>`COUNT(*)`.as("count"),
