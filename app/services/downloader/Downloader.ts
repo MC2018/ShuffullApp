@@ -13,6 +13,8 @@ import { useDownloadStatus } from "./downloadStatus";
 import { derivePhase, describeDownloadNotification, isDownloadNetwork, retryDelayMs, shouldHoldForegroundService } from "../../tools/downloadStatus";
 import { decideArtDownload, decideSongDownload } from "../../tools/downloadFailure";
 import { foregroundService } from "../background/foregroundService";
+import { pickNextDownload } from "./pickNextDownload";
+import { DownloadSource } from "../../tools/autoDownloads";
 import { ensureNotificationPermission } from "../background/notificationPermission";
 
 if (FileSystem.documentDirectory == null) {
@@ -77,6 +79,8 @@ export class Downloader {
     private hashMismatches = new Map<string, number>();
     // Rows dropped since the last song that actually downloaded; bounds a failure that hits every song alike.
     private consecutiveDrops = 0;
+    // The last attempt stopped at the free-space floor: only auto downloads are left, and none fits (ShuffullApp#225).
+    private lowSpace = false;
 
     private constructor(db: GenericDb) {
         this.db = db;
@@ -148,6 +152,12 @@ export class Downloader {
         await this.publishStatus();
     }
 
+    /** The auto-download runner changed the queue: show it, and start on any new work. */
+    public async notifyQueueChanged() {
+        await this.publishStatus();
+        this.kick();
+    }
+
     /** New work (or a cleared queue) starts a new run, so "Skipped N" describes this run, not every one since launch. */
     private startNewRun() {
         useDownloadStatus.getState().setStatus({ skippedCount: 0 });
@@ -204,6 +214,7 @@ export class Downloader {
                 downloading: this.downloading,
                 queuedCount,
                 network: { isInternetReachable: this.network.isInternetReachable === true, type: this.network.type },
+                lowSpace: this.lowSpace,
             });
             const current = useDownloadStatus.getState().status.current;
             useDownloadStatus.getState().setStatus({
@@ -219,7 +230,7 @@ export class Downloader {
     }
 
     private syncForegroundHold(queuedCount: number) {
-        if (!shouldHoldForegroundService({ paused: this.paused, downloading: this.downloading, queuedCount })) {
+        if (!shouldHoldForegroundService({ paused: this.paused, downloading: this.downloading, queuedCount, lowSpace: this.lowSpace })) {
             foregroundService.release("downloads");
             return;
         }
@@ -262,6 +273,9 @@ export class Downloader {
         }
 
         songs = songs.filter(x => !existingSongs.includes(x.songId));
+        // Asking for the playlist by hand makes its songs the user's, including any the auto-download rules
+        // already fetched: the rules can no longer remove them.
+        await DbQueries.markDownloadsManual(this.db, existingSongs);
         await DbQueries.addToDownloadQueue(this.db, songs.map(x => x.songId), priority);
         if (songs.length > 0) {
             this.startNewRun();
@@ -286,7 +300,9 @@ export class Downloader {
         const tempFiles: string[] = [];
 
         try {
-            const nextDownload = await DbQueries.getFromDownloadQueue(this.db);
+            const next = await pickNextDownload(this.db, () => FileSystem.getFreeDiskStorageAsync());
+            this.lowSpace = next.lowSpace;
+            const nextDownload = next.row;
 
             if (!nextDownload) {
                 return "blocked";
@@ -318,7 +334,7 @@ export class Downloader {
             const localSongUri = Downloader.generateLocalSongUri(song);
 
             if (await Downloader.fileExists(localSongUri)) {
-                await this.recordAlreadyOnDisk(song.songId);
+                await this.recordAlreadyOnDisk(song.songId, nextDownload.source);
                 return "skipped";
             }
 
@@ -377,7 +393,7 @@ export class Downloader {
             }
 
             if (await Downloader.fileExists(localSongUri)) {
-                await this.recordAlreadyOnDisk(song.songId);
+                await this.recordAlreadyOnDisk(song.songId, nextDownload.source);
                 return "skipped";
             }
 
@@ -411,8 +427,7 @@ export class Downloader {
                     to: path.join(albumArtFolder, albumArtFileName)
                 });
             }
-            await DbQueries.addDownloadedSong(this.db, song.songId);
-            await DbQueries.removeFromDownloadQueue(this.db, song.songId);
+            await DbQueries.recordQueuedDownload(this.db, song.songId, nextDownload.source);
             this.consecutiveDrops = 0;
             useDownloadStatus.getState().setStatus({ completedCount: useDownloadStatus.getState().status.completedCount + 1 });
             return "downloaded";
@@ -435,9 +450,8 @@ export class Downloader {
      * The file is already in the music folder (an earlier run moved it, then died before recording it), so
      * record it as downloaded rather than just dropping the row - otherwise it is on disk but never offered offline.
      */
-    private async recordAlreadyOnDisk(songId: string) {
-        await DbQueries.addDownloadedSong(this.db, songId);
-        await DbQueries.removeFromDownloadQueue(this.db, songId);
+    private async recordAlreadyOnDisk(songId: string, source: DownloadSource) {
+        await DbQueries.recordQueuedDownload(this.db, songId, source);
     }
 
     public static generateSongFileName(song: { fileHash: string, fileExtension: string }) {

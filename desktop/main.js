@@ -149,6 +149,7 @@ function registerMediaIpc() {
     });
     ipcMain.handle("shuffull:media:exists", (_event, { kind, fileName } = {}) => media.mediaExists(MEDIA_ROOT, kind, fileName));
     ipcMain.handle("shuffull:media:delete", (_event, { kind, fileName } = {}) => media.deleteMedia(MEDIA_ROOT, kind, fileName));
+    ipcMain.handle("shuffull:media:free-bytes", () => media.freeBytes(MEDIA_ROOT));
 }
 
 /** The prefetch cache's IPC, for the web Prefetcher. Same validation as above; media.js decides what is verified. */

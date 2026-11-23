@@ -21,6 +21,7 @@ export type DownloadPhase =
     | "paused" // the user paused; nothing new starts (an in-flight song is allowed to finish)
     | "waiting-for-wifi" // queued, online, but not on an allowed network
     | "offline" // queued, no internet at all
+    | "low-space" // only auto downloads queued, and none fits above the free-space floor (ShuffullApp#225)
     | "unsupported"; // plain browser build: no local store
 
 export interface DownloadStatus {
@@ -58,6 +59,8 @@ export function derivePhase(input: {
     network: NetworkSnapshot | undefined;
     /** See DownloadStatus.wifiOnly. Absent = Wi-Fi only. */
     wifiOnly?: boolean;
+    /** The last attempt stopped at the free-space floor: what is left is auto downloads that don't fit. */
+    lowSpace?: boolean;
 }): DownloadPhase {
     if (input.paused) {
         return "paused";
@@ -73,6 +76,9 @@ export function derivePhase(input: {
     }
     if (input.wifiOnly !== false && !isDownloadNetwork(input.network.type)) {
         return "waiting-for-wifi";
+    }
+    if (input.lowSpace) {
+        return "low-space";
     }
     return "downloading";
 }
@@ -115,10 +121,15 @@ export function describeDownloadStatus(status: DownloadStatus, currentName?: str
             return { title: `Waiting for Wi-Fi · ${remaining} queued` };
         case "offline":
             return { title: `Offline · ${remaining} queued` };
+        case "low-space":
+            return { title: `Low on space · ${remaining} queued`, detail: LOW_SPACE_NOTE };
         case "unsupported":
             return { title: "Downloads aren't available on this platform" };
     }
 }
+
+/** Why automatic downloads stopped. Hand-picked ones still go ahead, so this names only the automatic ones. */
+export const LOW_SPACE_NOTE = "Automatic downloads wait until more space is free";
 
 /** Said once the queue is idle, so a queue that "finished" by giving up on songs doesn't look fully done. */
 function describeSkipped(skippedCount: number): string | undefined {
@@ -143,6 +154,8 @@ export function describeDownloadsRow(status: DownloadStatus, downloadedCount: nu
             return `Waiting for Wi-Fi · ${status.queuedCount} queued`;
         case "offline":
             return `Offline · ${status.queuedCount} queued`;
+        case "low-space":
+            return `Low on space · ${status.queuedCount} queued`;
         case "unsupported":
             return "Not available on this platform";
         case "idle":
@@ -160,8 +173,13 @@ export function describeDownloadsRow(status: DownloadStatus, downloadedCount: nu
  * Note what this deliberately does NOT do: start a service from the background. Android 12+ refuses that,
  * so the hold is acquired when work is enqueued/resumed (always a foreground action) and simply kept.
  */
-export function shouldHoldForegroundService(input: { paused: boolean; downloading: boolean; queuedCount: number }): boolean {
+export function shouldHoldForegroundService(input: { paused: boolean; downloading: boolean; queuedCount: number; lowSpace?: boolean }): boolean {
     if (input.queuedCount <= 0) {
+        return false;
+    }
+    // Stopped at the free-space floor, nothing will happen until the user frees space or opens the app, so there is
+    // no reason to keep a notification up. The next foreground visit kicks the loop again.
+    if (input.lowSpace && !input.downloading) {
         return false;
     }
     return !input.paused || input.downloading;

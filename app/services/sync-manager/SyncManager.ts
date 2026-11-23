@@ -35,12 +35,16 @@ export class SyncManager {
     ticksToSkip = 0;
     // The last time the listen stats were fetched (see refreshListenStats). In memory only: a restart fetches once.
     listenStatsAttempt: ListenStatsAttempt | null = null;
+    // Called after each sync that reached the server, so work that reads synced state (the auto-download rules) sees
+    // a like or a new mix soon after it lands.
+    onSynced: (() => void) | undefined;
     
-    constructor(db: GenericDb, api: ApiClient, userId: string, logout: () => Promise<void>) {
+    constructor(db: GenericDb, api: ApiClient, userId: string, logout: () => Promise<void>, onSynced?: () => void) {
         this.db = db;
         this.api = api;
         this.userId = userId;
         this.logout = logout;
+        this.onSynced = onSynced;
         // sync() never rejects, so neither call can leave an unhandled rejection behind.
         this.timerId = setInterval(() => void this.sync(), SYNC_INTERVAL_MS);
         void this.sync();
@@ -83,6 +87,9 @@ export class SyncManager {
         try {
             const reached = await this.pushAndPull();
             this.failedSyncs = reached ? 0 : this.failedSyncs + 1;
+            if (reached) {
+                this.onSynced?.();
+            }
         } catch (e) {
             console.error("[sync] Sync failed:", e);
             this.failedSyncs++;

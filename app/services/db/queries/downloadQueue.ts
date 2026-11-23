@@ -1,13 +1,18 @@
 import { generateId } from "@/app/tools/pure";
 import { GenericDb } from "../GenericDb";
 import { artistTable, downloadedSongTable, downloadQueueTable, songArtistTable, songTable } from "../schema";
-import { eq, desc, asc, count } from "drizzle-orm";
+import { eq, desc, asc, count, sql } from "drizzle-orm";
 import { DownloadQueue } from "../models";
 import { DownloadPriority, SongDetails } from "../types";
+import { DownloadSource } from "@/app/tools/autoDownloads";
 import { chunkRows } from "./_chunk";
 
-// TODO: I may want to add a way to change priority
-export async function addToDownloadQueue(db: GenericDb, songIds: string[], priority: DownloadPriority): Promise<void> {
+/**
+ * Queues songs. A hand-picked (`manual`, the default) add of a song the auto-download rules already queued takes it
+ * over: the row becomes manual, so the rules can't remove it, and keeps the higher of the two priorities. An `auto` add
+ * never touches a row that is already there.
+ */
+export async function addToDownloadQueue(db: GenericDb, songIds: string[], priority: DownloadPriority, source: DownloadSource = "manual"): Promise<void> {
     if (!songIds.length) {
         return;
     }
@@ -16,16 +21,27 @@ export async function addToDownloadQueue(db: GenericDb, songIds: string[], prior
     const rows = songIds.map(x => ({
         downloadQueueId: generateId(),
         songId: x,
-        priority: priority
+        priority: priority,
+        source,
     }));
 
     for (const rowChunk of chunkRows(rows)) {
-        await db.insert(downloadQueueTable).values(rowChunk).onConflictDoNothing();
+        const insert = db.insert(downloadQueueTable).values(rowChunk);
+        if (source === "manual") {
+            await insert.onConflictDoUpdate({
+                target: downloadQueueTable.songId,
+                set: { source: "manual", priority: sql`max(${downloadQueueTable.priority}, excluded.priority)` },
+            });
+        } else {
+            await insert.onConflictDoNothing();
+        }
     }
 }
 
-export async function getFromDownloadQueue(db: GenericDb): Promise<DownloadQueue | undefined> {
+/** The row the Downloader takes next: highest priority first, then oldest. `source` narrows it to one kind of row. */
+export async function getFromDownloadQueue(db: GenericDb, source?: DownloadSource): Promise<DownloadQueue | undefined> {
     const result = await db.select().from(downloadQueueTable)
+        .where(source == undefined ? undefined : eq(downloadQueueTable.source, source))
         .orderBy(desc(downloadQueueTable.priority), asc(downloadQueueTable.downloadQueueId))
         .limit(1);
 

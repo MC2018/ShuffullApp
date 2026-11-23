@@ -127,6 +127,20 @@ interface ActiveSongState {
     setSongId: (songId: string | undefined) => void;
 }
 
+/**
+ * Songs the player has lined up: the one playing, the play-next queue, and the shuffle picks already reserved. The
+ * auto-download rules never remove one of these (ShuffullApp#225), so a song can't lose its file just before or while
+ * it plays.
+ */
+export function protectedSongIds(): Set<string> {
+    const ids = new Set<string>([...queue, ...lookahead.reservedPicks]);
+    const current = useActiveSong.getState().songId;
+    if (current != undefined) {
+        ids.add(current);
+    }
+    return ids;
+}
+
 export async function getSongFilters(): Promise<SongFilters> {
     const songFiltersStr = await AsyncStorage.getItem(STORAGE_KEYS.CURRENT_SONG_FILTERS);
     let songFilters = new SongFilters();

@@ -41,6 +41,8 @@ contextBridge.exposeInMainWorld("shuffull", {
         download: (host, kind, fileName) => ipcRenderer.invoke("shuffull:media:download", { host, kind, fileName }),
         exists: (kind, fileName) => ipcRenderer.invoke("shuffull:media:exists", { kind, fileName }),
         remove: (kind, fileName) => ipcRenderer.invoke("shuffull:media:delete", { kind, fileName }),
+        /** Bytes free on the store's disk, or undefined when unreadable. For the auto-download floor. */
+        freeBytes: () => ipcRenderer.invoke("shuffull:media:free-bytes"),
         /** `callback({ kind, fileName, received, total })` as a download progresses. Returns an unsubscribe function. */
         onProgress: (callback) => {
             const listener = (_event, progress) => callback(progress);

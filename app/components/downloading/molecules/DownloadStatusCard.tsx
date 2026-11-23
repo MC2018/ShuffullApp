@@ -13,6 +13,7 @@ const PHASE_ICON: Record<DownloadPhase, keyof typeof Ionicons.glyphMap> = {
     paused: "pause-circle-outline",
     "waiting-for-wifi": "wifi-outline",
     offline: "cloud-offline-outline",
+    "low-space": "server-outline",
     unsupported: "desktop-outline",
 };
 

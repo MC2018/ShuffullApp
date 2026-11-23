@@ -5,6 +5,7 @@ import { useDb } from "../db/DbProvider";
 import { useApi } from "../api/ApiProvider";
 import { logout } from "../auth/auth";
 import { SyncManager } from "./SyncManager";
+import { AutoDownloader } from "../downloader/autoDownloader";
 
 interface SyncManagerProviderProps {
     userId: string;
@@ -21,7 +22,10 @@ export default function SyncManagerProvider({ userId }: SyncManagerProviderProps
     const [syncManager, setSyncManager] = useState<SyncManager | null>(null);
 
     useEffect(() => {
-        const instance = new SyncManager(db, api, userId, logout);
+        // Auto-downloads (ShuffullApp#225) run for the signed-in user on their own timer and after every sync.
+        const autoDownloader = AutoDownloader.shared(db);
+        autoDownloader.start(userId);
+        const instance = new SyncManager(db, api, userId, logout, () => autoDownloader.runAfterSync());
         setSyncManager(instance);
 
         // A sync backoff built up while offline or in the background shouldn't hold queued Keeps and likes once
@@ -41,6 +45,7 @@ export default function SyncManagerProvider({ userId }: SyncManagerProviderProps
             network.remove();
             appState.remove();
             instance.dispose();
+            autoDownloader.stop(userId);
             setSyncManager(null);
         };
     }, [db, api, userId]);
