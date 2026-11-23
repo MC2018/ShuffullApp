@@ -91,7 +91,9 @@ export class AutoDownloader {
             });
             this.lastResult = { ...result, atMs: Date.now() };
             if (result.enqueued > 0 || result.removed > 0) {
-                console.log(`[auto-downloads] queued ${result.enqueued}, removed ${result.removed}, ${result.waiting} waiting out the delay`);
+                if (__DEV__) {
+                    console.log(`[auto-downloads] queued ${result.enqueued}, removed ${result.removed}, ${result.waiting} waiting out the delay`);
+                }
                 await Downloader.shared(this.db).notifyQueueChanged();
             }
             return result;

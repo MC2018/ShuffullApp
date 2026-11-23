@@ -122,6 +122,10 @@ export interface RemovedDownload {
  * commits (no file I/O inside a transaction).
  */
 export async function applyAutoDownloadPlan(db: GenericDb, plan: ReconcilePlan): Promise<RemovedDownload[]> {
+    // Most runs change nothing; they shouldn't take the write lock to say so.
+    if (!plan.insertPending.length && !plan.deletePending.length && !plan.enqueue.length && !plan.remove.length) {
+        return [];
+    }
     return withTransaction(db, async (tx) => {
         for (const idChunk of chunkIds(plan.deletePending)) {
             await tx.delete(autoDownloadPendingTable).where(inArray(autoDownloadPendingTable.songId, idChunk));

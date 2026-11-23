@@ -17,7 +17,7 @@
  */
 import { sqliteTable, text, integer, real, index, primaryKey } from "drizzle-orm/sqlite-core";
 import { WhitelistSetting } from "./types";
-import type { AutoDownloadTier, DownloadSource, PendingAction } from "../../tools/autoDownloads";
+import { DEFAULT_FREE_FLOOR_BYTES, type AutoDownloadTier, type DownloadSource, type PendingAction } from "../../tools/autoDownloads";
 
 export const userTable = sqliteTable("users", {
     userId: text("user_id").primaryKey(),
@@ -364,7 +364,7 @@ export const autoDownloadSettingsTable = sqliteTable("auto_download_settings", {
     mixUnheardOnly: integer("mix_unheard_only", { mode: "boolean" }).notNull().default(false),
     subscriptions: integer("subscriptions", { mode: "boolean" }).notNull().default(false),
     playlistIds: text("playlist_ids", { mode: "json" }).$type<string[]>().notNull().default([]),
-    freeFloorBytes: integer("free_floor_bytes").notNull().default(5 * 1024 ** 3),
+    freeFloorBytes: integer("free_floor_bytes").notNull().default(DEFAULT_FREE_FLOOR_BYTES),
 });
 
 // Differences between the auto-download rules and this device that haven't held long enough to act on yet: one row

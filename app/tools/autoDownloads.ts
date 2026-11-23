@@ -10,6 +10,8 @@
 // hold for AUTO_DOWNLOAD_DELAY_MS before anything happens. A like, dislike, Keep or playlist delete that is undone
 // inside that window leaves no trace, because the difference vanishes and its pending row is dropped with it.
 
+import { LikeStatus } from "../enums";
+
 /** The ladder. Each step includes the ones before it. Off (the default) wants nothing, so an install changes nothing until opted in. */
 export type AutoDownloadTier = "off" | "loved" | "liked" | "library" | "all";
 export const AUTO_DOWNLOAD_TIERS: readonly AutoDownloadTier[] = ["off", "loved", "liked", "library", "all"];
@@ -55,25 +57,26 @@ export function wantsAnything(settings: AutoDownloadSettings): boolean {
 
 /** Fills any missing or out-of-range field with its default, so a row written by another build can't break a run. */
 export function normalizeSettings(raw: Partial<AutoDownloadSettings> | undefined): AutoDownloadSettings {
-    const tier = AUTO_DOWNLOAD_TIERS.includes(raw?.tier as AutoDownloadTier) ? raw!.tier! : DEFAULT_AUTO_DOWNLOAD_SETTINGS.tier;
-    const mixWeeks = Number.isFinite(raw?.mixWeeks) ? Math.max(0, Math.min(MAX_MIX_WEEKS, Math.floor(raw!.mixWeeks!))) : 0;
-    const freeFloorBytes = Number.isFinite(raw?.freeFloorBytes) && raw!.freeFloorBytes! >= 0 ? raw!.freeFloorBytes! : DEFAULT_FREE_FLOOR_BYTES;
+    const { tier, mixWeeks, mixUnheardOnly, subscriptions, playlistIds, freeFloorBytes } = raw ?? {};
     return {
-        tier,
-        mixWeeks,
-        mixUnheardOnly: raw?.mixUnheardOnly === true,
-        subscriptions: raw?.subscriptions === true,
-        playlistIds: Array.isArray(raw?.playlistIds) ? raw!.playlistIds!.filter((x): x is string => typeof x === "string") : [],
-        freeFloorBytes,
+        tier: isTier(tier) ? tier : DEFAULT_AUTO_DOWNLOAD_SETTINGS.tier,
+        mixWeeks: isFiniteNumber(mixWeeks) ? Math.max(0, Math.min(MAX_MIX_WEEKS, Math.floor(mixWeeks))) : 0,
+        mixUnheardOnly: mixUnheardOnly === true,
+        subscriptions: subscriptions === true,
+        playlistIds: Array.isArray(playlistIds) ? playlistIds.filter((x): x is string => typeof x === "string") : [],
+        freeFloorBytes: isFiniteNumber(freeFloorBytes) && freeFloorBytes >= 0 ? freeFloorBytes : DEFAULT_FREE_FLOOR_BYTES,
     };
 }
 
-// ── The wanted set ───────────────────────────────────────────────────────────────────────────────────────────────
+function isTier(x: unknown): x is AutoDownloadTier {
+    return AUTO_DOWNLOAD_TIERS.includes(x as AutoDownloadTier);
+}
 
-// LikeStatus values (app/services/db/types.ts), repeated here so this file stays free of app imports.
-const LIKE = 1;
-const LOVE = 2;
-const DISLIKE = 3;
+function isFiniteNumber(x: unknown): x is number {
+    return typeof x === "number" && Number.isFinite(x);
+}
+
+// ── The wanted set ───────────────────────────────────────────────────────────────────────────────────────────────
 
 /** A song on this device, as the active user sees it. */
 export interface CandidateSong {
@@ -94,7 +97,12 @@ export interface CandidatePlaylist {
     songIds: string[];
 }
 
-/** The name of the funnel's big audition playlist of subscription uploads. */
+/**
+ * The name of the funnel's big audition playlist of subscription uploads. Playlists carry no kind, so the name is all
+ * there is to go on. The funnel takes it from config (`Subscriptions:TargetPlaylistName`, YoutubeFunnel.Youtube
+ * Worker.cs), and prod's playlist was named exactly this on 2026-11-23 (seen in the desktop app's database). If that
+ * setting is ever renamed, this extra quietly matches nothing; it never matches the wrong songs.
+ */
 export const SUBSCRIPTIONS_PLAYLIST_NAME = "Subscriptions";
 
 // "Discover Mix · Nov 23" / "New Release Mix · Nov 23": the funnel's weekly cohort playlists (YtmMixes.CohortPlaylistName,
@@ -137,12 +145,12 @@ export function isUnheard(song: CandidateSong): boolean {
 }
 
 function matchesTier(song: CandidateSong, tier: AutoDownloadTier): boolean {
-    const liked = song.likeStatus === LIKE || song.likeStatus === LOVE;
+    const liked = song.likeStatus === LikeStatus.Like || song.likeStatus === LikeStatus.Love;
     switch (tier) {
         case "off":
             return false;
         case "loved":
-            return song.likeStatus === LOVE;
+            return song.likeStatus === LikeStatus.Love;
         case "liked":
             return liked;
         case "library":
@@ -154,10 +162,10 @@ function matchesTier(song: CandidateSong, tier: AutoDownloadTier): boolean {
 
 // Better songs queue first, so a floor reached halfway through still leaves the ones that matter most offline.
 function rankOf(song: CandidateSong): number {
-    if (song.likeStatus === LOVE) {
+    if (song.likeStatus === LikeStatus.Love) {
         return 0;
     }
-    if (song.likeStatus === LIKE) {
+    if (song.likeStatus === LikeStatus.Like) {
         return 1;
     }
     if (!song.exploratory) {
@@ -225,7 +233,7 @@ export function wantedSongIds(input: {
 
     return [...wanted]
         .map((songId) => byId.get(songId)!)
-        .filter((song) => song.likeStatus !== DISLIKE && !song.hidden)
+        .filter((song) => song.likeStatus !== LikeStatus.Dislike && !song.hidden)
         .sort((a, b) => rankOf(a) - rankOf(b) || (a.songId < b.songId ? -1 : a.songId > b.songId ? 1 : 0))
         .map((x) => x.songId);
 }

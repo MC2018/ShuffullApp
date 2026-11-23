@@ -141,6 +141,23 @@ describe("download queue queries", () => {
         expect(listed[1].artists).toEqual([]);
     });
 
+    // ShuffullApp#225: the auto-downloader queues a whole run best-first (loved, then liked, then library) at one
+    // priority, in the same millisecond. Ties break by id, so the ids must keep that order. They didn't while
+    // generateId made a new ulid factory per call: same-millisecond ids came out in random order.
+    it("keeps the order of songs queued together in one millisecond", async () => {
+        const ids = Array.from({ length: 50 }, (_, i) => `s${String(i).padStart(2, "0")}`).reverse();
+        await updateSongs(db, ids.map((x) => song(x)));
+        vi.useFakeTimers({ toFake: ["Date"] });
+        try {
+            vi.setSystemTime(new Date("2026-11-23T12:00:00Z"));
+            await addToDownloadQueue(db, ids, DownloadPriority.Low, "auto");
+        } finally {
+            vi.useRealTimers();
+        }
+        expect((await getDownloadQueueDetails(db, 100)).map((x) => x.song.songId)).toEqual(ids);
+        expect((await getFromDownloadQueue(db))?.songId).toBe(ids[0]);
+    });
+
     // A deferred download (too many drops in a row, ShuffullApp#86) must keep its row but stop blocking the head,
     // so the songs behind it get their turn.
     it("moves a row to the back of its priority tier without losing it", async () => {
