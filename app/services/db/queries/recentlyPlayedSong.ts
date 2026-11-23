@@ -2,6 +2,7 @@ import { GenericDb } from "../GenericDb";
 import { RecentlyPlayedSong } from "../models";
 import { recentlyPlayedSongTable } from "../schema";
 import { eq, gt, lt, sql, isNotNull, and, desc, asc } from "drizzle-orm";
+import { chunkRows } from "./_chunk";
 
 /**
  * The song playing right now: the history row still carrying a timestamp, NEWEST first, one row.
@@ -81,6 +82,13 @@ export async function markRecentlyPlayedSongCurrent(db: GenericDb, recentlyPlaye
 
 export async function addRecentlyPlayedSong(db: GenericDb, recentlyPlayedSong: RecentlyPlayedSong): Promise<void> {
     await db.insert(recentlyPlayedSongTable).values([recentlyPlayedSong]);
+}
+
+/** Several history rows in as few statements as the SQLite limits allow (taking over another device's playback). */
+export async function addRecentlyPlayedSongs(db: GenericDb, rows: RecentlyPlayedSong[]): Promise<void> {
+    for (const chunk of chunkRows(rows)) {
+        await db.insert(recentlyPlayedSongTable).values(chunk);
+    }
 }
 
 export async function getRecentlyPlayedSongs(db: GenericDb): Promise<RecentlyPlayedSong[]> {

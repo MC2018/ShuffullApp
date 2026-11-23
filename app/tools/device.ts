@@ -262,6 +262,21 @@ export class DeviceCheckIn {
         return attempt;
     }
 
+    /**
+     * Resolves true once this session has a check-in the server accepted, sending one if none has. Playback sessions
+     * and the live channel need the device row first (the API answers 404 or 403 without it). `force` sends a fresh
+     * one anyway, for when the server says it doesn't know the device.
+     */
+    async ensureCheckedIn(force = false): Promise<boolean> {
+        if (!force && this.lastSucceededAt != undefined) {
+            return true;
+        }
+        if (!force && this.inFlight != undefined && await this.inFlight) {
+            return true;
+        }
+        return this.checkIn("session");
+    }
+
     private async send(trigger: CheckInTrigger): Promise<boolean> {
         try {
             const [deviceId, name] = await Promise.all([this.deps.identity.id(), this.deps.identity.name()]);

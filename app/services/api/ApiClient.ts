@@ -1,5 +1,5 @@
 import axios, { AxiosHeaders, AxiosInstance } from "axios";
-import { AuthenticateResponse, AuthenticateResponseSchema, Capabilities, CapabilitiesSchema, CreateSongRequestPayload, ChangedSongKeysSchema, ChangedSongPageSchema, CreatePlaylistResponseSchema, DeletedSongsPage, DeletedSongsPageSchema, DeviceCheckInBody, FeedCursor, KeepResponse, KeepResponseSchema, ListenStatsResponse, ListenStatsResponseSchema, Playlist, PlaylistListResponseSchema, Recap, RecapSchema, RecordListensResponse, RecordListensResponseSchema, RetagResponse, RetagResponseSchema, RetagStaleResponse, RetagStaleResponseSchema, SongListResponseSchema, SongRequest, SongRequestListSchema, SongRequestSchema, SongRequestSearchResponseSchema, SongRequestSearchResult, SongRetagWireItem, Tag, TagListResponseSchema, UserDevice, UserDeviceSchema, UserResponseSchema, UserSongKeysSchema, UserSongPageSchema } from "./models";
+import { AuthenticateResponse, AuthenticateResponseSchema, Capabilities, CapabilitiesSchema, CreateSongRequestPayload, ChangedSongKeysSchema, ChangedSongPageSchema, CreatePlaylistResponseSchema, DeletedSongsPage, DeletedSongsPageSchema, DeviceCheckInBody, FeedCursor, KeepResponse, KeepResponseSchema, ListenStatsResponse, ListenStatsResponseSchema, PlaybackCommandKind, PlaybackSession, PlaybackSessionBody, PlaybackSessionSchema, PlaybackSessionsResponse, PlaybackSessionsResponseSchema, Playlist, PlaylistListResponseSchema, Recap, RecapSchema, RecordListensResponse, RecordListensResponseSchema, RetagResponse, RetagResponseSchema, RetagStaleResponse, RetagStaleResponseSchema, SongListResponseSchema, SongRequest, SongRequestListSchema, SongRequestSchema, SongRequestSearchResponseSchema, SongRequestSearchResult, SongRetagWireItem, Tag, TagListResponseSchema, UserDevice, UserDeviceSchema, UserResponseSchema, UserSongKeysSchema, UserSongPageSchema } from "./models";
 import { ApiStatusFailureError } from "./errors";
 import { RecordListenPayload, UpdateSongLastPlayedRequest, UpdateSongMetadataPayload } from "../db/models";
 import { log } from "../../tools/log";
@@ -21,6 +21,7 @@ export const AI_TIMEOUT_MS = 120_000;
 export class ApiClient {
     private client: AxiosInstance;
     private url: string;
+    private token: string;
 
     constructor(url: string, token: string) {
         this.client = axios.create({
@@ -33,6 +34,7 @@ export class ApiClient {
             validateStatus: () => true
         });
         this.client.interceptors.response.use(undefined, redactCredentials);
+        this.token = token;
         this.updateAuthHeader(token);
         this.url = url;
     }
@@ -42,7 +44,13 @@ export class ApiClient {
     }
 
     public updateAuthHeader(token: string) {
+        this.token = token;
         this.client.defaults.headers.common["Authorization"] = `Bearer ${token}`;
+    }
+
+    /** The current token, for the live playback channel: a WebSocket can't carry the Authorization header. */
+    public accessToken(): string {
+        return this.token;
     }
 
     // In the body, never the URL: the hash is all it takes to log in, and URLs end up in proxy logs.
@@ -221,6 +229,35 @@ export class ApiClient {
     // then updates it in place. An API from before that answers 404, which the check-in logs and drops.
     public async deviceCheckIn(deviceId: string, body: DeviceCheckInBody): Promise<UserDevice> {
         return this.request("put", `/api/v1/devices/${encodeURIComponent(deviceId)}`, { body, schema: UserDeviceSchema });
+    }
+
+    // Any user: every device they have checked in, with the playback each one last published (ShuffullApp#194).
+    public async playbackSessionsGet(): Promise<PlaybackSessionsResponse> {
+        return this.request("get", "/api/v1/playback/sessions", { schema: PlaybackSessionsResponseSchema });
+    }
+
+    // Publishes this device's playback. 404 means the device hasn't checked in (or the API predates sessions).
+    public async playbackSessionPut(deviceId: string, body: PlaybackSessionBody): Promise<PlaybackSession> {
+        return this.request("put", `/api/v1/playback/sessions/${encodeURIComponent(deviceId)}`, { body, schema: PlaybackSessionSchema });
+    }
+
+    // Moves playback from `deviceId` to `byDeviceId`: the server pauses the source and answers with its session as it
+    // now is, the position to resume from. 409 when the source published since `expectedUpdatedAt` was read.
+    public async playbackTakeover(deviceId: string, byDeviceId: string, expectedUpdatedAt: Date): Promise<PlaybackSession> {
+        return this.request("post", `/api/v1/playback/sessions/${encodeURIComponent(deviceId)}/takeover`, {
+            body: { byDeviceId, expectedUpdatedAt: expectedUpdatedAt.toISOString() }, schema: PlaybackSessionSchema
+        });
+    }
+
+    // Leaves a remote-control command on another device's session; it acts on it within about a second while online.
+    public async playbackCommand(deviceId: string, commandId: string, kind: PlaybackCommandKind, seekSeconds?: number): Promise<void> {
+        const body = kind === "seek" ? { commandId, kind, seekSeconds } : { commandId, kind };
+        return this.request("post", `/api/v1/playback/sessions/${encodeURIComponent(deviceId)}/command`, { body });
+    }
+
+    // This device acted on its pending command. 409 when a newer command replaced it, which the caller can ignore.
+    public async playbackCommandAck(deviceId: string, commandId: string): Promise<void> {
+        return this.request("post", `/api/v1/playback/sessions/${encodeURIComponent(deviceId)}/command/${encodeURIComponent(commandId)}/ack`);
     }
 
     // Any user: log finished listens (at most 200 per call, the server's MaxBatch). Returns one outcome per listen;

@@ -288,6 +288,49 @@ describe("device check-in", () => {
     });
 });
 
+describe("ensureCheckedIn (playback needs the device row first)", () => {
+    function subject(fail: () => boolean = () => false) {
+        const { identity: device } = identity();
+        const send = vi.fn(async () => {
+            if (fail()) {
+                throw new Error("offline");
+            }
+        });
+        return { checkIn: new DeviceCheckIn({ identity: device, platform: "android", send }), send };
+    }
+
+    it("sends one when none has succeeded, then answers from the last success", async () => {
+        const { checkIn, send } = subject();
+
+        expect(await checkIn.ensureCheckedIn()).toBe(true);
+        expect(await checkIn.ensureCheckedIn()).toBe(true);
+
+        expect(send).toHaveBeenCalledTimes(1);
+    });
+
+    it("waits for the one on its way rather than sending another", async () => {
+        const { checkIn, send } = subject();
+
+        const session = checkIn.checkIn("session");
+        expect(await checkIn.ensureCheckedIn()).toBe(true);
+        await session;
+
+        expect(send).toHaveBeenCalledTimes(1);
+    });
+
+    it("tries again after a failure, and force always sends", async () => {
+        let failing = true;
+        const { checkIn, send } = subject(() => failing);
+
+        expect(await checkIn.ensureCheckedIn()).toBe(false);
+        failing = false;
+        expect(await checkIn.ensureCheckedIn()).toBe(true);
+        expect(await checkIn.ensureCheckedIn(true)).toBe(true);
+
+        expect(send).toHaveBeenCalledTimes(3);
+    });
+});
+
 describe("DeviceNameDraft (the Settings field)", () => {
     it("shows the stored name, and saves an edit once even when Done and the blur both save", () => {
         const draft = new DeviceNameDraft();

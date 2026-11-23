@@ -27,6 +27,7 @@ import { AppState, Platform } from "react-native";
 import { createSerialLock } from "../../tools/serialLock";
 import { auditionStartSeconds, AuditionStart } from "../../tools/auditionSession";
 import { withPlayNextFirst } from "../../tools/playNext";
+import { rebuildHistory } from "../../tools/playbackSession";
 import { playerSetupOptions } from "../../tools/playerSetup";
 import { isBackground, waitForDuration, watchForeground } from "../../tools/foregroundWatch";
 import { SongDetails } from "../db/types";
@@ -39,6 +40,11 @@ import { isServerUnreachable, useServerReachability } from "../connectivity/serv
 import { log } from "../../tools/log";
 
 let queue: string[] = [];
+/**
+ * Bumped by every change to the scope, the queue or the history: the playback session publisher (ShuffullApp#194)
+ * reads it every second to tell when to send the whole state again, without reading all of it each time.
+ */
+let transportRevision = 0;
 let db: GenericDb;
 let trackPlayerInitialized = false;
 // Whether this JS context has added the player's event listeners (setupEventListeners). Module state, so a fresh JS
@@ -169,6 +175,17 @@ export async function setSongFilters(songFilters: SongFilters, clearAndPlay: boo
 
 async function saveSongFilters(songFilters: SongFilters) {
     await AsyncStorage.setItem(STORAGE_KEYS.CURRENT_SONG_FILTERS, JSON.stringify(songFilters));
+    transportRevision++;
+}
+
+/** See transportRevision. */
+export function getTransportRevision(): number {
+    return transportRevision;
+}
+
+/** The songs queued to play next, in order. */
+export function getQueue(): readonly string[] {
+    return queue;
 }
 
 export const useActiveSong = create<ActiveSongState>((set) => ({
@@ -746,6 +763,42 @@ async function playSpecificSongLocked(songId: string, scope?: SongFilters) {
     await startNewSong(songId);
 }
 
+/** Another device's playback, to carry on here. */
+export interface AdoptedPlayback {
+    songId: string;
+    positionSeconds: number;
+    scope: SongFilters;
+    /** Songs played before `songId`, newest last. */
+    history: readonly string[];
+    queuedNext: readonly string[];
+}
+
+/**
+ * Carries on another device's playback here (taking over, ShuffullApp#194): its scope becomes this device's, its
+ * history becomes this device's recently played songs so Previous walks it, its queue is queued, and its song plays
+ * from `positionSeconds`. Songs this device doesn't have are left out of the history and the queue. The song itself
+ * must be here; the caller checks that before asking the other device to stop.
+ */
+export function adoptPlayback(playback: AdoptedPlayback): Promise<void> {
+    return transportLock.run(async () => {
+        beginUserInitiatedPlayback();
+        await listenRecorder.end("skipped");
+        await saveSongFilters(playback.scope);
+        await clear();
+
+        // One chunked read and one insert, not one round trip per song: the source device is already paused, so this
+        // time is silence for the user.
+        const known = await DbQueries.getExistingSongIds(db, [...playback.history, ...playback.queuedNext]);
+        const rows = rebuildHistory(playback, playback.positionSeconds, Date.now(), id => known.has(id))
+            .map(row => ({ ...row, recentlyPlayedSongId: generateId() }));
+        await DbQueries.addRecentlyPlayedSongs(db, rows);
+
+        // The last row is the song, marked current at the position: startNewSong resumes it there.
+        await startNewSong(playback.songId, rows[rows.length - 1]);
+        queueNext(playback.queuedNext.filter(id => known.has(id)));
+    });
+}
+
 /**
  * Whether the play/pause control should read as "pause": audio is playing or on its way. That includes a stall
  * the player is still retrying - from the user's side it is trying to play, and the one thing they need from
@@ -942,6 +995,7 @@ export async function addToQueue(songId: string) {
 
     if (song) {
         queue.push(songId);
+        transportRevision++;
         // A queued song plays before any shuffle pick, so it takes a slot in the lookahead.
         scheduleLookaheadRefresh();
     }
@@ -957,6 +1011,7 @@ export function queueNext(songIds: readonly string[]) {
     const next = withPlayNextFirst(queue, songIds, useActiveSong.getState().songId);
     if (next !== queue) {
         queue = [...next];
+        transportRevision++;
         scheduleLookaheadRefresh();
     }
 }
@@ -965,6 +1020,7 @@ export function queueNext(songIds: readonly string[]) {
 export function unqueue(songId: string) {
     if (queue.includes(songId)) {
         queue = queue.filter(id => id !== songId);
+        transportRevision++;
         scheduleLookaheadRefresh();
     }
 }
@@ -1009,6 +1065,7 @@ export async function clearSong() {
 
 export function clearQueue() {
     queue = [];
+    transportRevision++;
 }
 
 export async function clearRecentlyPlayed() {
@@ -1368,6 +1425,7 @@ async function startNewSong(songId: string, recentlyPlayedSong?: RecentlyPlayedS
     // this one is actually an audition song.
     await refreshNotificationButtons((userSong.likeStatus as LikeStatus) ?? LikeStatus.Neutral, song.exploratory);
 
+    transportRevision++;
     // Last: the history and lastPlayed writes above are what the next picks are made from.
     scheduleLookaheadRefresh();
 }

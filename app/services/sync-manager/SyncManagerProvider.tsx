@@ -8,6 +8,7 @@ import { logoutUnlessReplaced } from "../auth/passwordChange";
 import { useServerReachability } from "../connectivity/serverReachability";
 import { reconcilePlayNext, startPlayNext } from "../song-requests/playNext";
 import { checkInDeviceOnReconnect, startDeviceCheckIn } from "../device";
+import { startPlaybackSessions } from "../playback/playbackSessions";
 import { SyncManager } from "./SyncManager";
 
 interface SyncManagerProviderProps {
@@ -30,6 +31,9 @@ export default function SyncManagerProvider({ userId }: SyncManagerProviderProps
         // Tells the server this install is open: now (a start signed in, or a login) and on each foreground
         // (ShuffullApp#58).
         const stopDeviceCheckIn = startDeviceCheckIn(api);
+        // Publishes what this device plays and follows the user's other devices (ShuffullApp#194). After the check-in,
+        // which it waits for.
+        const stopPlaybackSessions = startPlaybackSessions(db, api);
         // A 401 on a token a password change has just replaced isn't this session ending (see logoutUnlessReplaced).
         const instance = new SyncManager(db, api, userId, () => logoutUnlessReplaced(api, logout),
             () => void reconcilePlayNext({ readRequests: true }));
@@ -60,6 +64,7 @@ export default function SyncManagerProvider({ userId }: SyncManagerProviderProps
             appState.remove();
             instance.dispose();
             stopPlayNext();
+            stopPlaybackSessions();
             stopDeviceCheckIn();
             setSyncManager(null);
             // The next session (another user, another server) finds out for itself.

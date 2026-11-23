@@ -14,6 +14,9 @@ import {
     DeletedSongsPageSchema,
     KeepResponseSchema,
     ListenStatsResponseSchema,
+    PlaybackDeviceSchema,
+    PlaybackSessionSchema,
+    PlaybackSessionsResponseSchema,
     PlaylistListResponseSchema,
     PlaylistSchema,
     RecapSchema,
@@ -39,6 +42,7 @@ import { LikeStatus, RequestType, SongRequestStatus } from "@/app/enums";
 import { RecordListenPayload, UpdateSongLastPlayedRequest } from "@/app/services/db/models";
 import { failedKeeps, failedListens, summarizeRetagFailures } from "@/app/services/sync-manager/syncLogic";
 import { finishedListen } from "@/app/tools/listens";
+import { buildPublishedState } from "@/app/tools/playbackSession";
 import { statsStartedLine } from "@/app/tools/recap";
 import { describeSongRequest, toCreateSongRequest } from "@/app/tools/songRequests";
 
@@ -333,6 +337,66 @@ describe("API contract: device check-in (ShuffullApp#58)", () => {
     });
 });
 
+describe("API contract: playback sessions (ShuffullApp#194)", () => {
+    it("parses a session with every field the app reads", () => {
+        const raw = golden("playback-session") as object;
+        const session = PlaybackSessionSchema.parse(raw);
+
+        expect(unsentFields(PlaybackSessionSchema, raw)).toEqual([]);
+        expect(session).toMatchObject({
+            deviceId: "device-1", songId: "song-full", positionSeconds: 42.5, isPlaying: false, estimatedPositionSeconds: 42.5,
+            scope: { kind: "playlist", playlistId: "playlist-full", tags: ["Rock"] },
+            history: ["song-old", "song-sparse"], queuedNext: ["song-next"], takenOverBy: "device-2",
+            command: { commandId: "cmd-1", kind: "seek", seekSeconds: 90 },
+        });
+        // A takeover echoes updatedAt back; the API writes whole milliseconds, so the Date carries it exactly.
+        expect(session.updatedAt.toISOString()).toBe("2026-10-02T08:00:00.125Z");
+        expect(session.command?.at.toISOString()).toBe("2026-10-02T08:00:03.125Z");
+    });
+
+    it("parses the device list, a device without a session included", () => {
+        const raw = golden("playback-sessions") as { devices: object[] };
+        const { serverTime, devices } = PlaybackSessionsResponseSchema.parse(raw);
+
+        expect(unsentFields(PlaybackSessionsResponseSchema, raw)).toEqual([]);
+        expect(unsentFields(PlaybackDeviceSchema, raw.devices[0])).toEqual([]);
+        expect(serverTime.toISOString()).toBe("2026-10-02T08:00:04.125Z");
+        expect(devices.map(d => [d.deviceId, d.online, d.session?.songId ?? null]))
+            .toEqual([["device-1", true, "song-full"], ["device-2", false, null]]);
+        expect(devices[1].platform).toBeNull();
+    });
+
+    it("reads a session with no song, no scope and an unknown command kind, rather than failing every device's", () => {
+        const raw = { ...(golden("playback-session") as object), songId: null, scope: null,
+            command: { commandId: "cmd-2", kind: "shuffle", seekSeconds: null, at: "2026-10-02T08:00:03.125Z" } };
+        const session = PlaybackSessionSchema.parse(raw);
+
+        expect(session.songId).toBeNull();
+        expect(session.scope).toEqual({});
+        expect(session.command?.kind).toBe("shuffle");
+    });
+
+    it("reads every session with a GET, and acks a command with no body", async () => {
+        const { api, sent } = stubbedClient(golden("playback-sessions"));
+
+        await api.playbackSessionsGet();
+        await api.playbackCommandAck("a/b", "cmd 1");
+
+        expect(sent.map(c => [c.method, c.url, c.data])).toEqual([
+            ["get", "/api/v1/playback/sessions", undefined],
+            ["post", "/api/v1/playback/sessions/a%2Fb/command/cmd%201/ack", undefined],
+        ]);
+    });
+
+    it("a command other than seek sends no position", async () => {
+        const { api, sent } = stubbedClient();
+
+        await api.playbackCommand("device-1", "cmd-2", "pause", 12);
+
+        expect(JSON.parse(sent[0].data)).toEqual({ commandId: "cmd-2", kind: "pause" });
+    });
+});
+
 /**
  * What the app sends, against the request bodies the API binds (the `*-request` files and the others the Golden README
  * marks "app sends"). The API reads an unknown key as nothing, so a field renamed on either side would land as a quiet
@@ -392,6 +456,25 @@ describe("API contract: request bodies the app sends (shuffull-workspace#92)", (
             response: "song-requests-create" },
         { request: "devices-checkin-request", method: "put", url: "/api/v1/devices/device-1",
             call: api => api.deviceCheckIn("device-1", { name: "Pixel 8", platform: "android" }), response: "devices-checkin" },
+        // Built the way the publisher builds it: the current song's history row last, the rows before it as history.
+        { request: "playback-session-request", method: "put", url: "/api/v1/playback/sessions/device-1",
+            call: api => api.playbackSessionPut("device-1", {
+                ...buildPublishedState({
+                    songId: "song-full",
+                    positionSeconds: 42.5,
+                    isPlaying: true,
+                    scope: { kind: "playlist", playlistId: "playlist-full", tags: ["Rock"] },
+                    recentlyPlayed: ["song-old", "song-sparse", "song-full"].map((songId, i) => ({
+                        songId, timestampSeconds: songId === "song-full" ? 42.5 : null, lastPlayed: new Date(Date.UTC(2026, 9, 1, 12, i)),
+                    })),
+                    queue: ["song-next"],
+                })!,
+                seenTakenOverAt: new Date("2026-10-01T12:34:56.123Z").toISOString(),
+            }), response: "playback-session" },
+        { request: "playback-takeover-request", method: "post", url: "/api/v1/playback/sessions/device-1/takeover",
+            call: api => api.playbackTakeover("device-1", "device-2", new Date("2026-10-01T12:34:56.123Z")), response: "playback-session" },
+        { request: "playback-command-request", method: "post", url: "/api/v1/playback/sessions/device-1/command",
+            call: api => api.playbackCommand("device-1", "cmd-1", "seek", 90) },
     ];
 
     /** [FromBody] binds JSON only, and axios sets no content type for a body passed as a string, which most calls do. */
