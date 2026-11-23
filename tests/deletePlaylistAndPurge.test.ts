@@ -41,8 +41,8 @@ function makeDb(): GenericDb {
             user_id TEXT NOT NULL, song_id TEXT NOT NULL, last_played INTEGER NOT NULL, version INTEGER NOT NULL,
             like_status INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (user_id, song_id)
         );
-        CREATE TABLE downloaded_songs ( downloaded_song_id TEXT PRIMARY KEY, song_id TEXT NOT NULL );
-        CREATE TABLE download_queue ( download_queue_id TEXT PRIMARY KEY, song_id TEXT NOT NULL UNIQUE, priority INTEGER NOT NULL );
+        CREATE TABLE downloaded_songs ( downloaded_song_id TEXT PRIMARY KEY, song_id TEXT NOT NULL, source TEXT NOT NULL DEFAULT 'manual' );
+        CREATE TABLE download_queue ( download_queue_id TEXT PRIMARY KEY, song_id TEXT NOT NULL UNIQUE, priority INTEGER NOT NULL, source TEXT NOT NULL DEFAULT 'manual' );
         CREATE TABLE recently_played_songs (
             recently_played_song_id TEXT PRIMARY KEY, song_id TEXT NOT NULL, timestamp_seconds INTEGER, last_played INTEGER NOT NULL
         );
