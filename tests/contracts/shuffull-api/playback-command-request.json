@@ -1,0 +1,5 @@
+{
+  "commandId": "cmd-1",
+  "kind": "seek",
+  "seekSeconds": 90
+}
