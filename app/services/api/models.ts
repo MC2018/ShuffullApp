@@ -179,6 +179,72 @@ export const UserDeviceSchema = z.object({
 });
 export type UserDevice = z.infer<typeof UserDeviceSchema>;
 
+/** A remote-control command one device leaves on another's session (ShuffullApp#194). */
+export type PlaybackCommandKind = "play" | "pause" | "next" | "previous" | "seek";
+
+// The command waiting on a session. The API shows one for 60 s after it was sent, then reports none.
+export const PlaybackCommandSchema = z.object({
+    commandId: z.string(),
+    kind: z.enum(["play", "pause", "next", "previous", "seek"]),
+    seekSeconds: z.number().nullish(),
+    at: z.coerce.date(),
+});
+export type PlaybackCommand = z.infer<typeof PlaybackCommandSchema>;
+
+// One device's published playback state (Shuffull playback sessions, ShuffullApp#194). The API writes every timestamp
+// in whole milliseconds, so a Date carries `updatedAt` exactly and toISOString() echoes it back for a takeover.
+export const PlaybackSessionSchema = z.object({
+    deviceId: z.string(),
+    songId: z.string(),
+    positionSeconds: z.number(),
+    positionAt: z.coerce.date(),
+    isPlaying: z.boolean(),
+    /** Where the song is now, as of the answer's serverTime: positionSeconds plus the time since, while playing. */
+    estimatedPositionSeconds: z.number(),
+    /** What the device was shuffling from: the app's song filters, stored as sent. */
+    scope: z.record(z.unknown()),
+    /** Songs played before this one, newest last. */
+    history: z.string().array(),
+    queuedNext: z.string().array(),
+    updatedAt: z.coerce.date(),
+    takenOverBy: z.string().nullable(),
+    takenOverAt: z.coerce.date().nullable(),
+    command: PlaybackCommandSchema.nullable(),
+});
+export type PlaybackSession = z.infer<typeof PlaybackSessionSchema>;
+
+export const PlaybackDeviceSchema = z.object({
+    deviceId: z.string(),
+    name: z.string(),
+    platform: z.string().nullable(),
+    lastActiveAt: z.coerce.date(),
+    /** Connected to the live channel now. */
+    online: z.boolean(),
+    session: PlaybackSessionSchema.nullable(),
+});
+export type PlaybackDevice = z.infer<typeof PlaybackDeviceSchema>;
+
+// GET /api/v1/playback/sessions: every device the user has checked in, with its session if it has published one.
+export const PlaybackSessionsResponseSchema = z.object({
+    serverTime: z.coerce.date(),
+    devices: PlaybackDeviceSchema.array(),
+});
+export type PlaybackSessionsResponse = z.infer<typeof PlaybackSessionsResponseSchema>;
+
+/** What the app sends in `PUT /api/v1/playback/sessions/{deviceId}`. */
+export interface PlaybackSessionBody {
+    songId: string;
+    positionSeconds: number;
+    isPlaying: boolean;
+    scope: Record<string, unknown>;
+    /** At most 25, newest last. */
+    history: string[];
+    /** At most 100. */
+    queuedNext: string[];
+    /** The takenOverAt this device has acted on, which clears that takeover from its session. */
+    seenTakenOverAt?: string | null;
+}
+
 // POST /api/v1/songs/retag  body: { items } -> per-song outcome (targeted, multi-id). Parsed rather than cast, like the
 // Keep response below. Outcome stays a string ("enriched" | "skipped" | "failed" today) so a new outcome can't fail the
 // parse; only "failed" is reported (summarizeRetagFailures).

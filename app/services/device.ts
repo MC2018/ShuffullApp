@@ -71,6 +71,14 @@ export function startDeviceCheckIn(api: ApiClient): () => void {
     };
 }
 
+/**
+ * Waits for this session's check-in, sending one if none has succeeded yet (or always, with `force`). False when
+ * signed out or the check-in failed.
+ */
+export function ensureDeviceCheckedIn(force = false): Promise<boolean> {
+    return activeCheckIn?.ensureCheckedIn(force) ?? Promise.resolve(false);
+}
+
 /** The network is back: retries a check-in that failed offline, throttled like a foreground. */
 export function checkInDeviceOnReconnect(): void {
     void activeCheckIn?.checkIn("reconnect");
