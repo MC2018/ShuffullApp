@@ -10,6 +10,7 @@ import type { GenericDb } from "@/app/services/db/GenericDb";
 import { addRequests, deadLetterRequests, getDeadLetterRequests, getRequests } from "@/app/services/db/queries/request";
 import { getGenreJams, saveGenreJam } from "@/app/services/db/queries/genreJam";
 import { getOpenListens, saveOpenListen } from "@/app/services/db/queries/listen";
+import { getAutoDownloadSettings, saveAutoDownloadSettings } from "@/app/services/db/queries/autoDownload";
 import { prepareDatabase, rebuildKeepingLocalData, restoreRescuedTables } from "@/app/services/db/recovery";
 import { RequestType } from "@/app/enums";
 
@@ -166,6 +167,22 @@ describe("a failed migration rebuilds the database and keeps the data only this 
         expect(rescued()).toEqual([]);
     });
 
+    // ShuffullApp#225: the auto-download rules are a user decision that lives only on this device. The pending
+    // differences aren't: losing them only restarts the 10-minute clocks.
+    it("this device's auto-download rules survive; their pending differences restart", async () => {
+        const db = asDb(sqlite);
+        await migrateLatest();
+        await saveAutoDownloadSettings(db, "u1", { tier: "liked", playlistIds: ["p1"], freeFloorBytes: 1024 });
+        sqlite.exec("INSERT INTO auto_download_pending (song_id, action, first_seen_at) VALUES ('s1', 'add', 0)");
+
+        const fresh = await rebuildKeepingLocalData(db, migrateLatest, deleteFile);
+
+        expect(await getAutoDownloadSettings(fresh, "u1")).toEqual({
+            tier: "liked", mixWeeks: 0, mixUnheardOnly: false, subscriptions: false, playlistIds: ["p1"], freeFloorBytes: 1024,
+        });
+        expect(sqlite.prepare("SELECT count(*) AS n FROM auto_download_pending").get()).toEqual({ n: 0 });
+    });
+
     it("a stale on-device schema that fails to migrate is rebuilt with its queued Keep", async () => {
         // On the schema before 0027, with the column 0027 adds already present: migrating fails on
         // "duplicate column name", the kind of drift that sent devices through the reset.
@@ -271,7 +288,7 @@ describe("the preserved rows are never only in memory", () => {
 
         await expect(rebuildKeepingLocalData(db, async () => { throw new Error("killed mid-migration"); }, deleteFile))
             .rejects.toThrow("killed mid-migration");
-        expect(rescued()).toHaveLength(4); // requests, plus dead_letter_requests, listens and song_duplicate_reports (all empty)
+        expect(rescued()).toHaveLength(5); // requests, plus dead_letter_requests, listens, song_duplicate_reports and auto_download_settings (all empty)
 
         // Next launch: the provider migrates (now it works) and restores whatever is rescued.
         const next = restart();

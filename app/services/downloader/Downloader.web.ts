@@ -9,6 +9,7 @@ import { derivePhase, retryDelayMs } from "../../tools/downloadStatus";
 import { localMediaUri, parseLocalMediaUri } from "../../tools/desktopMedia";
 import { desktopShell, DesktopMediaStore, isOnline, pageOrigin } from "../desktopShell";
 import { sleep } from "../../tools/utils";
+import { pickNextDownload } from "./pickNextDownload";
 
 /**
  * Web build of the Downloader. Metro picks this over `Downloader.ts` for the web platform, which covers two very
@@ -60,6 +61,8 @@ export class Downloader {
     private readonly media: DesktopMediaStore | undefined;
     private songInFlight: { songId: string; fileName: string; name: string } | undefined;
     private consecutiveFailures = 0;
+    // The last attempt stopped at the free-space floor: only auto downloads are left, and none fits (ShuffullApp#225).
+    private lowSpace = false;
 
     private constructor(db: GenericDb) {
         this.db = db;
@@ -135,6 +138,15 @@ export class Downloader {
         await this.publishStatus();
     }
 
+    /** The auto-download runner changed the queue: show it, and start on any new work. */
+    public async notifyQueueChanged() {
+        if (this.media == undefined) {
+            return;
+        }
+        await this.publishStatus();
+        this.kick();
+    }
+
     public async addSongToDownloadQueue(songId: string, priority: DownloadPriority) {
         if (this.media == undefined) {
             return;
@@ -151,20 +163,23 @@ export class Downloader {
         }
         const songs = await DbQueries.getSongsByPlaylist(this.db, playlistId);
         const toQueue: string[] = [];
-        let alreadyDownloaded = 0;
+        const onDisk: string[] = [];
 
         for (const song of songs) {
             if (await this.media.exists("music", Downloader.generateSongFileName(song))) {
-                alreadyDownloaded++;
+                onDisk.push(song.songId);
             } else {
                 toQueue.push(song.songId);
             }
         }
 
+        // Asking for the playlist by hand makes its songs the user's, including any the auto-download rules
+        // already fetched: the rules can no longer remove them.
+        await DbQueries.markDownloadsManual(this.db, onDisk);
         await DbQueries.addToDownloadQueue(this.db, toQueue, priority);
         await this.publishStatus();
         this.kick();
-        return { queued: toQueue.length, alreadyDownloaded };
+        return { queued: toQueue.length, alreadyDownloaded: onDisk.length };
     }
 
     /** Starts the drain loop if it isn't already running. Safe to call from anywhere, any number of times. */
@@ -207,6 +222,7 @@ export class Downloader {
                 queuedCount,
                 network: { isInternetReachable: isOnline(), type: undefined },
                 wifiOnly: false,
+                lowSpace: this.lowSpace,
             });
             const current = useDownloadStatus.getState().status.current;
             useDownloadStatus.getState().setStatus({
@@ -235,7 +251,9 @@ export class Downloader {
         }
 
         try {
-            const nextDownload = await DbQueries.getFromDownloadQueue(this.db);
+            const next = await pickNextDownload(this.db, async () => media.freeBytes?.());
+            this.lowSpace = next.lowSpace;
+            const nextDownload = next.row;
 
             if (!nextDownload) {
                 return "blocked";
@@ -261,7 +279,9 @@ export class Downloader {
             const songFileName = Downloader.generateSongFileName(song);
 
             if (await media.exists("music", songFileName)) {
-                await DbQueries.removeFromDownloadQueue(this.db, song.songId);
+                // Record it, as native does (recordAlreadyOnDisk): a file on disk that isn't recorded is never offered
+                // offline, and the auto-download rules would queue it again on every run.
+                await DbQueries.recordQueuedDownload(this.db, song.songId, nextDownload.source);
                 return "skipped";
             }
 
@@ -284,8 +304,7 @@ export class Downloader {
                 console.warn(`[downloader] no album art saved for ${song.name}: ${artResult.error}`);
             }
 
-            await DbQueries.addDownloadedSong(this.db, song.songId);
-            await DbQueries.removeFromDownloadQueue(this.db, song.songId);
+            await DbQueries.recordQueuedDownload(this.db, song.songId, nextDownload.source);
             useDownloadStatus.getState().setStatus({ completedCount: useDownloadStatus.getState().status.completedCount + 1 });
             return "downloaded";
         } catch (e) {

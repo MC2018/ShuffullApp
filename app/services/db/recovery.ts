@@ -17,6 +17,7 @@ import { withTransaction } from "./transaction";
  *   song_duplicate_reports  the user's duplicate reports (ShuffullApp#219). An unsent one hides its song and exists
  *                         nowhere else: its outbox row survives, but the pull can't restore a report the server
  *                         hasn't heard, so without its row the song would play again until the POST lands.
+ *   auto_download_settings  this device's auto-download rules (ShuffullApp#225). Local only: the server never has them.
  * Deleting the database file used to take the first two with it, and the genre jams (ShuffullApp#92). Genre jams sync
  * now (ShuffullApp#214): the server holds every sent one and the outbox every unsent one, so a rebuild drops them and
  * the next sync brings them back.
@@ -31,7 +32,7 @@ import { withTransaction } from "./transaction";
  * older schema than the code. Only columns both sides have are copied; a column the new table added takes its default.
  * A preserved table whose column a migration renames needs that rename mapped here, or its values are dropped.
  */
-const PRESERVED_TABLES = ["requests", "dead_letter_requests", "listens", "song_duplicate_reports"];
+const PRESERVED_TABLES = ["requests", "dead_letter_requests", "listens", "song_duplicate_reports", "auto_download_settings"];
 const RESCUE_PREFIX = "__rescued_";
 
 export interface RescueRestore {

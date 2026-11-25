@@ -250,6 +250,27 @@ async function deleteMedia(root, kind, fileName) {
     }
 }
 
+/**
+ * Bytes free to this user on the disk that holds the store, for the auto-download floor (ShuffullApp#225). The store
+ * folder may not exist yet on a fresh install, so the nearest folder above it that does is asked instead (same disk).
+ * Resolves undefined when nothing can be read; the floor then holds automatic downloads back.
+ */
+async function freeBytes(root) {
+    let dir = path.resolve(root);
+    for (;;) {
+        try {
+            const stats = await fsp.statfs(dir);
+            return Number(stats.bavail) * Number(stats.bsize);
+        } catch {
+            const parent = path.dirname(dir);
+            if (parent === dir) {
+                return undefined;
+            }
+            dir = parent;
+        }
+    }
+}
+
 /** Leftover `.part` files are from a download the app was closed during; none of them can still be in flight. */
 async function clearTemp(root) {
     await fsp.rm(path.join(root, "temp"), { recursive: true, force: true });
@@ -311,6 +332,7 @@ module.exports = {
     downloadMedia,
     mediaExists,
     deleteMedia,
+    freeBytes,
     clearTemp,
     createPrefetchStore,
 };

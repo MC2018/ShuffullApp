@@ -137,6 +137,18 @@ describe("downloadMedia", () => {
     });
 });
 
+// The auto-download floor (ShuffullApp#225) reads this before every automatic download.
+describe("freeBytes", () => {
+    it("reads the free space of the store's disk, even before the store folder exists", async () => {
+        const root = tempRoot();
+        const free = await media.freeBytes(root);
+        expect(typeof free).toBe("number");
+        expect(free).toBeGreaterThan(0);
+        // A fresh install has no media folder yet: the nearest existing folder above it answers for the same disk.
+        expect(await media.freeBytes(path.join(root, "not", "made", "yet"))).toBeGreaterThan(0);
+    });
+});
+
 describe("serveMedia", () => {
     it("answers Range requests with 206 and the right slice", async () => {
         const root = tempRoot();

@@ -11,6 +11,7 @@ import {
     WIFI_ONLY_NOTE,
     ANY_NETWORK_NOTE,
     downloadNetworkNote,
+    LOW_SPACE_NOTE,
 } from "@/app/tools/downloadStatus";
 
 // Why an allowlist: the old gate was `type != CELLULAR`. On Android 10+ a VPN over LTE reports CELLULAR only
@@ -58,6 +59,14 @@ describe("derivePhase", () => {
     it("is downloading when queued, online and on Wi-Fi even before the loop picks the song up", () => {
         expect(derivePhase({ paused: false, downloading: false, queuedCount: 3, network: wifi })).toBe("downloading");
     });
+
+    // ShuffullApp#225: what is left is auto downloads that would take the device below its free-space floor.
+    it("says low on space only when that is all that stops the queue", () => {
+        expect(derivePhase({ paused: false, downloading: false, queuedCount: 3, network: wifi, lowSpace: true })).toBe("low-space");
+        expect(derivePhase({ paused: false, downloading: false, queuedCount: 3, network: lte, lowSpace: true })).toBe("waiting-for-wifi");
+        expect(derivePhase({ paused: true, downloading: false, queuedCount: 3, network: wifi, lowSpace: true })).toBe("paused");
+        expect(derivePhase({ paused: false, downloading: true, queuedCount: 3, network: wifi, lowSpace: true })).toBe("downloading");
+    });
 });
 
 function status(patch: Partial<DownloadStatus>): DownloadStatus {
@@ -98,6 +107,7 @@ describe("describeDownloadStatus", () => {
     it("names the network conditions", () => {
         expect(describeDownloadStatus(status({ phase: "waiting-for-wifi", queuedCount: 2 })).title).toBe("Waiting for Wi-Fi · 2 queued");
         expect(describeDownloadStatus(status({ phase: "offline", queuedCount: 2 })).title).toBe("Offline · 2 queued");
+        expect(describeDownloadStatus(status({ phase: "low-space", queuedCount: 2 }))).toEqual({ title: "Low on space · 2 queued", detail: LOW_SPACE_NOTE });
     });
 });
 
@@ -114,6 +124,7 @@ describe("describeDownloadsRow", () => {
         expect(describeDownloadsRow(status({ phase: "paused", queuedCount: 3 }), 10)).toBe("Paused · 3 queued");
         expect(describeDownloadsRow(status({ phase: "waiting-for-wifi", queuedCount: 3 }), 10)).toBe("Waiting for Wi-Fi · 3 queued");
         expect(describeDownloadsRow(status({ phase: "offline", queuedCount: 3 }), 10)).toBe("Offline · 3 queued");
+        expect(describeDownloadsRow(status({ phase: "low-space", queuedCount: 3 }), 10)).toBe("Low on space · 3 queued");
     });
 });
 
@@ -127,6 +138,11 @@ describe("shouldHoldForegroundService", () => {
 
     it("releases once the queue is empty", () => {
         expect(shouldHoldForegroundService({ paused: false, downloading: false, queuedCount: 0 })).toBe(false);
+    });
+
+    it("releases when stopped at the free-space floor, once nothing is in flight", () => {
+        expect(shouldHoldForegroundService({ paused: false, downloading: false, queuedCount: 4, lowSpace: true })).toBe(false);
+        expect(shouldHoldForegroundService({ paused: false, downloading: true, queuedCount: 4, lowSpace: true })).toBe(true);
     });
 
     it("releases on pause, but only after the in-flight song has landed", () => {

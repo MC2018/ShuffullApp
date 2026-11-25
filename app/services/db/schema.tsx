@@ -17,6 +17,7 @@
  */
 import { sqliteTable, text, integer, real, index, primaryKey } from "drizzle-orm/sqlite-core";
 import { WhitelistSetting } from "./types";
+import { DEFAULT_FREE_FLOOR_BYTES, type AutoDownloadTier, type DownloadSource, type PendingAction } from "../../tools/autoDownloads";
 
 export const userTable = sqliteTable("users", {
     userId: text("user_id").primaryKey(),
@@ -69,6 +70,9 @@ export const songTable = sqliteTable("songs", {
 export const downloadedSongTable = sqliteTable("downloaded_songs", {
     downloadedSongId: text("downloaded_song_id").primaryKey(),
     songId: text("song_id").notNull().references(() => songTable.songId),
+    // "manual" = the user asked for it; "auto" = the auto-download rules did (ShuffullApp#225). The rules only ever
+    // remove their own. Rows from before the column existed are manual.
+    source: text("source").$type<DownloadSource>().notNull().default("manual"),
 }, (table) => {
     return {
         // "is this song downloaded?" — an EXISTS probe in getFilteredSong's localOnly branch.
@@ -345,6 +349,33 @@ export const downloadQueueTable = sqliteTable("download_queue", {
     downloadQueueId: text("download_queue_id").primaryKey(),
     songId: text("song_id").notNull().references(() => songTable.songId).unique(),
     priority: integer("priority").notNull(),
+    // Same meaning as downloaded_songs.source, and carried over to it when the download lands. Auto rows queue at Low
+    // priority, behind anything hand-picked, and are the only ones the free-space floor holds back.
+    source: text("source").$type<DownloadSource>().notNull().default("manual"),
+});
+
+// This device's auto-download rules for one account (ShuffullApp#225, shuffull-workspace#150). Local on purpose:
+// settings are per device and nothing syncs to the server. No row means the defaults, tier "off", so an install
+// changes nothing until the user opts in. A user decision, so a schema rebuild keeps it (db/recovery.ts).
+export const autoDownloadSettingsTable = sqliteTable("auto_download_settings", {
+    userId: text("user_id").primaryKey(),
+    tier: text("tier").$type<AutoDownloadTier>().notNull().default("off"),
+    mixWeeks: integer("mix_weeks").notNull().default(0),
+    mixUnheardOnly: integer("mix_unheard_only", { mode: "boolean" }).notNull().default(false),
+    subscriptions: integer("subscriptions", { mode: "boolean" }).notNull().default(false),
+    playlistIds: text("playlist_ids", { mode: "json" }).$type<string[]>().notNull().default([]),
+    freeFloorBytes: integer("free_floor_bytes").notNull().default(DEFAULT_FREE_FLOOR_BYTES),
+});
+
+// Differences between the auto-download rules and this device that haven't held long enough to act on yet: one row
+// per song, "add" (wanted, not here) or "remove" (an auto download no longer wanted). The reconciler acts once a row is
+// AUTO_DOWNLOAD_DELAY_MS old and drops it the moment its difference goes away, which is what makes a mis-tapped like,
+// dislike or delete undoable. Everything else the reconciler needs is derived, so losing this table only restarts the
+// clocks.
+export const autoDownloadPendingTable = sqliteTable("auto_download_pending", {
+    songId: text("song_id").primaryKey(),
+    action: text("action").$type<PendingAction>().notNull(),
+    firstSeenAt: integer("first_seen_at", { mode: "timestamp_ms" }).notNull(),
 });
 
 // A saved Genre Jam. Synced per user (ShuffullApp#214): saves and deletes go through the outbox, and every sync replaces

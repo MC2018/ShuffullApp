@@ -5,8 +5,12 @@
 import { monotonicFactory } from "ulid";
 
 // TODO: Math.random() is not cryptographically secure
+// One factory for the whole app: a factory per call loses the "monotonic" part, so ids made in the same millisecond
+// came out in random order. The download queue breaks priority ties by id, so a batch queued best-first (the auto
+// downloads, ShuffullApp#225) has to keep its order.
+const ulid = monotonicFactory(() => Math.random());
+
 export function generateId(): string {
-    const ulid = monotonicFactory(() => Math.random());
     return ulid();
 }
 

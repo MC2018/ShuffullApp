@@ -15,6 +15,11 @@ export interface DesktopMediaStore {
     download: (host: string, kind: MediaKind, fileName: string) => Promise<{ ok: boolean; error?: string }>;
     exists: (kind: MediaKind, fileName: string) => Promise<boolean>;
     remove: (kind: MediaKind, fileName: string) => Promise<void>;
+    /**
+     * Bytes free on the store's disk, or undefined when unreadable (ShuffullApp#225). Absent in a desktop shell built
+     * before then; automatic downloads then wait, since the free-space floor can't be checked.
+     */
+    freeBytes?: () => Promise<number | undefined>;
     onProgress: (callback: (progress: { kind: MediaKind; fileName: string; received: number; total: number }) => void) => () => void;
 }
 

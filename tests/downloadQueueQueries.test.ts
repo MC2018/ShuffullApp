@@ -15,7 +15,7 @@ import {
 } from "@/app/services/db/queries/downloadQueue";
 import { addDownloadedSong } from "@/app/services/db/queries/downloadedSong";
 import { getSongsByPlaylist, updateSongs } from "@/app/services/db/queries/song";
-import { artistTable, playlistSongTable, songArtistTable } from "@/app/services/db/schema";
+import { artistTable, downloadedSongTable, playlistSongTable, songArtistTable } from "@/app/services/db/schema";
 import { DownloadPriority } from "@/app/services/db/types";
 import type { Song } from "@/app/services/db/models";
 
@@ -42,9 +42,10 @@ function makeDb(): GenericDb {
         CREATE TABLE download_queue (
             download_queue_id TEXT PRIMARY KEY,
             song_id TEXT NOT NULL UNIQUE,
-            priority INTEGER NOT NULL
+            priority INTEGER NOT NULL,
+            source TEXT NOT NULL DEFAULT 'manual'
         );
-        CREATE TABLE downloaded_songs (downloaded_song_id TEXT PRIMARY KEY, song_id TEXT NOT NULL);
+        CREATE TABLE downloaded_songs (downloaded_song_id TEXT PRIMARY KEY, song_id TEXT NOT NULL, source TEXT NOT NULL DEFAULT 'manual');
         CREATE TABLE playlist_songs (playlist_song_id TEXT PRIMARY KEY, playlist_id TEXT NOT NULL, song_id TEXT NOT NULL);
     `);
     return drizzle(sqlite) as unknown as GenericDb;
@@ -96,10 +97,34 @@ describe("download queue queries", () => {
         expect(await countDownloadQueue(db)).toBe(0);
     });
 
-    it("re-queueing an already queued song is a no-op (unique song_id)", async () => {
+    it("re-queueing an already queued song keeps one row, at the higher priority (unique song_id)", async () => {
         await addToDownloadQueue(db, ["a"], DownloadPriority.Low);
         await addToDownloadQueue(db, ["a"], DownloadPriority.High);
+        await addToDownloadQueue(db, ["a"], DownloadPriority.Medium);
         expect(await countDownloadQueue(db)).toBe(1);
+        expect((await getFromDownloadQueue(db))?.priority).toBe(DownloadPriority.High);
+    });
+
+    // ShuffullApp#225: a song the auto-download rules queued becomes the user's the moment they queue it by hand.
+    it("a hand-picked add takes over an auto row; an auto add never touches an existing row", async () => {
+        await addToDownloadQueue(db, ["a"], DownloadPriority.Low, "auto");
+        await addToDownloadQueue(db, ["b"], DownloadPriority.Medium);
+        await addToDownloadQueue(db, ["b"], DownloadPriority.Low, "auto");
+        expect(await getFromDownloadQueue(db, "auto")).toMatchObject({ songId: "a", source: "auto", priority: DownloadPriority.Low });
+        expect(await getFromDownloadQueue(db, "manual")).toMatchObject({ songId: "b", source: "manual", priority: DownloadPriority.Medium });
+
+        await addToDownloadQueue(db, ["a"], DownloadPriority.Medium);
+        expect(await getFromDownloadQueue(db, "auto")).toBeUndefined();
+        expect(await countDownloadQueue(db)).toBe(2);
+    });
+
+    it("a manual record of an auto download takes it over; an auto record never downgrades a manual one", async () => {
+        await addDownloadedSong(db, "a", "auto");
+        await addDownloadedSong(db, "b");
+        await addDownloadedSong(db, "b", "auto");
+        await addDownloadedSong(db, "a");
+        const rows = await db.select().from(downloadedSongTable);
+        expect(Object.fromEntries(rows.map((x) => [x.songId, x.source]))).toEqual({ a: "manual", b: "manual" });
     });
 
     it("lists the queue head in the order the Downloader takes it, with artists grouped", async () => {
@@ -114,6 +139,23 @@ describe("download queue queries", () => {
         // Two artists for "a" collapse into one row, not two.
         expect(listed[2].artists.map((x) => x.name).sort()).toEqual(["Coltrane", "Monk"]);
         expect(listed[1].artists).toEqual([]);
+    });
+
+    // ShuffullApp#225: the auto-downloader queues a whole run best-first (loved, then liked, then library) at one
+    // priority, in the same millisecond. Ties break by id, so the ids must keep that order. They didn't while
+    // generateId made a new ulid factory per call: same-millisecond ids came out in random order.
+    it("keeps the order of songs queued together in one millisecond", async () => {
+        const ids = Array.from({ length: 50 }, (_, i) => `s${String(i).padStart(2, "0")}`).reverse();
+        await updateSongs(db, ids.map((x) => song(x)));
+        vi.useFakeTimers({ toFake: ["Date"] });
+        try {
+            vi.setSystemTime(new Date("2026-11-23T12:00:00Z"));
+            await addToDownloadQueue(db, ids, DownloadPriority.Low, "auto");
+        } finally {
+            vi.useRealTimers();
+        }
+        expect((await getDownloadQueueDetails(db, 100)).map((x) => x.song.songId)).toEqual(ids);
+        expect((await getFromDownloadQueue(db))?.songId).toBe(ids[0]);
     });
 
     // A deferred download (too many drops in a row, ShuffullApp#86) must keep its row but stop blocking the head,
